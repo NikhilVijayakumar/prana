@@ -1,5 +1,5 @@
 import { Box } from '@mui/material';
-import { HeroSection } from '@astra/components/ui/HeroSection';
+import { HeroSection } from 'astra';
 
 export const LoginContainer = () => {
   return (

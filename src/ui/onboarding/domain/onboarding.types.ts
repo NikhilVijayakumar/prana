@@ -180,7 +180,7 @@ export interface ExecutionPolicy {
 
 /**
  * Local Model Access Configuration (Phase 3 Output)
- * Stored in ~/.dhi/governance/models/local.json (NOT in Git)
+ * Stored in ~/.prana/governance/models/local.json (NOT in Git)
  * Contains sensitive data (API keys)
  */
 export interface LocalModelAccessConfig {
@@ -265,7 +265,7 @@ export interface OnboardingState {
 
 /**
  * Phase 1 Serialization (YAML format)
- * This is written to ~/.dhi/governance/agents/profiles.md
+ * This is written to ~/.prana/governance/agents/profiles.md
  */
 export interface Phase1SerializedPayload {
   virtual_employees: VirtualEmployeeProfile[];
@@ -278,13 +278,13 @@ export interface Phase1SerializedPayload {
 
 /**
  * Phase 2 Serialization (JSON format)
- * This is written to ~/.dhi/governance/kpi/registry.json
+ * This is written to ~/.prana/governance/kpi/registry.json
  */
 export type Phase2SerializedPayload = CompanyKpiRegistry;
 
 /**
  * Phase 3 Serialization (JSON format)
- * This is written to ~/.dhi/governance/models/local.json (NOT in Git)
+ * This is written to ~/.prana/governance/models/local.json (NOT in Git)
  */
 export type Phase3SerializedPayload = LocalModelAccessConfig;
 

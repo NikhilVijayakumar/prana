@@ -7,7 +7,7 @@
 import { FC, useEffect } from 'react';
 import { Box, CircularProgress, Alert, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { OnboardingState } from '../../domain/onboarding.types';
 import { PhaseProgressIndicator } from '../components/PhaseProgressIndicator';
 

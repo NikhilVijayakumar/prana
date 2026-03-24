@@ -1,7 +1,7 @@
 import { FC } from 'react';
 import { Box, Typography, Button, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { InfrastructurePayload } from '../repo/InfrastructureRepo';
 
 interface InfrastructureProps {

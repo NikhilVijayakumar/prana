@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import { Box, Typography, Card, LinearProgress, useTheme as useMuiTheme, Badge, Button } from '@mui/material';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { OnboardingAgentStatus } from '../repo/OnboardingRepo';
 
 interface KpiGeneratorViewProps {

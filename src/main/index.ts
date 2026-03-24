@@ -50,7 +50,11 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers()
+  registerIpcHandlers({
+    registryRuntime: {
+      registryRoot: process.env.PRANA_REGISTRY_ROOT ?? join(process.cwd(), '.dhi', 'registry')
+    }
+  })
 
   try {
     const splashSync = await syncProviderService.initializeOnSplash()

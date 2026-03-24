@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getRegistryRoot } from '@dharma/registry/loader';
 import { contextDigestStoreService } from './contextDigestStoreService';
 import { summarizationAgentService } from './summarizationAgentService';
+import { getRegistryRuntimeConfig } from './registryRuntimeService';
 import {
   ContextProvider,
   tokenManagerService,
@@ -150,7 +150,7 @@ const emitEvent = (
 };
 
 const loadContextMetadata = (): ContextMetadataSnapshot => {
-  const root = getRegistryRoot();
+  const root = getRegistryRuntimeConfig().registryRoot;
   const companyPath = join(root, CONTEXT_METADATA_FILE_COMPANY);
   const productPath = join(root, CONTEXT_METADATA_FILE_PRODUCT);
 

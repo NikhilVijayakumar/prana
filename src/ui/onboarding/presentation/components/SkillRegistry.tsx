@@ -21,7 +21,7 @@ import {
   Alert,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { VirtualEmployeeProfile } from '../../domain/onboarding.types';
 import AddIcon from '@mui/icons-material/Add';
 

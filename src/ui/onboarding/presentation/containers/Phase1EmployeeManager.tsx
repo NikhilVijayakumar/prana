@@ -15,7 +15,7 @@ import {
   Alert,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { Phase1DraftState, VirtualEmployeeProfile } from '../../domain/onboarding.types';
 import { EmployeeProfileEditor } from '../components/EmployeeProfileEditor';
 import { SkillRegistry } from '../components/SkillRegistry';

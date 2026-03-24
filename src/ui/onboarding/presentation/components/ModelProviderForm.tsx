@@ -17,7 +17,7 @@ import {
   Alert,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { ModelProviderConfig } from '../../domain/onboarding.types';
 import TestTubesIcon from '@mui/icons-material/Science';
 

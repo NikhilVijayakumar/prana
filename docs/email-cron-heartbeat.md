@@ -1,5 +1,7 @@
 # Email Cron Heartbeat & Recovery — Atomic Feature Specification
 
+Status: FUTURE SCOPE (specification complete, runtime service implementation pending)
+
 ## 1. Single Reason to Change (SRP)
 This document handles updates **exclusively** related to the scheduling, execution, and failure recovery of periodic email intake cycles for the Director's configured mailboxes. It does not handle triage logic, drafting, or UI rendering.
 

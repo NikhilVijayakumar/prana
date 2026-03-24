@@ -19,7 +19,7 @@ import {
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, useTheme, ThemeToggle } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { DirectorInteractionBar } from '@prana/ui/components/DirectorInteractionBar';
 import { getInteractionContextForPath } from '@prana/ui/constants/employeeDirectory';
 import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from '@prana/ui/constants/moduleRegistry';

@@ -92,12 +92,14 @@ export const EMPLOYEE_DIRECTORY: Record<string, EmployeeDirectoryEntry> = {
 
 export const EMPLOYEE_LIST = Object.values(EMPLOYEE_DIRECTORY);
 
-const FILE_PROTOCOL_PREFIX = 'file:///E:/Python/dhi/resources/';
+const AVATAR_BASE_URL = import.meta.env.VITE_EMPLOYEE_AVATAR_BASE_URL ?? '/resources/';
+
+const ensureTrailingSlash = (value: string): string => (value.endsWith('/') ? value : `${value}/`);
 
 export const getEmployeeAvatarPath = (employeeId: string): string => {
   const employee = EMPLOYEE_DIRECTORY[employeeId];
   if (!employee) return '';
-  return `${FILE_PROTOCOL_PREFIX}${employee.avatarFileName}`;
+  return `${ensureTrailingSlash(AVATAR_BASE_URL)}${employee.avatarFileName}`;
 };
 
 interface ModuleOwnership {

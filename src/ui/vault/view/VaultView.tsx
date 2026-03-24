@@ -1,7 +1,7 @@
 import { FC, useEffect, useState } from 'react';
 import { Box, Typography, Button, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { VaultFile } from '../repo/VaultRepo';
 
 interface VaultViewProps {

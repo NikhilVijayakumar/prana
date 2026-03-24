@@ -16,6 +16,7 @@
  * File: src/main/services/recoveryService.ts
  */
 
+import { spawn } from 'node:child_process';
 import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
 import {
   ExecutionContext,
@@ -144,6 +145,12 @@ export class RecoveryService {
           env: context.env,
         });
 
+        if (execution.exitCode !== 0) {
+          throw new Error(
+            `Command failed with exit code ${execution.exitCode}: ${execution.stderr || execution.stdout || config.command}`,
+          );
+        }
+
         attemptLog.exitCode = execution.exitCode;
         attemptLog.output = execution.stdout;
 
@@ -259,6 +266,12 @@ export class RecoveryService {
               timeout: config.on_failure_timeout_seconds ?? 600,
               env: context.env,
             });
+
+            if (cleanupExecution.exitCode !== 0) {
+              throw new Error(
+                `Cleanup command failed with exit code ${cleanupExecution.exitCode}: ${cleanupExecution.stderr || cleanupExecution.stdout || config.on_failure}`,
+              );
+            }
 
             await auditLogService.appendTransaction(AUDIT_ACTIONS.STEP_CLEANUP_EXECUTED, {
               stepId: context.stepId,
@@ -450,8 +463,13 @@ export class RecoveryService {
       }
 
       if (check.type === 'http_check') {
-        // TODO: Implement HTTP check with fetch/axios
-        return true; // Placeholder
+        const httpCheck = check as HttpCheck;
+        const expectedStatus = httpCheck.expected_status ?? 200;
+        const response = await fetch(httpCheck.http_url, {
+          method: 'GET',
+          signal: AbortSignal.timeout(30_000),
+        });
+        return response.status === expectedStatus;
       }
 
       return false; // Unknown check type
@@ -486,7 +504,7 @@ export class RecoveryService {
    */
   private async executeCommand(
     command: string,
-    _options: {
+    options: {
       timeout: number;
       env: Record<string, string>;
     }
@@ -495,13 +513,64 @@ export class RecoveryService {
     stdout: string;
     stderr: string;
   }> {
-    // TODO: Implement actual command execution using child_process
-    // For now, placeholder that always succeeds
-    return {
-      exitCode: 0,
-      stdout: `Executed: ${command}`,
-      stderr: '',
-    };
+    const timeoutMs = Math.max(1, options.timeout) * 1000;
+
+    return await new Promise((resolve, reject) => {
+      const child = spawn(command, {
+        shell: true,
+        env: {
+          ...process.env,
+          ...options.env,
+        },
+      });
+
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+
+      const finish = (result: { exitCode: number; stdout: string; stderr: string }): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(result);
+      };
+
+      const fail = (error: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(error);
+      };
+
+      const timer = setTimeout(() => {
+        child.kill();
+        fail(new Error(`Command timed out after ${options.timeout}s: ${command}`));
+      }, timeoutMs);
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        fail(error);
+      });
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        finish({
+          exitCode: code ?? 1,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+        });
+      });
+    });
   }
 
   /**

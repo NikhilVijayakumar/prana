@@ -14,7 +14,7 @@ import {
   Stack,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { Phase3DraftState } from '../../domain/onboarding.types';
 import { ModelProviderForm } from '../components/ModelProviderForm';
 

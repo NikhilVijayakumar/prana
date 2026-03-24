@@ -11,7 +11,7 @@ import {
   useTheme as useMuiTheme,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 
 type SSHStatus = 'idle' | 'verifying' | 'verified' | 'failed';
 

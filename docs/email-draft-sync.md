@@ -1,5 +1,7 @@
 # Email DraftSync — Atomic Feature Specification
 
+Status: FUTURE SCOPE (specification complete, runtime service implementation pending)
+
 ## 1. Single Reason to Change (SRP)
 This document handles updates **exclusively** related to the visualization, interaction, and management of multi-agent collaborative email draft contributions within the Director's review interface.
 

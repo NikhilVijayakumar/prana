@@ -1,7 +1,7 @@
 import { Box, TextField, Button, Typography, Stack } from '@mui/material';
-import { HeroSection } from '@astra/components/ui/HeroSection';
-import { FormLayout } from '@astra/components/ui/FormLayout';
-import { Card } from '@astra/components/ui/Card';
+import { HeroSection } from 'astra';
+import { FormLayout } from 'astra';
+import { Card } from 'astra';
 
 export const OnboardingRegistryApprovalContainer = () => {
   return (

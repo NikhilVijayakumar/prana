@@ -6,7 +6,7 @@
 import { FC } from 'react';
 import { Box, Step, StepLabel, Stepper, SxProps, Theme, Typography, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { OnboardingPhaseStatus } from '../../domain/onboarding.types';
 
 interface PhaseProgressIndicatorProps {

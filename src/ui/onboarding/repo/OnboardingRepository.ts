@@ -13,6 +13,10 @@ import {
   FileOperationResult,
 } from '../domain/onboarding.types';
 
+const PHASE1_FILE_HINT = '~/.prana/governance/agents/profiles.md';
+const PHASE2_FILE_HINT = '~/.prana/governance/kpi/registry.json';
+const PHASE3_FILE_HINT = '~/.prana/governance/models/local.json';
+
 /**
  * OnboardingRepository Protocol
  * Defines the contract for reading/writing onboarding data
@@ -95,7 +99,7 @@ export class OnboardingRepository implements IOnboardingRepository {
     } catch (error) {
       return {
         success: false,
-        path: '~/.dhi/governance/agents/profiles.md',
+        path: PHASE1_FILE_HINT,
         error: String(error),
       };
     }
@@ -124,7 +128,7 @@ export class OnboardingRepository implements IOnboardingRepository {
     } catch (error) {
       return {
         success: false,
-        path: '~/.dhi/governance/agents/profiles.md',
+        path: PHASE1_FILE_HINT,
         error: String(error),
       };
     }
@@ -159,7 +163,7 @@ export class OnboardingRepository implements IOnboardingRepository {
     } catch (error) {
       return {
         success: false,
-        path: '~/.dhi/governance/kpi/registry.json',
+        path: PHASE2_FILE_HINT,
         error: String(error),
       };
     }
@@ -194,7 +198,7 @@ export class OnboardingRepository implements IOnboardingRepository {
     } catch (error) {
       return {
         success: false,
-        path: '~/.dhi/governance/models/local.json',
+        path: PHASE3_FILE_HINT,
         error: String(error),
       };
     }
@@ -235,7 +239,7 @@ export class OnboardingRepository implements IOnboardingRepository {
     } catch (error) {
       return {
         success: false,
-        path: '~/.dhi/governance/agents/profiles.md',
+        path: PHASE1_FILE_HINT,
         error: String(error),
       };
     }
@@ -251,7 +255,7 @@ export class OnboardingRepository implements IOnboardingRepository {
     } catch (error) {
       return {
         success: false,
-        path: '~/.dhi/governance/kpi/registry.json',
+        path: PHASE2_FILE_HINT,
         error: String(error),
       };
     }

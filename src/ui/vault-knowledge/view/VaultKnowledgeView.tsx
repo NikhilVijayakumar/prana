@@ -7,8 +7,8 @@ import {
   TextField,
   useTheme as useMuiTheme,
 } from '@mui/material';
-import { spacing } from '@astra/theme/tokens/spacing';
-import { FileViewerRouter } from '@astra/components/file-viewers/FileViewerRouter';
+import { spacing } from 'astra';
+import { FileViewerRouter } from 'astra';
 import {
   VaultFileContent,
   VaultPayload,

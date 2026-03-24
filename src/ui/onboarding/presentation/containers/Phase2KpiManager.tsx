@@ -16,7 +16,7 @@ import {
   TextField,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { Phase2DraftState, KpiDefinition, KpiTemplate } from '../../domain/onboarding.types';
 import { KpiTemplateForm } from '../components/KpiTemplateForm';
 import AddIcon from '@mui/icons-material/Add';

@@ -16,7 +16,7 @@ import {
   getEmployeeAvatarPath,
   type EmployeeDirectoryEntry,
 } from '../constants/employeeDirectory';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 
 interface DirectorInteractionBarProps {
   moduleRoute: string;

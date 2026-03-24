@@ -20,6 +20,7 @@ import { skillRegistryService, SkillType } from './skillRegistry';
 import { coreRegistryService } from './coreRegistryService';
 import { channelRouterService } from './channelRouterService';
 import { syncProviderService } from './syncProviderService';
+import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRuntimeService';
 
 const enforceToolPolicy = (payload: {
   actor: string;
@@ -27,15 +28,21 @@ const enforceToolPolicy = (payload: {
   target?: string;
   approvedByUser?: boolean;
   metadata?: Record<string, unknown>;
-}): void => {
+}) => {
   const policy = toolPolicyService.evaluate(payload);
 
   if (policy.decision !== 'ALLOW') {
     throw new Error(`${policy.reasonCode}: ${policy.message}`);
   }
+
+  return policy;
 };
 
-export const registerIpcHandlers = (): void => {
+export const registerIpcHandlers = (options?: { registryRuntime?: Partial<RegistryRuntimeConfig> }): void => {
+  if (options?.registryRuntime) {
+    configureRegistryRuntime(options.registryRuntime);
+  }
+
   void hookSystemService.initialize();
   void cronSchedulerService.initialize();
   void memoryIndexService.initialize();
@@ -191,17 +198,40 @@ export const registerIpcHandlers = (): void => {
   });
 
   ipcMain.handle('vault:publish', async (_event, payload?: { message?: string; approvedByUser?: boolean }) => {
-    enforceToolPolicy({
+    const policy = enforceToolPolicy({
       actor: 'DIRECTOR',
       action: 'vault.publish',
       target: 'governance-repository',
       approvedByUser: payload?.approvedByUser === true,
     });
 
-    return vaultService.publishVaultChanges({
-      commitMessage: payload?.message,
-      approvedByUser: payload?.approvedByUser === true,
-    });
+    try {
+      const result = await vaultService.publishVaultChanges({
+        commitMessage: payload?.message,
+        approvedByUser: payload?.approvedByUser === true,
+      });
+
+      toolPolicyService.reflect({
+        actor: 'DIRECTOR',
+        action: 'vault.publish',
+        target: 'governance-repository',
+        approvedByUser: payload?.approvedByUser === true,
+        policyDecision: policy.decision,
+        result: 'SUCCESS',
+      });
+
+      return result;
+    } catch (error) {
+      toolPolicyService.reflect({
+        actor: 'DIRECTOR',
+        action: 'vault.publish',
+        target: 'governance-repository',
+        approvedByUser: payload?.approvedByUser === true,
+        policyDecision: policy.decision,
+        result: 'FAILURE',
+      });
+      throw error;
+    }
   });
 
   ipcMain.handle('vault:create-snapshot', async (_event, payload?: { label?: string }) => {
@@ -226,22 +256,68 @@ export const registerIpcHandlers = (): void => {
     return vaultService.readKnowledgeFile(payload.relativePath);
   });
 
-  ipcMain.handle('vault-knowledge:approve', async (_event, payload: { relativePath: string }) => {
-    enforceToolPolicy({
+  ipcMain.handle('vault-knowledge:approve', async (_event, payload: { relativePath: string; approvedByUser?: boolean }) => {
+    const policy = enforceToolPolicy({
       actor: 'DIRECTOR',
       action: 'vault.knowledge.approve',
       target: payload.relativePath,
+      approvedByUser: payload.approvedByUser === true,
     });
-    return vaultService.approvePendingFile(payload.relativePath);
+
+    try {
+      const result = await vaultService.approvePendingFile(payload.relativePath);
+      toolPolicyService.reflect({
+        actor: 'DIRECTOR',
+        action: 'vault.knowledge.approve',
+        target: payload.relativePath,
+        approvedByUser: payload.approvedByUser === true,
+        policyDecision: policy.decision,
+        result: 'SUCCESS',
+      });
+      return result;
+    } catch (error) {
+      toolPolicyService.reflect({
+        actor: 'DIRECTOR',
+        action: 'vault.knowledge.approve',
+        target: payload.relativePath,
+        approvedByUser: payload.approvedByUser === true,
+        policyDecision: policy.decision,
+        result: 'FAILURE',
+      });
+      throw error;
+    }
   });
 
-  ipcMain.handle('vault-knowledge:reject', async (_event, payload: { relativePath: string }) => {
-    enforceToolPolicy({
+  ipcMain.handle('vault-knowledge:reject', async (_event, payload: { relativePath: string; approvedByUser?: boolean }) => {
+    const policy = enforceToolPolicy({
       actor: 'DIRECTOR',
       action: 'vault.knowledge.reject',
       target: payload.relativePath,
+      approvedByUser: payload.approvedByUser === true,
     });
-    return vaultService.rejectPendingFile(payload.relativePath);
+
+    try {
+      const result = await vaultService.rejectPendingFile(payload.relativePath);
+      toolPolicyService.reflect({
+        actor: 'DIRECTOR',
+        action: 'vault.knowledge.reject',
+        target: payload.relativePath,
+        approvedByUser: payload.approvedByUser === true,
+        policyDecision: policy.decision,
+        result: 'SUCCESS',
+      });
+      return result;
+    } catch (error) {
+      toolPolicyService.reflect({
+        actor: 'DIRECTOR',
+        action: 'vault.knowledge.reject',
+        target: payload.relativePath,
+        approvedByUser: payload.approvedByUser === true,
+        policyDecision: policy.decision,
+        result: 'FAILURE',
+      });
+      throw error;
+    }
   });
 
   ipcMain.handle('model-gateway:probe', async () => {
@@ -369,17 +445,50 @@ export const registerIpcHandlers = (): void => {
         approvedByUser?: boolean;
       },
     ) => {
-      enforceToolPolicy({
+      const parentDepth = payload.parentId ? subagentService.get(payload.parentId)?.depth ?? 0 : 0;
+      const nextDepth = payload.parentId ? parentDepth + 1 : 0;
+
+      const policy = enforceToolPolicy({
         actor: payload.agentName,
         action: 'subagents.spawn',
         target: payload.parentId ?? 'root',
         approvedByUser: payload.approvedByUser === true,
         metadata: {
-          depth: payload.parentId ? subagentService.get(payload.parentId)?.depth ?? 0 : 0,
+          depth: nextDepth,
+          maxDepth: 12,
+          activeSubagents: subagentService.getTelemetry().running,
+          maxActiveSubagents: 128,
         },
       });
 
-      return subagentService.spawn(payload);
+      try {
+        const result = subagentService.spawn(payload);
+        toolPolicyService.reflect({
+          actor: payload.agentName,
+          action: 'subagents.spawn',
+          target: payload.parentId ?? 'root',
+          approvedByUser: payload.approvedByUser === true,
+          policyDecision: policy.decision,
+          result: 'SUCCESS',
+          metadata: {
+            nextDepth,
+          },
+        });
+        return result;
+      } catch (error) {
+        toolPolicyService.reflect({
+          actor: payload.agentName,
+          action: 'subagents.spawn',
+          target: payload.parentId ?? 'root',
+          approvedByUser: payload.approvedByUser === true,
+          policyDecision: policy.decision,
+          result: 'FAILURE',
+          metadata: {
+            nextDepth,
+          },
+        });
+        throw error;
+      }
     },
   );
 
@@ -435,6 +544,10 @@ export const registerIpcHandlers = (): void => {
 
   ipcMain.handle('tool-policy:list-audits', async () => {
     return toolPolicyService.listAudits();
+  });
+
+  ipcMain.handle('tool-policy:list-reflections', async (_event, payload?: { limit?: number }) => {
+    return toolPolicyService.listReflections(payload?.limit);
   });
 
   ipcMain.handle('tool-policy:get-telemetry', async () => {

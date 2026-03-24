@@ -55,8 +55,9 @@ export interface SubagentTelemetry {
 }
 
 const DEFAULT_MODEL = 'lmstudio/default';
-const MAX_DEPTH = 3;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_ACTIVE_SUBAGENTS = 128;
+const BASE_MAX_CHILDREN_PER_NODE = 8;
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -73,6 +74,31 @@ const countDepthFromParent = (parentId: string | null): number => {
   }
 
   return parent.depth + 1;
+};
+
+const countRunningSubagents = (): number => {
+  let total = 0;
+  for (const record of records.values()) {
+    if (record.status === 'RUNNING') {
+      total += 1;
+    }
+  }
+  return total;
+};
+
+const countRunningChildren = (parentId: string): number => {
+  let total = 0;
+  for (const record of records.values()) {
+    if (record.parentId === parentId && record.status === 'RUNNING') {
+      total += 1;
+    }
+  }
+  return total;
+};
+
+const getAdaptiveChildLimit = (depth: number): number => {
+  // As delegation gets deeper, taper branching to prevent runaway fan-out.
+  return Math.max(2, BASE_MAX_CHILDREN_PER_NODE - Math.floor(depth / 3));
 };
 
 const collectAncestorAgents = (parentId: string | null): string[] => {
@@ -144,8 +170,22 @@ export const subagentService = {
 
     const parentId = request.parentId ?? null;
     const depth = countDepthFromParent(parentId);
-    if (depth > MAX_DEPTH) {
-      throw new Error(`Subagent spawn denied: max depth ${MAX_DEPTH} exceeded.`);
+
+    if (countRunningSubagents() >= MAX_ACTIVE_SUBAGENTS) {
+      throw new Error(`Subagent spawn denied: active subagent limit ${MAX_ACTIVE_SUBAGENTS} reached.`);
+    }
+
+    if (parentId) {
+      const parent = records.get(parentId);
+      const parentDepth = parent?.depth ?? 0;
+      const maxChildren = getAdaptiveChildLimit(parentDepth);
+      const currentChildren = countRunningChildren(parentId);
+
+      if (currentChildren >= maxChildren) {
+        throw new Error(
+          `Subagent spawn denied: adaptive branch limit reached for parent at depth ${parentDepth} (${currentChildren}/${maxChildren}).`,
+        );
+      }
     }
 
     const ancestorAgents = collectAncestorAgents(parentId);

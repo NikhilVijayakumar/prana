@@ -9,7 +9,7 @@ describe('toolPolicyService', () => {
   it('allows non-restricted generic actions', () => {
     const result = toolPolicyService.evaluate({
       actor: 'director',
-      action: 'skills.execute',
+      action: 'skills.inspect',
       target: 'clean-implementation',
     });
 
@@ -29,6 +29,18 @@ describe('toolPolicyService', () => {
     expect(result.reasonCode).toBe('director_approval_required');
   });
 
+  it('requires approval for additional mutating actions in policy matrix', () => {
+    const result = toolPolicyService.evaluate({
+      actor: 'DIRECTOR',
+      action: 'vault.knowledge.approve',
+      target: 'pending/file.md',
+      approvedByUser: false,
+    });
+
+    expect(result.decision).toBe('REQUIRE_APPROVAL');
+    expect(result.reasonCode).toBe('mutation_approval_required');
+  });
+
   it('denies restricted path targets', () => {
     const result = toolPolicyService.evaluate({
       actor: 'DIRECTOR',
@@ -43,14 +55,14 @@ describe('toolPolicyService', () => {
   it('denies repeated loop patterns', () => {
     let result = toolPolicyService.evaluate({
       actor: 'DIRECTOR',
-      action: 'skills.execute',
+      action: 'skills.inspect',
       target: 'compliance-officer',
     });
 
     for (let i = 0; i < 6; i += 1) {
       result = toolPolicyService.evaluate({
         actor: 'DIRECTOR',
-        action: 'skills.execute',
+        action: 'skills.inspect',
         target: 'compliance-officer',
       });
     }
@@ -59,16 +71,30 @@ describe('toolPolicyService', () => {
     expect(result.reasonCode).toBe('loop_detected');
   });
 
-  it('denies subagent spawn beyond depth limit', () => {
+  it('denies subagent spawn when policy quotas are exceeded', () => {
     const result = toolPolicyService.evaluate({
       actor: 'Eva Compliance',
       action: 'subagents.spawn',
       target: 'parent-123',
-      metadata: { depth: 4 },
+      metadata: { depth: 13, maxDepth: 12 },
     });
 
     expect(result.decision).toBe('DENY');
-    expect(result.reasonCode).toBe('depth_limit_exceeded');
+    expect(result.reasonCode).toBe('quota_exceeded');
+  });
+
+  it('records post-action reflections', () => {
+    const reflection = toolPolicyService.reflect({
+      actor: 'DIRECTOR',
+      action: 'vault.publish',
+      target: 'governance-repository',
+      approvedByUser: true,
+      policyDecision: 'ALLOW',
+      result: 'SUCCESS',
+    });
+
+    expect(reflection.policyFit).toBe(true);
+    expect(toolPolicyService.listReflections(1).length).toBe(1);
   });
 
   it('reports telemetry counters', () => {
@@ -85,7 +111,7 @@ describe('toolPolicyService', () => {
     });
     toolPolicyService.evaluate({
       actor: 'DIRECTOR',
-      action: 'skills.execute',
+      action: 'skills.inspect',
       target: 'security-and-pitfalls',
     });
 
@@ -95,5 +121,6 @@ describe('toolPolicyService', () => {
     expect(telemetry.approvalRequired).toBe(1);
     expect(telemetry.pathBlocks).toBe(1);
     expect(telemetry.allowed).toBe(1);
+    expect(telemetry.quotaBlocks).toBe(0);
   });
 });

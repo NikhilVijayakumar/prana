@@ -1,7 +1,7 @@
 import { getEncoding, Tiktoken } from 'js-tiktoken';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getRegistryRoot } from '@dharma/registry/loader';
+import { getRegistryRuntimeConfig } from './registryRuntimeService';
 
 export type ContextProvider = 'lmstudio' | 'openrouter' | 'gemini' | 'custom';
 
@@ -37,11 +37,13 @@ interface RegistryRootShape {
   };
 }
 
-const REGISTRY_FILE = join(
-  getRegistryRoot(),
-  'data-inputs',
-  'model-gateway-config-registry.json',
-);
+const getRegistryFilePath = (): string => {
+  return join(
+    getRegistryRuntimeConfig().registryRoot,
+    'data-inputs',
+    'model-gateway-config-registry.json',
+  );
+};
 
 const DEFAULT_CONTEXT_WINDOW = 32_000;
 const DEFAULT_RESERVED_OUTPUT = 2_048;
@@ -77,7 +79,7 @@ const estimateTokenFallback = (text: string): number => {
 
 const readModelContextWindows = (): RegistryModelContextWindows | null => {
   try {
-    const raw = readFileSync(REGISTRY_FILE, 'utf8');
+    const raw = readFileSync(getRegistryFilePath(), 'utf8');
     const parsed = JSON.parse(raw) as RegistryRootShape;
     return parsed.model_config?.model_context_windows ?? null;
   } catch {

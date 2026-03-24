@@ -1,8 +1,33 @@
 import { FC } from 'react';
 import { Alert, Box, Button, Chip, Typography, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
-import type { SyncStatusSnapshot } from '@dharma/schemas/domain';
+import { spacing } from 'astra';
+
+interface SyncStatusSnapshot {
+  initialized: boolean;
+  pushTimerActive: boolean;
+  machineLockWarning: string | null;
+  queue: {
+    pendingOrFailed: number;
+    running: number;
+    completed: number;
+  };
+  lastPull: {
+    at: string | null;
+    status: string | null;
+    message: string | null;
+  };
+  lastPush: {
+    at: string | null;
+    status: string | null;
+    message: string | null;
+  };
+  lastIntegrityCheck: {
+    valid: boolean | null;
+    issues: string[];
+    at: string | null;
+  };
+}
 
 interface SyncHealthWidgetProps {
   syncStatus: SyncStatusSnapshot | null;

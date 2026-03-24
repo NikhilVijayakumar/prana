@@ -1,6 +1,6 @@
 import { FC, ReactNode } from 'react';
 import { Box, Typography, useTheme as useMuiTheme } from '@mui/material';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 
 interface PreAuthLayoutProps {
   children: ReactNode;

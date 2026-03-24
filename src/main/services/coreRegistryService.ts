@@ -1,19 +1,15 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import {
-  getRegistryFileFingerprint,
-  getRegistryRoot,
-  loadRegistrySnapshot,
-} from '@dharma/registry/loader';
-import {
-  RegistryDataInputDefinition,
   RegistryAgentTemplate,
+  RegistryDataInputDefinition,
   RegistryKpiDefinition,
   RegistryKpiMinimumRequirementEntry,
+  getRegistryRuntimeConfig,
   RegistrySkillDoc,
   RegistrySnapshot,
   RegistryVersionInfo,
-} from '@dharma/registry/types';
+} from './registryRuntimeService';
 
 interface RegistryCache {
   fingerprint: string;
@@ -47,7 +43,7 @@ let versionCounter = 0;
 const normalizeRegistryRelativePath = (relativePath: string): string => relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
 
 const ensureWithinRegistryRoot = (candidatePath: string): string => {
-  const root = resolve(getRegistryRoot());
+  const root = resolve(getRegistryRuntimeConfig().registryRoot);
   const absoluteCandidate = resolve(candidatePath);
   const isSamePath = absoluteCandidate === root;
   const isChildPath = absoluteCandidate.startsWith(`${root}${sep}`);
@@ -57,6 +53,30 @@ const ensureWithinRegistryRoot = (candidatePath: string): string => {
   }
 
   return absoluteCandidate;
+};
+
+const getRegistryRoot = (): string => getRegistryRuntimeConfig().registryRoot;
+
+const getRegistryFileFingerprint = (): string => {
+  return getRegistryRuntimeConfig().getRegistryFileFingerprint?.() ?? 'local-default-fingerprint';
+};
+
+const loadRegistrySnapshot = (versionCounter: number): { fingerprint: string; snapshot: RegistrySnapshot } => {
+  return (
+    getRegistryRuntimeConfig().loadRegistrySnapshot?.(versionCounter) ?? {
+      fingerprint: `local-default-${versionCounter}`,
+      snapshot: {
+        version: `local-${versionCounter}`,
+        loadedAt: new Date().toISOString(),
+        onboarding: {},
+        agents: [],
+        kpiRequirements: [],
+        skills: [],
+        kpis: [],
+        dataInputs: [],
+      },
+    }
+  );
 };
 
 const resolveRegistryPath = (relativePath: string): string => {

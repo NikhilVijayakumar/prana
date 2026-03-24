@@ -2,7 +2,7 @@ import { FC, useEffect, useState } from 'react';
 import { Box, Typography, Card, Button, Tabs, Tab, IconButton, useTheme as useMuiTheme, Divider, LinearProgress } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { OnboardingAgentKpiRecord } from '../repo/OnboardingRepo';
 
 interface KpiReviewViewProps {

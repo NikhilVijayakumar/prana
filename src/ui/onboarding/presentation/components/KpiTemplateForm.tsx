@@ -18,7 +18,7 @@ import {
   useTheme as useMuiTheme,
 } from '@mui/material';
 import { useLanguage } from 'astra';
-import { spacing } from '@astra/theme/tokens/spacing';
+import { spacing } from 'astra';
 import { KpiDefinition } from '../../domain/onboarding.types';
 import DeleteIcon from '@mui/icons-material/Delete';
 

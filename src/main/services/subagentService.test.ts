@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+
 import { contextEngineService } from './contextEngineService';
 import { subagentService } from './subagentService';
 
@@ -25,22 +26,42 @@ describe('subagentService', () => {
     expect(completed.summary).toBe('work done');
   });
 
-  it('enforces maximum depth for nested delegation', () => {
+  it('allows deep delegation chains when cycle-free', () => {
     const root = subagentService.spawn({ agentName: 'Root', sessionId: 'd0' });
     const d1 = subagentService.spawn({ agentName: 'D1', parentId: root.id, parentSessionId: root.sessionId, sessionId: 'd1' });
     const d2 = subagentService.spawn({ agentName: 'D2', parentId: d1.id, parentSessionId: d1.sessionId, sessionId: 'd2' });
     const d3 = subagentService.spawn({ agentName: 'D3', parentId: d2.id, parentSessionId: d2.sessionId, sessionId: 'd3' });
+    const d4 = subagentService.spawn({
+      agentName: 'D4',
+      parentId: d3.id,
+      parentSessionId: d3.sessionId,
+      sessionId: 'd4',
+    });
 
     expect(d3.depth).toBe(3);
+    expect(d4.depth).toBe(4);
+  });
+
+  it('applies adaptive branch limits per parent depth', () => {
+    const root = subagentService.spawn({ agentName: 'Root', sessionId: 'branch-root' });
+
+    for (let i = 0; i < 8; i += 1) {
+      subagentService.spawn({
+        agentName: `C${i}`,
+        parentId: root.id,
+        parentSessionId: root.sessionId,
+        sessionId: `branch-${i}`,
+      });
+    }
 
     expect(() => {
       subagentService.spawn({
-        agentName: 'D4',
-        parentId: d3.id,
-        parentSessionId: d3.sessionId,
-        sessionId: 'd4',
+        agentName: 'Overflow',
+        parentId: root.id,
+        parentSessionId: root.sessionId,
+        sessionId: 'branch-overflow',
       });
-    }).toThrow(/max depth/i);
+    }).toThrow(/adaptive branch limit/i);
   });
 
   it('prevents cycle creation through ancestor name reuse', () => {
