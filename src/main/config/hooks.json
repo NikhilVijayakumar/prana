@@ -1,0 +1,66 @@
+[
+  {
+    "id": "hook-vault-ingested-notify",
+    "event": "vault.ingested",
+    "enabled": true,
+    "priority": 10,
+    "timeoutMs": 1200,
+    "retries": 0,
+    "action": "notify",
+    "severity": "INFO",
+    "messageTemplate": "Vault ingest completed: {{count}} file(s)."
+  },
+  {
+    "id": "hook-vault-approved-notify",
+    "event": "vault.pending.approved",
+    "enabled": true,
+    "priority": 10,
+    "timeoutMs": 1200,
+    "retries": 0,
+    "action": "notify",
+    "severity": "INFO",
+    "messageTemplate": "Vault pending file approved: {{relativePath}}"
+  },
+  {
+    "id": "hook-vault-rejected-notify",
+    "event": "vault.pending.rejected",
+    "enabled": true,
+    "priority": 10,
+    "timeoutMs": 1200,
+    "retries": 0,
+    "action": "notify",
+    "severity": "WARNING",
+    "messageTemplate": "Vault pending file rejected: {{relativePath}}"
+  },
+  {
+    "id": "hook-session-bootstrap-audit",
+    "event": "session.bootstrap",
+    "enabled": true,
+    "priority": 20,
+    "timeoutMs": 1200,
+    "retries": 0,
+    "action": "audit",
+    "messageTemplate": "Session bootstrap observed for {{sessionId}}"
+  },
+  {
+    "id": "hook-session-message-notify",
+    "event": "session.message",
+    "enabled": true,
+    "priority": 30,
+    "timeoutMs": 1200,
+    "retries": 0,
+    "action": "notify",
+    "severity": "INFO",
+    "messageTemplate": "Session message captured for {{sessionId}} ({{role}})."
+  },
+  {
+    "id": "hook-schedule-tick-audit",
+    "event": "schedule.tick",
+    "enabled": true,
+    "priority": 10,
+    "timeoutMs": 1200,
+    "retries": 1,
+    "action": "audit",
+    "messageTemplate": "Schedule tick observed: {{jobId}}"
+  }
+]
