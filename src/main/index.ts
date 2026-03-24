@@ -1,7 +1,6 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../../resources/icon.png?asset'
 import { registerIpcHandlers } from './services/ipcService'
 import { vaultService } from './services/vaultService'
 import { syncProviderService } from './services/syncProviderService'
@@ -13,7 +12,6 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -43,7 +41,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.prana.app')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -57,14 +55,14 @@ app.whenReady().then(async () => {
   try {
     const splashSync = await syncProviderService.initializeOnSplash()
     if (splashSync.machineLockWarning) {
-      console.warn('[DHI] Machine lock warning:', splashSync.machineLockWarning)
+      console.warn('[PRANA] Machine lock warning:', splashSync.machineLockWarning)
     }
     if (splashSync.skippedReason) {
-      console.info('[DHI] Splash sync skipped:', splashSync.skippedReason)
+      console.info('[PRANA] Splash sync skipped:', splashSync.skippedReason)
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown splash sync error'
-    console.warn('[DHI] Splash sync initialization failed:', message)
+    console.warn('[PRANA] Splash sync initialization failed:', message)
   }
 
   createWindow()

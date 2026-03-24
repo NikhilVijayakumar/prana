@@ -130,41 +130,13 @@ typings/
 # Electron-Forge
 out/
 
-# idea
-.idea
+# Local workspace/editor artifacts
 /.env.mock
-# vscode
 .vscode
-.history
 /.vscode/
-/package-lock.json
+.history
 /build/
 /out/
-
-/.dhi/governance/
-/scripts/fix-typecheck.mjs
-/scripts/fix-unused-react.mjs
-/scripts/normalize-registry-semantics.mjs
-/scripts/scaffold-clean.mjs
-/scripts/scaffold-pages.mjs
-/scripts/scaffold-registry-agentic.mjs
-/scripts/update-main-tsx.mjs
-/scripts/validate-registry.mjs
-/.dhi/tmp/alignment_i18n_hits.txt
-/.dhi/tmp/alignment_mvvm_containerlogic_hits.txt
-/.dhi/tmp/alignment_mvvm_viewlogic_hits.txt
-/.dhi/tmp/alignment_px_hits.txt
-/.dhi/tmp/alignment_px_hits_fresh.txt
-/.dhi/tmp/alignment_px_summary_fresh.txt
-/.dhi/tmp/normalize_workflow_yaml_colons.js
-/.dhi/tmp/registry-validation-errors.txt
-/.dhi/tmp/registry_counts.txt
-/.dhi/tmp/synthesize_registry_gaps.js
-/.dhi/tmp/validate_protocol_yaml.js
-/.dhi/tmp/validate_registry_yaml.js
-/.dhi/tmp/verify_protocol_ids.js
-/.dhi/tmp/verify_registry_refs.js
-/tmp/verify-engine.ts
 
 #/.agent/
 #/.github/

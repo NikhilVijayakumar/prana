@@ -7,14 +7,13 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'packages/prana/main/index.ts')
+          index: resolve(__dirname, 'src/main/index.ts')
         }
       }
     },
     resolve: {
       alias: {
-        '@prana': resolve('packages/prana'),
-        '@dharma': resolve('packages/dharma')
+        '@prana': resolve(__dirname, 'src')
       }
     }
   },
@@ -22,19 +21,16 @@ export default defineConfig({
   preload: {
     resolve: {
       alias: {
-        '@prana': resolve('packages/prana'),
-        '@dharma': resolve('packages/dharma')
+        '@prana': resolve(__dirname, 'src')
       }
     }
   },
   renderer: {
     resolve: {
       alias: {
-        '@renderer': resolve('src/renderer/src'),
-        '@prana': resolve('packages/prana'),
-        '@dharma': resolve('packages/dharma'),
-        '@dhi': resolve('packages/dhi'),
-        '@astra': resolve('packages/astra')
+        '@renderer': resolve(__dirname, 'src/ui'),
+        '@prana': resolve(__dirname, 'src'),
+        '@astra': resolve(__dirname, 'node_modules/astra')
       }
     },
     plugins: [react()]

@@ -1,15 +1,11 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
-    "src/renderer/src/env.d.ts",
-    "src/renderer/src/**/*",
-    "src/renderer/src/**/*.tsx",
-    "src/preload/*.d.ts",
-    "packages/dhi/**/*",
-    "packages/astra/**/*",
-    "packages/prana/ui/**/*",
-    "packages/prana/services/**/*",
-    "packages/dharma/**/*"
+    "src/ui/env.d.ts",
+    "src/ui/**/*",
+    "src/ui/**/*.tsx",
+    "src/services/**/*",
+    "src/preload/*.d.ts"
   ],
   "compilerOptions": {
     "composite": true,
@@ -17,12 +13,10 @@
     "baseUrl": ".",
     "paths": {
       "@renderer/*": [
-        "src/renderer/src/*"
+        "src/ui/*"
       ],
-      "@prana/*": ["packages/prana/*"],
-      "@dharma/*": ["packages/dharma/*"],
-      "@dhi/*": ["packages/dhi/*"],
-      "@astra/*": ["packages/astra/*"]
+      "@prana/*": ["src/*"],
+      "@astra/*": ["node_modules/astra/*"]
     }
   }
 }

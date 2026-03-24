@@ -22,3 +22,12 @@ These boundaries should be enforced by import rules, CI checks, and package-leve
 This repository is the Prana codebase and should keep local build/type paths aligned with its actual local source layout.
 
 If local config still points to legacy package paths (for example `packages/prana/*`) while implementation lives under `src/*`, treat it as a migration residue to be cleaned up.
+
+### Source-Of-Truth Path Mapping (This Repo)
+- `src/main/*` -> Electron main process
+- `src/ui/*` -> renderer UI domain modules
+- `src/services/*` -> shared service adapters used by renderer/main
+- `@prana/*` -> `src/*`
+- `@renderer/*` -> `src/ui/*`
+
+Legacy aliases like `packages/prana/*`, `packages/dhi/*`, and `packages/dharma/*` should not be used in this repository unless those directories are intentionally reintroduced.
