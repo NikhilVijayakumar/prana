@@ -164,16 +164,16 @@ out/
 /.dhi/tmp/validate_registry_yaml.js
 /.dhi/tmp/verify_protocol_ids.js
 /.dhi/tmp/verify_registry_refs.js
+/tmp/verify-engine.ts
 
 #/.agent/
 #/.github/
 #/.kiro/
 
-/docs/plan/
-/docs/references/
-/docs/rules/
+
 /openclaw-main/
 /NemoClaw-main/
 /goose-main/
 
-/tmp/verify-engine.ts
+
+/docs/reference/

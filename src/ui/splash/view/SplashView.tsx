@@ -23,7 +23,7 @@ export const SplashView: FC<SplashViewProps> = ({ isLoading, isSuccess, statusMe
       width: '100%'
     }}>
       <Typography variant="splashTitle" sx={{ color: muiTheme.palette.text.primary, mb: spacing.xl }}>
-        Dhi & Vidhan
+        Dhi Executive
       </Typography>
 
       <Box sx={{ width: '320px', p: spacing.lg, borderRadius: '8px', border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: muiTheme.palette.background.paper }}>

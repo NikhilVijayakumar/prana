@@ -16,25 +16,26 @@
 Prana follows **Clean Architecture + MVVM** for UI screens and a service-oriented pattern for backend logic.
 
 ```
-packages/prana/
+src/
 ├── main/            # Electron main process entry + IPC services
 │   ├── index.ts     # App entry point
-│   ├── config/      # Main process configuration
-│   └── services/    # All backend service implementations
+│   └── services/    # Backend service implementations
 ├── ui/              # Renderer-side UI screens (MVVM)
 │   ├── splash/
 │   ├── login/
 │   ├── authentication/
 │   ├── vault/
 │   └── ...
-├── services/        # Renderer-side service adapters
-└── docs/            # Localized documentation
+└── services/        # Shared service adapters and contracts
+
+docs/
+└── core/            # Core architecture and implementation rules
 ```
 
 ## Import Rules
 
 - ✅ **May import from**: `@astra/*`, `@dharma/*`
-- ❌ **Must never import from**: `@dhi/*`, `@vidhan/*`
+- ❌ **Must never import from**: `@dhi/*`
 
 ## Running Tests
 
@@ -43,7 +44,7 @@ packages/prana/
 npm run test
 ```
 
-All 34 service test files live in `packages/prana/main/services/*.test.ts`.
+All service test files live in `src/main/services/*.test.ts`.
 
 ## Documentation
 

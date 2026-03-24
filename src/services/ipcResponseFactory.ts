@@ -2,7 +2,7 @@
  * IPC Response Factory
  *
  * Eliminates repeated ServerResponse construction boilerplate across all
- * repository classes. Every repo in Dhi and Vidhan wraps window.api.* calls
+ * repository classes. Multiple application repos wrap window.api.* calls
  * with identical success/failure response shapes — this factory centralizes that.
  */
 import { HttpStatusCode, ServerResponse } from 'astra';

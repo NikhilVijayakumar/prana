@@ -6,7 +6,6 @@
     "src/renderer/src/**/*.tsx",
     "src/preload/*.d.ts",
     "packages/dhi/**/*",
-    "packages/vidhan/**/*",
     "packages/astra/**/*",
     "packages/prana/ui/**/*",
     "packages/prana/services/**/*",
@@ -23,7 +22,6 @@
       "@prana/*": ["packages/prana/*"],
       "@dharma/*": ["packages/dharma/*"],
       "@dhi/*": ["packages/dhi/*"],
-      "@vidhan/*": ["packages/vidhan/*"],
       "@astra/*": ["packages/astra/*"]
     }
   }

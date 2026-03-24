@@ -34,7 +34,6 @@ export default defineConfig({
         '@prana': resolve('packages/prana'),
         '@dharma': resolve('packages/dharma'),
         '@dhi': resolve('packages/dhi'),
-        '@vidhan': resolve('packages/vidhan'),
         '@astra': resolve('packages/astra')
       }
     },

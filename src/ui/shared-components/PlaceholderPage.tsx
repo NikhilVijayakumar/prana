@@ -10,7 +10,7 @@ interface PlaceholderPageProps {
 /**
  * Standard placeholder for pages awaiting implementation.
  *
- * Replaces the 26+ identical container stubs across Dhi and Vidhan that all
+ * Replaces repeated container stubs across application modules that all
  * render `<Box sx={{ p: 4 }}><HeroSection headline="..." .../></Box>`.
  */
 export const PlaceholderPage: FC<PlaceholderPageProps> = ({ headline, code }) => (

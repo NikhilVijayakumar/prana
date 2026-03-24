@@ -143,7 +143,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
         zIndex: muiTheme.zIndex.appBar,
       }}>
         <Typography variant="caption" sx={{ color: muiTheme.palette.text.secondary }}>
-          Dhi & Vidhan | Instruments powered by Prana & Dharma
+          Dhi Executive | Instruments powered by Prana & Dharma
         </Typography>
       </Box>
 

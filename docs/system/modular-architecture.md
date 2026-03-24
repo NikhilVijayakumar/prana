@@ -1,24 +1,24 @@
 # Modular Architecture Guide
 
-This project is structured as a **Modular Monolith** designed for a seamless future transition to a multi-repo strategy.
+This project is structured as a **separate-repository architecture** where core libraries are consumed as Git dependencies.
 
 ## Global Directory Structure
-The repository contains 5 root-level application modules orchestrated under the `@app/` super-directory:
-- `/packages/prana/`: The underlying headless engine and foundational auth UI functionality.
-- `/packages/dharma/`: The shared source of truth schema and company DNA values.
-- `/packages/astra/`: The "Astra Design System" component library. Contains common Viewers, Layouts, and primitive UI blocks.
-- `/packages/dhi/`: UI specifically dedicated to the Executive persona.
-- `/packages/vidhan/`: UI specifically dedicated to internal Operations and policy integrations.
+Core modules live in independent repositories and are imported through `package.json` Git references in consuming apps.
+
+Example consumer dependency pattern:
+- `"astra": "github:NikhilVijayakumar/astra"`
+- `"dharma": "github:NikhilVijayakumar/dharma"`
+- `"prana": "github:NikhilVijayakumar/prana"`
 
 ### Import Segregation Rules
-To maintain decoupling and prevent circular dependencies:
-1. `director` and `admin` **MUST NOT** import from each other. They import from `astra`, `registry`, and `core`.
-2. `core` and `registry` **MUST NOT** import anything residing within `director` or `admin`. 
-3. `astra` **MUST NOT** import business logic from `director` or `admin`.
+To maintain decoupling and prevent circular dependencies across repositories:
+1. Application repositories **MUST NOT** couple directly to each other; shared dependencies should flow through `astra`, `dharma`, and `prana`.
+2. Core/runtime libraries **MUST NOT** import application-specific UI layers.
+3. `astra` **MUST NOT** import business logic from app repositories.
 
-These boundaries are statically enforced within our decoupled TypeScript configurations (`tsconfig.web.json` vs `tsconfig.node.json`).
+These boundaries should be enforced by import rules, CI checks, and package-level contracts.
 
-## Future Split
-When migrating to independent repositories (e.g. `dhi-director-app` vs `dhi-admin-app`):
-- `Astra`, `Core`, and `Registry` will be exported into NPM packages or submodules.
-- Each UI package will consume those distributed dependencies globally via dependency injection.
+## Local Repository Layout
+This repository is the Prana codebase and should keep local build/type paths aligned with its actual local source layout.
+
+If local config still points to legacy package paths (for example `packages/prana/*`) while implementation lives under `src/*`, treat it as a migration residue to be cleaned up.
