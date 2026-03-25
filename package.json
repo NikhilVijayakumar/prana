@@ -1,6 +1,6 @@
 {
   "name": "prana-app",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Prana desktop application built with Electron and TypeScript",
   "main": "./out/main/index.js",
   "author": "Prana Team",
@@ -13,7 +13,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev -- --no-sandbox",
     "build": "npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
+    "rebuild-deps": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
