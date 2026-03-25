@@ -1,7 +1,15 @@
 import { ServerResponse, HttpStatusCode } from 'astra';
+import {
+  SESSION_STORAGE_KEY,
+  ONBOARDING_COMPLETE_STORAGE_KEY,
+  LEGACY_SESSION_STORAGE_KEY,
+  LEGACY_ONBOARDING_COMPLETE_STORAGE_KEY,
+} from '@prana/ui/constants/storageKeys';
 
-export const SESSION_KEY = 'dhi_session';
-export const ONBOARDING_COMPLETE_KEY = 'dhi_onboarding_complete';
+export const SESSION_KEY = SESSION_STORAGE_KEY;
+export const ONBOARDING_COMPLETE_KEY = ONBOARDING_COMPLETE_STORAGE_KEY;
+export const LEGACY_SESSION_KEY = LEGACY_SESSION_STORAGE_KEY;
+export const LEGACY_ONBOARDING_COMPLETE_KEY = LEGACY_ONBOARDING_COMPLETE_STORAGE_KEY;
 
 export interface LoginPayload {
   directorName: string;

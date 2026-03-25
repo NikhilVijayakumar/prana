@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { constants } from 'node:fs';
 import { access, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readMainEnv } from './envService';
+import { readMainEnvAlias } from './envService';
 import { modelGatewayService } from './modelGatewayService';
 import { vaultService } from './vaultService';
 
@@ -34,7 +34,7 @@ export interface SkillExecutionResult {
 const FRONTMATTER_START = '---';
 
 const getSkillRootPath = (): string => {
-  const override = readMainEnv('DHI_SKILLS_PATH');
+  const override = readMainEnvAlias('PRANA_SKILLS_PATH', 'DHI_SKILLS_PATH');
   if (override) {
     return override;
   }
@@ -198,7 +198,7 @@ const evaluateEligibility = async (manifest: SkillManifest): Promise<string[]> =
   }
 
   for (const envVar of manifest.requires?.env ?? []) {
-    if (!readMainEnv(envVar)) {
+    if (!readMainEnvAlias(envVar, envVar)) {
       reasons.push(`Missing env: ${envVar}`);
     }
   }

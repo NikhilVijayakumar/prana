@@ -1,13 +1,18 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AuthRepo } from '../../authentication/repo/AuthRepo';
 import { volatileSessionStore } from '../state/volatileSessionStore';
+import {
+  LOCKOUT_TS_STORAGE_KEY,
+  LEGACY_LOCKOUT_TS_STORAGE_KEY,
+  LOCKOUT_COUNT_STORAGE_KEY,
+  LEGACY_LOCKOUT_COUNT_STORAGE_KEY,
+  readStorageWithLegacy,
+} from '@prana/ui/constants/storageKeys';
 
 const MAX_ATTEMPTS_SOFT = 3;
 const MAX_ATTEMPTS_HARD = 10;
 const LOCKOUT_SOFT_MS = 60_000;
 const LOCKOUT_HARD_MS = 300_000;
-const LOCKOUT_TS_KEY = 'dhi_lockout_until';
-const LOCKOUT_COUNT_KEY = 'dhi_lockout_count';
 
 export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) => {
   const repo = new AuthRepo();
@@ -17,7 +22,7 @@ export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) 
   const [isLoading, setIsLoading] = useState(false);
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number>(() => {
-    const saved = localStorage.getItem(LOCKOUT_TS_KEY);
+    const saved = readStorageWithLegacy(LOCKOUT_TS_STORAGE_KEY, LEGACY_LOCKOUT_TS_STORAGE_KEY);
     return saved ? parseInt(saved, 10) : 0;
   });
 
@@ -29,7 +34,8 @@ export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) 
     const timer = setInterval(() => {
       if (Date.now() >= lockedUntil) {
         setLockedUntil(0);
-        localStorage.removeItem(LOCKOUT_TS_KEY);
+        localStorage.removeItem(LOCKOUT_TS_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_LOCKOUT_TS_STORAGE_KEY);
         clearInterval(timer);
       }
     }, 1000);
@@ -47,8 +53,10 @@ export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) 
       if (resp.isSuccess && resp.data) {
         volatileSessionStore.setSessionToken(resp.data.sessionToken);
         volatileSessionStore.setOnboardingStatus(resp.data.isFirstInstall ? 'NOT_STARTED' : 'COMPLETED');
-        localStorage.removeItem(LOCKOUT_TS_KEY);
-        localStorage.removeItem(LOCKOUT_COUNT_KEY);
+        localStorage.removeItem(LOCKOUT_TS_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_LOCKOUT_TS_STORAGE_KEY);
+        localStorage.removeItem(LOCKOUT_COUNT_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_LOCKOUT_COUNT_STORAGE_KEY);
         onSuccess(resp.data.isFirstInstall);
       } else {
         if (resp.statusMessage === 'ssh_unavailable') {
@@ -61,18 +69,21 @@ export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) 
           return;
         }
 
-        const prevCount = parseInt(localStorage.getItem(LOCKOUT_COUNT_KEY) ?? '0', 10);
+        const prevCount = parseInt(
+          readStorageWithLegacy(LOCKOUT_COUNT_STORAGE_KEY, LEGACY_LOCKOUT_COUNT_STORAGE_KEY) ?? '0',
+          10,
+        );
         const newCount = prevCount + 1;
-        localStorage.setItem(LOCKOUT_COUNT_KEY, String(newCount));
+        localStorage.setItem(LOCKOUT_COUNT_STORAGE_KEY, String(newCount));
 
         if (newCount >= MAX_ATTEMPTS_HARD) {
           const until = Date.now() + LOCKOUT_HARD_MS;
-          localStorage.setItem(LOCKOUT_TS_KEY, String(until));
+          localStorage.setItem(LOCKOUT_TS_STORAGE_KEY, String(until));
           setLockedUntil(until);
           setErrorKey('auth.error.lockedExtended');
         } else if (newCount >= MAX_ATTEMPTS_SOFT) {
           const until = Date.now() + LOCKOUT_SOFT_MS;
-          localStorage.setItem(LOCKOUT_TS_KEY, String(until));
+          localStorage.setItem(LOCKOUT_TS_STORAGE_KEY, String(until));
           setLockedUntil(until);
           setErrorKey('auth.error.locked');
         } else {

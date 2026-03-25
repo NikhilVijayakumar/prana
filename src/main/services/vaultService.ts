@@ -204,7 +204,9 @@ const decryptVaultEnvelope = (envelopeRaw: string): VaultArchivePayload => {
   try {
     plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   } catch {
-    throw new Error('Unable to decrypt vault archive. Check DHI_VAULT_ARCHIVE_PASSWORD and DHI_VAULT_ARCHIVE_SALT.');
+    throw new Error(
+      'Unable to decrypt vault archive. Check PRANA_VAULT_ARCHIVE_PASSWORD and PRANA_VAULT_ARCHIVE_SALT (legacy DHI_* aliases are supported).',
+    );
   }
 
   const payload = JSON.parse(plaintext.toString('utf8')) as VaultArchivePayload;

@@ -70,7 +70,7 @@ export const OnboardingChannelConfigurationContainer: FC = () => {
         }
 
         const approvedTelegramAgents = Object.entries(payload.approvedAgentsForChannels)
-          .filter(([, channels]) => channels.map((channel) => channel.toLowerCase()).includes('telegram'))
+          .filter(([, channels]) => (channels as string[]).map((channel) => channel.toLowerCase()).includes('telegram'))
           .map(([agentId]) => agentId)
           .sort((left, right) => left.localeCompare(right));
 
@@ -156,7 +156,7 @@ export const OnboardingChannelConfigurationContainer: FC = () => {
       });
 
       const approvedTelegramAgents = Object.entries(updated.approvedAgentsForChannels)
-        .filter(([, channels]) => channels.map((channel) => channel.toLowerCase()).includes('telegram'))
+        .filter(([, channels]) => (channels as string[]).map((channel) => channel.toLowerCase()).includes('telegram'))
         .map(([agentId]) => agentId)
         .sort((left, right) => left.localeCompare(right));
 

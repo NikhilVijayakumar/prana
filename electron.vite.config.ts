@@ -19,6 +19,13 @@ export default defineConfig({
   },
 
   preload: {
+    build: {
+      rollupOptions: {
+        input: {
+          preload: resolve(__dirname, 'src/main/preload.ts')
+        }
+      }
+    },
     resolve: {
       alias: {
         '@prana': resolve(__dirname, 'src')
@@ -26,6 +33,15 @@ export default defineConfig({
     }
   },
   renderer: {
+    root: '.',
+    build: {
+      outDir: 'out/renderer',
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'index.html')
+        }
+      }
+    },
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/ui'),

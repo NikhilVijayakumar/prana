@@ -1,6 +1,7 @@
 import { FC, ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useVolatileSessionStore } from '@prana/ui/state/volatileSessionStore';
+import { SESSION_TOKEN_PREFIX, LEGACY_SESSION_TOKEN_PREFIX } from '@prana/ui/constants/storageKeys';
 import { getFirstEnabledMainRoute, isRouteEnabledByManifest } from '../constants/moduleRegistry';
 
 interface AuthGuardProps {
@@ -8,7 +9,10 @@ interface AuthGuardProps {
 }
 
 const hasValidSessionToken = (sessionToken: string | null): boolean => {
-  return Boolean(sessionToken && sessionToken.startsWith('dhi_session_'));
+  return Boolean(
+    sessionToken
+      && (sessionToken.startsWith(SESSION_TOKEN_PREFIX) || sessionToken.startsWith(LEGACY_SESSION_TOKEN_PREFIX)),
+  );
 };
 
 export const AuthGuard: FC<AuthGuardProps> = ({ children }) => {
