@@ -47,11 +47,11 @@ const loadDotEnv = (): void => {
         process.env[key] = value;
       }
     }
-    console.log('[DHI] Loaded .env from:', envPath);
+    console.log('[PRANA] Loaded .env from:', envPath);
     return; // stop after the first file found
   }
 
-  console.warn('[DHI] No .env file found in candidates:', candidates);
+  console.warn('[PRANA] No .env file found in candidates:', candidates);
 };
 
 // Load .env as soon as this module is imported
@@ -103,4 +103,8 @@ export const readMainEnv = (key: string): string | undefined => {
   }
 
   return normalizeValue(readImportMetaEnv(key));
+};
+
+export const readMainEnvAlias = (neutralKey: string, legacyKey: string): string | undefined => {
+  return readMainEnv(neutralKey) ?? readMainEnv(legacyKey);
 };

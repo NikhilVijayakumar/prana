@@ -13,7 +13,7 @@ describe('channelRouterService', () => {
   it('rejects empty telegram messages', async () => {
     const result = await channelRouterService.routeTelegramMessage({
       message: '   ',
-      senderId: 'director@dhi.local',
+      senderId: 'director@prana.local',
       isDirector: true,
     });
 
@@ -25,7 +25,7 @@ describe('channelRouterService', () => {
     channelRouterService.__setDependenciesForTesting({
       getRuntimeConfig: () => ({
         directorName: 'Director',
-        directorEmail: 'director@dhi.local',
+        directorEmail: 'director@prana.local',
         governanceRepoUrl: 'repo',
         governanceRepoPath: 'path',
         vaultSpecVersion: 'v1',
@@ -45,7 +45,7 @@ describe('channelRouterService', () => {
 
     const result = await channelRouterService.routeTelegramMessage({
       message: 'Please route this',
-      senderId: 'someone@dhi.local',
+      senderId: 'someone@app.local',
       isDirector: false,
     });
 
@@ -57,7 +57,7 @@ describe('channelRouterService', () => {
     channelRouterService.__setDependenciesForTesting({
       getRuntimeConfig: () => ({
         directorName: 'Director',
-        directorEmail: 'director@dhi.local',
+        directorEmail: 'director@prana.local',
         governanceRepoUrl: 'repo',
         governanceRepoPath: 'path',
         vaultSpecVersion: 'v1',
@@ -110,7 +110,7 @@ describe('channelRouterService', () => {
 
     const result = await channelRouterService.routeTelegramMessage({
       message: 'Do the thing',
-      senderId: 'director@dhi.local',
+      senderId: 'director@prana.local',
       isDirector: true,
     });
 
@@ -123,7 +123,7 @@ describe('channelRouterService', () => {
     channelRouterService.__setDependenciesForTesting({
       getRuntimeConfig: () => ({
         directorName: 'Director',
-        directorEmail: 'director@dhi.local',
+        directorEmail: 'director@prana.local',
         governanceRepoUrl: 'repo',
         governanceRepoPath: 'path',
         vaultSpecVersion: 'v1',
@@ -174,7 +174,7 @@ describe('channelRouterService', () => {
 
     const result = await channelRouterService.routeTelegramMessage({
       message: 'Please evaluate',
-      senderId: 'director@dhi.local',
+      senderId: 'director@prana.local',
       isDirector: true,
     });
 
@@ -187,7 +187,7 @@ describe('channelRouterService', () => {
     channelRouterService.__setDependenciesForTesting({
       getRuntimeConfig: () => ({
         directorName: 'Director',
-        directorEmail: 'director@dhi.local',
+        directorEmail: 'director@prana.local',
         governanceRepoUrl: 'repo',
         governanceRepoPath: 'path',
         vaultSpecVersion: 'v1',
@@ -226,7 +226,7 @@ describe('channelRouterService', () => {
 
     const result = await channelRouterService.routeTelegramMessage({
       message: 'Build update',
-      senderId: 'director@dhi.local',
+      senderId: 'director@prana.local',
       isDirector: true,
     });
 

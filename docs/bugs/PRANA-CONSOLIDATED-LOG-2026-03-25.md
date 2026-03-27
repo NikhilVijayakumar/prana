@@ -61,6 +61,15 @@ Resolution summary:
 - `src/ui/constants/employeeDirectory.ts` replaced absolute `file:///E:/Python/dhi/resources/` path with injected `VITE_EMPLOYEE_AVATAR_BASE_URL` (default `/resources/`).
 - `src/ui/onboarding/repo/OnboardingRepository.ts` and `src/ui/onboarding/domain/onboarding.types.ts` moved fallback/path hints from `~/.dhi/...` to neutral `~/.prana/...`.
 
+Phase-2 hardening summary (2026-03-25):
+- Added app-neutral UI branding injection via `src/ui/constants/appBranding.ts` and removed hardcoded brand text from `src/ui/layout/MainLayout.tsx` and `src/ui/splash/view/SplashView.tsx`.
+- Removed hardcoded Telegram sender identity from `src/ui/components/DirectorInteractionBar.tsx` and switched to env-configurable neutral defaults.
+- Neutralized app-branded routing fixtures in `src/main/services/channelRouterService.test.ts`.
+- Migrated app data defaults from `.dhi` to `.prana` with automatic legacy fallback in `src/main/services/governanceRepoService.ts`; reused by `src/main/services/authService.ts`.
+- Migrated session token issuance from `dhi_session_*` to `prana_session_*` in `src/main/services/authService.ts` with UI guards accepting both prefixes (`src/ui/components/AuthGuard.tsx`, `src/ui/state/volatileSessionStore.ts`).
+- Added UI storage-key migration compatibility in `src/ui/constants/storageKeys.ts` and updated auth/onboarding/login stores to read legacy keys and write neutral keys.
+- Switched additional runtime env lookups to `PRANA_*` primary with `DHI_*` fallback in `src/main/services/cronSchedulerService.ts`, `src/main/services/modelGatewayService.ts`, and `src/main/services/skillSystemService.ts`.
+
 ## [ENHANCEMENT] GAP-001 - Intent confirmation loop is partial, not generalized
 Type: Gap
 Status: RESOLVED (2026-03-25)

@@ -1,4 +1,4 @@
-import { readMainEnv } from './envService';
+import { readMainEnvAlias } from './envService';
 
 type ProviderId = 'lmstudio' | 'openrouter' | 'gemini';
 
@@ -72,7 +72,7 @@ const normalizeUrl = (url: string): string => {
 };
 
 const parseFallbackOrder = (): ProviderId[] => {
-  const rawOrder = readMainEnv('DHI_MODEL_GATEWAY_FALLBACK_ORDER') ?? 'lmstudio,openrouter,gemini';
+  const rawOrder = readMainEnvAlias('PRANA_MODEL_GATEWAY_FALLBACK_ORDER', 'DHI_MODEL_GATEWAY_FALLBACK_ORDER') ?? 'lmstudio,openrouter,gemini';
   const entries = rawOrder
     .split(',')
     .map((value) => value.trim())
@@ -106,22 +106,22 @@ const getProviderSpecs = (): ProviderSpec[] => {
   const specs: Record<ProviderId, ProviderSpec> = {
     lmstudio: {
       provider: 'lmstudio',
-      baseUrl: normalizeUrl(readMainEnv('DHI_LM_STUDIO_BASE_URL') ?? 'http://127.0.0.1:1234'),
-      model: readMainEnv('DHI_LM_STUDIO_MODEL') ?? 'local-model',
+      baseUrl: normalizeUrl(readMainEnvAlias('PRANA_LM_STUDIO_BASE_URL', 'DHI_LM_STUDIO_BASE_URL') ?? 'http://127.0.0.1:1234'),
+      model: readMainEnvAlias('PRANA_LM_STUDIO_MODEL', 'DHI_LM_STUDIO_MODEL') ?? 'local-model',
     },
     openrouter: {
       provider: 'openrouter',
-      baseUrl: normalizeUrl(readMainEnv('DHI_OPENROUTER_BASE_URL') ?? 'https://openrouter.ai/api/v1'),
-      model: readMainEnv('DHI_OPENROUTER_MODEL') ?? 'openai/gpt-4o-mini',
-      apiKey: readMainEnv('DHI_OPENROUTER_API_KEY'),
+      baseUrl: normalizeUrl(readMainEnvAlias('PRANA_OPENROUTER_BASE_URL', 'DHI_OPENROUTER_BASE_URL') ?? 'https://openrouter.ai/api/v1'),
+      model: readMainEnvAlias('PRANA_OPENROUTER_MODEL', 'DHI_OPENROUTER_MODEL') ?? 'openai/gpt-4o-mini',
+      apiKey: readMainEnvAlias('PRANA_OPENROUTER_API_KEY', 'DHI_OPENROUTER_API_KEY'),
     },
     gemini: {
       provider: 'gemini',
       baseUrl: normalizeUrl(
-        readMainEnv('DHI_GEMINI_BASE_URL') ?? 'https://generativelanguage.googleapis.com/v1beta',
+        readMainEnvAlias('PRANA_GEMINI_BASE_URL', 'DHI_GEMINI_BASE_URL') ?? 'https://generativelanguage.googleapis.com/v1beta',
       ),
-      model: readMainEnv('DHI_GEMINI_MODEL') ?? 'gemini-1.5-flash',
-      apiKey: readMainEnv('DHI_GEMINI_API_KEY'),
+      model: readMainEnvAlias('PRANA_GEMINI_MODEL', 'DHI_GEMINI_MODEL') ?? 'gemini-1.5-flash',
+      apiKey: readMainEnvAlias('PRANA_GEMINI_API_KEY', 'DHI_GEMINI_API_KEY'),
     },
   };
 

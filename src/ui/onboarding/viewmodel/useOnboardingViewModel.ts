@@ -1,14 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { OnboardingRepo } from '../repo/OnboardingRepo';
 import { volatileSessionStore } from '@prana/ui/state/volatileSessionStore';
-import {
-  getOnboardingFieldSchema,
-  getOnboardingInitialDraftByStep,
-  getRegistryAgents,
-  getRegistryKpis,
-  type FieldSchemaRule,
-} from '@renderer/shared/registry';
 import { LifecycleProfileDraft, useLifecycle } from '@prana/ui/state/LifecycleProvider';
+
+// Type stubs for registry (module not yet implemented)
+interface FieldSchemaRule {
+  key: string;
+  mandatoryForEfficiency: boolean;
+  guidance: string;
+  exampleText?: string;
+  minWords?: number;
+}
+
+const getRegistryAgents = () => [];
+const getRegistryKpis = () => [];
+const getOnboardingFieldSchema = (_agents: unknown[], _kpis: unknown[]): Record<string, FieldSchemaRule[]> => ({});
+const getOnboardingInitialDraftByStep = (_agents: unknown[], _kpis: unknown[]): Record<string, DynamicFieldRecord[]> => ({
+  'company-core': [],
+  'product-context': [],
+  'global-assets': [],
+  'global-guardrails': [],
+  'agent-profile-persona': [],
+  'agent-workflows': [],
+  'infrastructure-finalization': [],
+});
 
 export type OnboardingStepKind = 'dynamic-form' | 'infrastructure-finalization';
 export type OnboardingEntityStatus = 'PENDING' | 'DRAFT' | 'APPROVED';
@@ -489,7 +504,8 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
         }
 
         const snapshot = await window.api.registry.getSnapshot();
-        const bindings = snapshot.agents.reduce<Record<string, { protocols: string[]; workflows: string[] }>>(
+        const agentsArray = (snapshot.agents ?? []) as Array<{ uid: string; protocols?: string[]; workflows?: string[] }>;
+        const bindings = agentsArray.reduce<Record<string, { protocols: string[]; workflows: string[] }>>(
           (acc, agent) => {
             acc[agent.uid] = {
               protocols: agent.protocols ?? [],

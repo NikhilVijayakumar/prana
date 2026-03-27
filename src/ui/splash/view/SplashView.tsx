@@ -2,6 +2,7 @@ import { FC } from 'react';
 import { Box, Typography, CircularProgress, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
 import { spacing } from 'astra';
+import { APP_BRAND_NAME, APP_SPLASH_SUBTITLE } from '@prana/ui/constants/appBranding';
 
 interface SplashViewProps {
   isLoading: boolean;
@@ -23,13 +24,13 @@ export const SplashView: FC<SplashViewProps> = ({ isLoading, isSuccess, statusMe
       width: '100%'
     }}>
       <Typography variant="splashTitle" sx={{ color: muiTheme.palette.text.primary, mb: spacing.xl }}>
-        Dhi Executive
+        {APP_BRAND_NAME}
       </Typography>
 
       <Box sx={{ width: '320px', p: spacing.lg, borderRadius: '8px', border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: muiTheme.palette.background.paper }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: spacing.md }}>
           <Typography variant="splashSubtitle" sx={{ color: muiTheme.palette.text.secondary, flexGrow: 1 }}>
-            Booting instruments natively powered by Prana and Dharma...
+            {APP_SPLASH_SUBTITLE}
           </Typography>
           {isLoading && <CircularProgress size={12} sx={{ color: muiTheme.palette.text.secondary }} />}
         </Box>

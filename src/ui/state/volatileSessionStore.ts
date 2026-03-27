@@ -1,4 +1,14 @@
 import { useSyncExternalStore } from 'react';
+import {
+  SESSION_TOKEN_PREFIX,
+  LEGACY_SESSION_TOKEN_PREFIX,
+  SESSION_STORAGE_KEY,
+  LEGACY_SESSION_STORAGE_KEY,
+  ONBOARDING_COMPLETE_STORAGE_KEY,
+  LEGACY_ONBOARDING_COMPLETE_STORAGE_KEY,
+  ONBOARDING_LEDGER_STORAGE_KEY,
+  LEGACY_ONBOARDING_LEDGER_STORAGE_KEY,
+} from '@prana/ui/constants/storageKeys';
 
 interface VolatileSessionState {
   sessionToken: string | null;
@@ -8,8 +18,6 @@ interface VolatileSessionState {
 
 export type OnboardingStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
 export type ExperienceMode = 'PREVIEW' | 'ACTIVE';
-
-const SESSION_TOKEN_PREFIX = 'dhi_session_';
 
 let state: VolatileSessionState = {
   sessionToken: null,
@@ -88,12 +96,18 @@ export const volatileSessionStore = {
   },
 
   hasSession(): boolean {
-    return Boolean(state.sessionToken && state.sessionToken.startsWith(SESSION_TOKEN_PREFIX));
+    return Boolean(
+      state.sessionToken
+        && (state.sessionToken.startsWith(SESSION_TOKEN_PREFIX) || state.sessionToken.startsWith(LEGACY_SESSION_TOKEN_PREFIX)),
+    );
   },
 
   purgeLegacyPersistentSessionArtifacts(): void {
-    localStorage.removeItem('dhi_session');
-    localStorage.removeItem('dhi_onboarding_complete');
-    localStorage.removeItem('dhi_onboarding_commit_ledger_v1');
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
+    localStorage.removeItem(ONBOARDING_COMPLETE_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_ONBOARDING_COMPLETE_STORAGE_KEY);
+    localStorage.removeItem(ONBOARDING_LEDGER_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_ONBOARDING_LEDGER_STORAGE_KEY);
   },
 };

@@ -3,10 +3,11 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { readMainEnv } from './envService';
+import { readMainEnvAlias } from './envService';
 import { executeCommand } from './processService';
 
-const APP_DATA_DIR = '.dhi';
+const APP_DATA_DIR = '.prana';
+const LEGACY_APP_DATA_DIR = '.dhi';
 const DEFAULT_GOVERNANCE_REPO_URL = 'git@bitbucket.org:NikhilVijayakumar/kumbha.git';
 
 export interface GovernanceRepoStatus {
@@ -18,16 +19,26 @@ export interface GovernanceRepoStatus {
   repoUrl: string;
 }
 
+const resolveAppDataDir = (home: string): string => {
+  const preferred = join(home, APP_DATA_DIR);
+  const legacy = join(home, LEGACY_APP_DATA_DIR);
+  if (existsSync(legacy) && !existsSync(preferred)) {
+    return legacy;
+  }
+
+  return preferred;
+};
+
 export const getAppDataRoot = (): string => {
   try {
-    return join(app.getPath('home'), APP_DATA_DIR);
+    return resolveAppDataDir(app.getPath('home'));
   } catch {
-    return join(homedir(), APP_DATA_DIR);
+    return resolveAppDataDir(homedir());
   }
 };
 
 export const getGovernanceRepoPath = (): string => {
-  const override = readMainEnv('DHI_GOV_REPO_PATH');
+  const override = readMainEnvAlias('PRANA_GOV_REPO_PATH', 'DHI_GOV_REPO_PATH');
   if (override) {
     return override;
   }
@@ -36,7 +47,7 @@ export const getGovernanceRepoPath = (): string => {
 };
 
 export const getGovernanceRepoUrl = (): string => {
-  return readMainEnv('DHI_GOV_REPO_URL') ?? DEFAULT_GOVERNANCE_REPO_URL;
+  return readMainEnvAlias('PRANA_GOV_REPO_URL', 'DHI_GOV_REPO_URL') ?? DEFAULT_GOVERNANCE_REPO_URL;
 };
 
 const hasGitRepository = (repoPath: string): boolean => {
@@ -44,16 +55,16 @@ const hasGitRepository = (repoPath: string): boolean => {
 };
 
 const verifySshAccess = async (repoUrl: string): Promise<{ verified: boolean; message: string }> => {
-  console.log('[DHI] SSH verification for:', repoUrl);
-  console.log('[DHI] HOME:', process.env['HOME'] || '(not set)');
-  console.log('[DHI] USERPROFILE:', process.env['USERPROFILE'] || '(not set)');
-  console.log('[DHI] GIT_SSH_COMMAND:', process.env['GIT_SSH_COMMAND'] || '(not set)');
+  console.log('[PRANA] SSH verification for:', repoUrl);
+  console.log('[PRANA] HOME:', process.env['HOME'] || '(not set)');
+  console.log('[PRANA] USERPROFILE:', process.env['USERPROFILE'] || '(not set)');
+  console.log('[PRANA] GIT_SSH_COMMAND:', process.env['GIT_SSH_COMMAND'] || '(not set)');
 
   const result = await executeCommand('git', ['ls-remote', repoUrl], 20_000);
 
-  console.log('[DHI] SSH result: ok=%s, exitCode=%s, timedOut=%s', result.ok, result.exitCode, result.timedOut);
+  console.log('[PRANA] SSH result: ok=%s, exitCode=%s, timedOut=%s', result.ok, result.exitCode, result.timedOut);
   if (!result.ok) {
-    console.log('[DHI] SSH stderr:', result.stderr.slice(0, 500));
+    console.log('[PRANA] SSH stderr:', result.stderr.slice(0, 500));
   }
 
   if (result.ok) {

@@ -109,7 +109,7 @@ const createEmptySnapshot = (versionCounter = 0): RegistrySnapshot => ({
 });
 
 let runtimeConfig: RegistryRuntimeConfig = {
-  registryRoot: resolve(process.cwd(), '.dhi', 'registry'),
+  registryRoot: resolve(process.cwd(), '.prana', 'registry'),
   getRegistryFileFingerprint: () => 'local-default-fingerprint',
   loadRegistrySnapshot: (versionCounter: number) => ({
     fingerprint: `local-default-${versionCounter}`,

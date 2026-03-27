@@ -16,6 +16,7 @@ import {
   getEmployeeAvatarPath,
   type EmployeeDirectoryEntry,
 } from '../constants/employeeDirectory';
+import { DIRECTOR_SENDER_EMAIL, DIRECTOR_SENDER_NAME } from '../constants/appBranding';
 import { spacing } from 'astra';
 
 interface DirectorInteractionBarProps {
@@ -116,8 +117,8 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
       if (channelMode === 'telegram') {
         const telegramResult = await window.api.channels.routeTelegramMessage({
           message: trimmed,
-          senderId: 'director@dhi.local',
-          senderName: 'Director',
+          senderId: DIRECTOR_SENDER_EMAIL,
+          senderName: DIRECTOR_SENDER_NAME,
           isDirector: true,
           explicitTargetPersonaId: targetEmployeeId,
           timestampIso: new Date().toISOString(),

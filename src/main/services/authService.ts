@@ -1,17 +1,16 @@
-import { app } from 'electron';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { ensureGovernanceRepoReady } from './governanceRepoService';
+import { ensureGovernanceRepoReady, getAppDataRoot } from './governanceRepoService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { vaultService } from './vaultService';
 
 const AUTH_FILE_NAME = 'auth.json';
-const APP_DATA_DIR = '.dhi';
 const DEFAULT_PASSWORD = 'Director1';
 const TEMP_PASSWORD_TTL_MS = 10 * 60 * 1000;
+const SESSION_TOKEN_PREFIX = 'prana_session_';
 
 interface AuthRecord {
   directorName: string;
@@ -50,10 +49,6 @@ export interface ResetPasswordResult {
   success: boolean;
   reason: 'no_temp_password' | 'temp_password_expired' | 'invalid_password';
 }
-
-const getAppDataRoot = (): string => {
-  return join(app.getPath('home'), APP_DATA_DIR);
-};
 
 const getAuthFilePath = (): string => {
   return join(getAppDataRoot(), AUTH_FILE_NAME);
@@ -179,7 +174,7 @@ export const authService = {
       };
     }
 
-    const sessionToken = `dhi_session_${randomUUID()}`;
+    const sessionToken = `${SESSION_TOKEN_PREFIX}${randomUUID()}`;
     return {
       success: true,
       reason: 'invalid_credentials',

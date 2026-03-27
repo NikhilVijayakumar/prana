@@ -38,7 +38,7 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
       if (!gatewayStatus.data?.activeProvider) {
         // Model gateway is optional – warn but proceed to login
         const fallbackMessage = gatewayStatus.data?.statuses[0]?.message ?? 'No model provider is reachable.';
-        console.warn('[DHI] Model gateway probe failed (non-blocking):', fallbackMessage);
+        console.warn('[PRANA] Model gateway probe failed (non-blocking):', fallbackMessage);
         setStatusMessage('Model gateway unavailable – proceeding to login.');
       } else {
         setStatusMessage(

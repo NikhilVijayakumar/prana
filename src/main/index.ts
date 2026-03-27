@@ -52,7 +52,7 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers({
     registryRuntime: {
-      registryRoot: process.env.PRANA_REGISTRY_ROOT ?? join(process.cwd(), '.dhi', 'registry')
+      registryRoot: process.env.PRANA_REGISTRY_ROOT ?? join(process.cwd(), '.prana', 'registry')
     }
   })
 

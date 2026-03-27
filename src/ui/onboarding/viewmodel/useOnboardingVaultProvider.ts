@@ -1,4 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  ONBOARDING_LEDGER_STORAGE_KEY,
+  LEGACY_ONBOARDING_LEDGER_STORAGE_KEY,
+  readStorageWithLegacy,
+} from '@prana/ui/constants/storageKeys';
 
 export interface ScreenDraftRecord {
   stepId: string;
@@ -10,8 +15,6 @@ export interface ScreenDraftRecord {
   committedHash: string;
   committedAt: string | null;
 }
-
-const ONBOARDING_LEDGER_KEY = 'dhi_onboarding_commit_ledger_v1';
 
 interface LedgerRecord {
   stepId: string;
@@ -33,7 +36,7 @@ const computeHash = (value: unknown): string => {
 };
 
 const readLedger = (): Record<string, LedgerRecord> => {
-  const raw = localStorage.getItem(ONBOARDING_LEDGER_KEY);
+  const raw = readStorageWithLegacy(ONBOARDING_LEDGER_STORAGE_KEY, LEGACY_ONBOARDING_LEDGER_STORAGE_KEY);
   if (!raw) {
     return {};
   }
@@ -46,7 +49,8 @@ const readLedger = (): Record<string, LedgerRecord> => {
 };
 
 const writeLedger = (nextLedger: Record<string, LedgerRecord>): void => {
-  localStorage.setItem(ONBOARDING_LEDGER_KEY, JSON.stringify(nextLedger));
+  localStorage.setItem(ONBOARDING_LEDGER_STORAGE_KEY, JSON.stringify(nextLedger));
+  localStorage.removeItem(LEGACY_ONBOARDING_LEDGER_STORAGE_KEY);
 };
 
 export const useOnboardingVaultProvider = () => {
