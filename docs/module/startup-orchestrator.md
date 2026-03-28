@@ -109,6 +109,15 @@ Output contract:
 - overall status: READY | DEGRADED | BLOCKED
 - non-sensitive diagnostics only
 
+Current implementation alignment (2026-03-29):
+- Main-process contract publication:
+	- `src/main/services/ipcService.ts` (`app:get-startup-status`)
+	- `src/main/preload.ts` (`window.api.app.getStartupStatus`)
+- Renderer diagnostics surfaces:
+	- `src/ui/splash/viewmodel/useSplashViewModel.ts` checks required startup stages (`integration`, `governance`, `vault`) and blocks completion on failure.
+	- `src/ui/integration/view/IntegrationVerificationPage.tsx` displays integration/runtime startup snapshot for verification and diagnostics.
+- Failure handling routes through splash/access-denied flow instead of exposing secrets.
+
 ## Security Rules
 1. Do not expose secret values in startup diagnostics.
 2. Show key names and status labels only.
@@ -130,3 +139,7 @@ Transition to login or splash completion requires:
 3. Vault init/hydration success.
 
 If any required gate fails, remain in pre-auth diagnostics screen.
+
+Current implementation alignment (2026-03-29):
+- Gate enforcement is active in `src/ui/splash/viewmodel/useSplashViewModel.ts`.
+- On gate failure, UI transitions to pre-auth failure handling (access denied path) via splash routing.

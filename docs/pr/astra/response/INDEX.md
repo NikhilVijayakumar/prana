@@ -1,7 +1,7 @@
 # Prana Response Index
 
 Delivered: 2026-03-28  
-Status: Ready
+Status: Ready for consumption
 
 ## Package Contents
 
@@ -17,6 +17,18 @@ Status: Ready
 - Approved and implemented in Astra: 3
 - Mapped to existing Astra (duplicate, no new component): 2
 - Deferred (not integrated now): 7
+
+## Prana Consumption Status (2026-03-29)
+
+- Implemented in Prana from mapping set: 3 of 5
+	- PreAuthLayout -> EntryLayoutFrame
+	- PhaseProgressIndicator -> MultiStepProgressIndicator
+	- PlaceholderPage -> HeroSection
+- Not yet actively consumed in Prana UI: 2 of 5
+	- ReviewActionModal -> ReviewDecisionDialog
+	- SyncHealthWidget -> OperationHealthPanel
+- Deferred in Astra package: 7
+- Local wrappers/shims for migrated items have been removed after build+test validation.
 
 ## Fast Start For Prana
 

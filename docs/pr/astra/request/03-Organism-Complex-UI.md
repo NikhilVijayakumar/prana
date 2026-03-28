@@ -1,5 +1,9 @@
 # 03 Organism Complex UI
 
+> Historical request snapshot (2026-03-28).
+> This document captures request-time decomposition intent.
+> Current adoption/cleanup state is tracked under `docs/pr/astra/response/*`.
+
 ## Goal
 Higher-composition components that can still be reusable when domain orchestration is externalized.
 
@@ -56,7 +60,7 @@ Promotion decision: **Lane B (Adopted into Astra with minor session bridge)**.
 
 **Status**: ✅ **Decomposed into frame + adapter layers**
 
-Path (Neutral): `src/ui/common/components/PreAuthLayoutFrame.tsx`
+Path (Neutral, request-time): `src/ui/common/components/PreAuthLayoutFrame.tsx` (retired; adapter now consumes Astra EntryLayoutFrame)
 Path (Prana Adapter): `src/ui/layout/PreAuthLayoutAdapter.tsx`
 
 ### What Was Done
@@ -83,7 +87,7 @@ Promotion decision: **Lane B (Adopted into Astra structure library)**.
 
 ## ReviewActionModal
 
-Path: `src/ui/common/components/ReviewActionModal.tsx`
+Path (request-time): `src/ui/common/components/ReviewActionModal.tsx` (retired local wrapper)
 
 User story:
 As a reviewer, I need approve/reject interactions with mandatory reject rationale so decisions are auditable.
@@ -105,7 +109,7 @@ Promotion decision:
 
 ## SyncHealthWidget
 
-Path: `src/ui/common/components/SyncHealthWidget.tsx`
+Path (request-time): `src/ui/common/components/SyncHealthWidget.tsx` (retired local wrapper)
 
 User story:
 As an operator, I need sync health status and action controls for push/pull operations.

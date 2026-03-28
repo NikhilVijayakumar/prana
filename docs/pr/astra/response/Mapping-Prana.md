@@ -30,3 +30,29 @@ Date: 2026-03-28
 - MultiStepProgressIndicator
 - EntryLayoutFrame
 - OperationHealthPanel
+
+## Prana Consumption Status (2026-03-29)
+
+This section tracks implementation in the Prana repository after receiving this response.
+
+### Active in Prana UI
+
+- `MultiStepProgressIndicator` is used in `src/ui/onboarding/presentation/containers/OnboardingGatekeeper.tsx`.
+- `EntryLayoutFrame` is used in `src/ui/layout/PreAuthLayoutAdapter.tsx`.
+- `PlaceholderPage` duplicate replacement is complete through direct `HeroSection` usage in `src/ui` container/view files.
+
+### Not Yet Actively Consumed
+
+- `ReviewDecisionDialog` has no active imports in `src/ui` yet.
+- `OperationHealthPanel` has no active imports in `src/ui` yet.
+
+### Local Cleanup Completed
+
+The following local wrappers/shims were retired after successful build/test validation:
+
+- `src/ui/common/components/PhaseProgressIndicator.tsx`
+- `src/ui/common/components/PlaceholderPage.tsx`
+- `src/ui/common/components/ReviewActionModal.tsx`
+- `src/ui/common/components/SyncHealthWidget.tsx`
+- `src/ui/common/components/PreAuthLayoutFrame.tsx`
+- `src/ui/shared-components` wrappers for the above components

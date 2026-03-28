@@ -1,5 +1,9 @@
 # 01 Atomic Elements
 
+> Historical request snapshot (2026-03-28).
+> Paths in this file represent request-time candidate locations.
+> See `docs/pr/astra/response/*` for current migration state.
+
 ## Goal
 Small, composable primitives that remain workflow-agnostic, stateless from business perspective, and safe for Astra promotion.
 
@@ -14,7 +18,7 @@ Atomic candidate must satisfy all:
 
 ## PhaseProgressIndicator
 
-Path: `src/ui/common/components/PhaseProgressIndicator.tsx`
+Path (request-time): `src/ui/common/components/PhaseProgressIndicator.tsx` (retired after migration)
 
 User story:
 As an operator, I need a visible multi-step status line so progress through staged workflows is immediately clear.
@@ -46,7 +50,7 @@ Promotion decision:
 
 ## PlaceholderPage
 
-Path: `src/ui/common/components/PlaceholderPage.tsx`
+Path (request-time): `src/ui/common/components/PlaceholderPage.tsx` (retired after duplicate mapping)
 
 User story:
 As a product team member, I need a neutral placeholder shell so in-progress routes remain stable and testable.

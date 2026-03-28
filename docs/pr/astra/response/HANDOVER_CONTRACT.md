@@ -82,3 +82,23 @@ Promote deferred components only after these conditions are satisfied:
 - No direct route/session/main-process orchestration in promoted component.
 - Labels/messages are externalized and caller-injected.
 - App-level side effects are moved into adapters or viewmodel containers.
+
+## 7. Prana Execution Status (2026-03-29)
+
+This section records Prana-side consumption progress while preserving Astra-side decision history above.
+
+### Completed in Prana
+
+- Phase A: `PreAuthLayout -> EntryLayoutFrame`
+- Phase B: `PhaseProgressIndicator -> MultiStepProgressIndicator`
+- Phase C: `PlaceholderPage -> HeroSection`
+
+### Pending in Prana
+
+- Phase B: `ReviewActionModal -> ReviewDecisionDialog` (no active `src/ui` consumption yet)
+- Phase B: `SyncHealthWidget -> OperationHealthPanel` (no active `src/ui` consumption yet)
+
+### Cleanup Status
+
+- Local wrappers/shims for completed migrations were removed after passing `npm run build` and `npm test`.
+- Remaining `src/ui/common/components` surface is route-guard focused (`RouteGuards.tsx`).

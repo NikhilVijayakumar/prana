@@ -19,23 +19,20 @@ Identify UI modules that can be generalized for ASTRA promotion and list couplin
 ## Candidate Classification
 
 ### Strong Promotion Candidates (Low Coupling)
-1. `src/ui/shared-components/ReviewActionModal.tsx`
-- Reusable governance modal with controlled props.
-- Internal state is UI-only.
-- No direct Prana repo/service coupling.
+1. ReviewActionModal wrapper (`src/ui/shared-components/ReviewActionModal.tsx`) — retired
+- Local wrapper removed during Astra migration cleanup.
+- Astra target is `ReviewDecisionDialog`; currently not yet actively consumed in `src/ui`.
 
-2. `src/ui/shared-components/SyncHealthWidget.tsx`
-- Controlled widget using a local prop contract shape.
-- Good candidate after keeping contract app-neutral.
+2. SyncHealthWidget wrapper (`src/ui/shared-components/SyncHealthWidget.tsx`) — retired
+- Local wrapper removed during Astra migration cleanup.
+- Astra target is `OperationHealthPanel`; currently not yet actively consumed in `src/ui`.
 
-3. `src/ui/onboarding/presentation/components/PhaseProgressIndicator.tsx`
-- Pure presentation stepper.
-- Candidate for workflow-agnostic progress visualization.
+3. PhaseProgressIndicator wrapper (`src/ui/onboarding/presentation/components/PhaseProgressIndicator.tsx`) — retired
+- Wrapper removed after migration to direct `MultiStepProgressIndicator` usage in onboarding container.
 
-4. Placeholder/hero wrappers
-- `src/ui/viewer-pdf/view/ViewerPdfContainer.tsx`
-- `src/ui/viewer-markdown/view/ViewerMarkdownContainer.tsx`
-- Candidate only if converted into generic placeholder sections.
+4. Placeholder wrappers
+- `src/ui/common/components/PlaceholderPage.tsx` and `src/ui/shared-components/PlaceholderPage.tsx` were retired.
+- Replacement is direct `HeroSection` usage in container/view files.
 
 ### Medium Candidates (Needs API Generalization)
 1. `src/ui/onboarding/presentation/components/SkillRegistry.tsx`

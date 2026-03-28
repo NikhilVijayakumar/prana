@@ -62,6 +62,14 @@ Startup diagnostics must include:
 
 No secret values should be emitted.
 
+Current implementation alignment (2026-03-29):
+- Diagnostics are surfaced through startup status publication and integration verification surfaces:
+	- `src/main/services/ipcService.ts` (`app:get-startup-status`)
+	- `src/main/preload.ts` bridge
+	- `src/ui/splash/viewmodel/useSplashViewModel.ts`
+	- `src/ui/integration/view/IntegrationVerificationPage.tsx`
+- There is currently no dedicated standalone `SyncHealthWidget` surface in `src/ui`; observability is currently startup-report driven.
+
 ## Migration Compatibility
 1. Vault archive envelope magic for new writes: `PRANA_VAULT_V1`.
 2. Vault archive reads accept legacy `DHI_VAULT_V1` during migration window.

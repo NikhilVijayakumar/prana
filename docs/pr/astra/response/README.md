@@ -5,6 +5,8 @@ Date: 2026-03-28
 Astra Version: 0.0.9  
 Astra Commit: 53af9ad
 
+This file records Astra-side decisions and delivered artifacts. For current Prana-side adoption status, see the consumption snapshot below.
+
 ## What Was Completed
 
 - Deep overlap review of all 12 Prana candidates against Astra exports.
@@ -34,6 +36,22 @@ Astra Commit: 53af9ad
 - MainLayout shell fragments
 
 Each deferred item includes explicit rationale and revisit triggers in HANDOVER_CONTRACT and Mapping-Prana.
+
+## Prana Consumption Snapshot (2026-03-29)
+
+- EntryLayoutFrame integration complete via `src/ui/layout/PreAuthLayoutAdapter.tsx`.
+- MultiStepProgressIndicator integration complete via `src/ui/onboarding/presentation/containers/OnboardingGatekeeper.tsx`.
+- PlaceholderPage duplicate replacement complete; HeroSection is used directly in 11 `src/ui` files.
+- Local wrappers removed after parity checks:
+	- `src/ui/common/components/PhaseProgressIndicator.tsx`
+	- `src/ui/common/components/PlaceholderPage.tsx`
+	- `src/ui/common/components/ReviewActionModal.tsx`
+	- `src/ui/common/components/SyncHealthWidget.tsx`
+	- `src/ui/common/components/PreAuthLayoutFrame.tsx`
+	- `src/ui/shared-components/*` shim files for the above components
+- ReviewDecisionDialog is not yet actively consumed in Prana `src/ui`.
+- OperationHealthPanel is not yet actively consumed in Prana `src/ui`.
+- Remaining local common package surface: `src/ui/common/components/RouteGuards.tsx`.
 
 ## Read Order
 

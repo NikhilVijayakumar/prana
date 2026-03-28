@@ -49,3 +49,10 @@ Pre-auth diagnostics or startup report should include:
 - failed/skipped overlap summaries
 
 No secret values or sensitive payload content exposed.
+
+Current implementation alignment (2026-03-29):
+- These diagnostics are exposed via startup report IPC + pre-auth diagnostics views:
+	- `src/main/services/ipcService.ts`
+	- `src/main/preload.ts`
+	- `src/ui/splash/viewmodel/useSplashViewModel.ts`
+	- `src/ui/integration/view/IntegrationVerificationPage.tsx`
