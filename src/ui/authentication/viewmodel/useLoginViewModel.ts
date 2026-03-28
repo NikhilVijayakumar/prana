@@ -7,7 +7,7 @@ import {
   LOCKOUT_COUNT_STORAGE_KEY,
   LEGACY_LOCKOUT_COUNT_STORAGE_KEY,
   readStorageWithLegacy,
-} from '@prana/ui/constants/storageKeys';
+} from 'prana/ui/constants/storageKeys';
 
 const MAX_ATTEMPTS_SOFT = 3;
 const MAX_ATTEMPTS_HARD = 10;

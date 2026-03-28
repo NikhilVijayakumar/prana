@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { OnboardingRepo } from '../repo/OnboardingRepo';
-import { volatileSessionStore } from '@prana/ui/state/volatileSessionStore';
-import { LifecycleProfileDraft, useLifecycle } from '@prana/ui/state/LifecycleProvider';
+import { volatileSessionStore } from 'prana/ui/state/volatileSessionStore';
+import { LifecycleProfileDraft, useLifecycle } from 'prana/ui/state/LifecycleProvider';
 
 // Type stubs for registry (module not yet implemented)
 interface FieldSchemaRule {

@@ -1,8 +1,12 @@
 import {
   AgentCapability,
   AgentExecutionContext,
+  AgentExecutionFailure,
+  AgentExecutionFailureReason,
+  AgentExecutionOutcome,
   AgentExecutionResult,
   AgentExecutionArtifact,
+  AgentProviderFailureDetail,
   AgentOutputStore,
   SharedPromptPipeline,
 } from './agentBaseProtocol';
@@ -31,6 +35,25 @@ const buildExecutionProviderOrder = async (): Promise<ModelProviderType[]> => {
   }
 
   return order;
+};
+
+let lastModelFailure: AgentProviderFailureDetail[] = [];
+
+const normalizeFailureReason = (
+  reason: AgentExecutionFailureReason,
+  message: string,
+  workOrderId: string,
+  agentId: string,
+  providerFailures: AgentProviderFailureDetail[] = [],
+): AgentExecutionFailure => {
+  return {
+    success: false,
+    workOrderId,
+    agentId,
+    failureReason: reason,
+    message,
+    providerFailures,
+  };
 };
 
 /**
@@ -144,6 +167,7 @@ Please provide your synthesis and recommendation.`;
   async callModel(_systemPrompt: string, _userPrompt: string): Promise<string | null> {
     const providerOrder = await buildExecutionProviderOrder();
     const failures: string[] = [];
+    const providerFailures: AgentProviderFailureDetail[] = [];
 
     for (const provider of providerOrder) {
       const execution = await localExecutionProviderService.executeWithProvider({
@@ -155,14 +179,25 @@ Please provide your synthesis and recommendation.`;
       });
 
       if (execution.success && execution.output.trim().length > 0) {
+        lastModelFailure = [];
         return execution.output;
       }
 
-      failures.push(`${provider}: ${execution.error ?? 'empty output'}`);
+      const error = execution.error ?? 'empty output';
+      failures.push(`${provider}: ${error}`);
+      providerFailures.push({
+        provider,
+        error,
+      });
     }
 
+    lastModelFailure = providerFailures;
     console.error(`[Agent Pipeline] Model execution failed across providers. ${failures.join(' | ')}`);
     return null;
+  },
+
+  getLastModelFailure(): AgentProviderFailureDetail[] {
+    return [...lastModelFailure];
   },
 
   parseModelOutput(output: string, agent: AgentCapability): AgentExecutionResult {
@@ -204,16 +239,26 @@ export const agentExecutionService = {
   async executeAgent(
     agent: AgentCapability,
     workOrderId: string,
-  ): Promise<AgentExecutionResult | null> {
+  ): Promise<AgentExecutionOutcome> {
     const workOrder = workOrderService.get(workOrderId);
     if (!workOrder) {
       console.error(`Work order not found: ${workOrderId}`);
-      return null;
+      return normalizeFailureReason(
+        'work_order_not_found',
+        `Work order not found: ${workOrderId}`,
+        workOrderId,
+        agent.agentId,
+      );
     }
 
     if (workOrder.state !== 'EXECUTING') {
       console.error(`Work order not in EXECUTING state: ${workOrder.state}`);
-      return null;
+      return normalizeFailureReason(
+        'invalid_work_order_state',
+        `Work order not in EXECUTING state: ${workOrder.state}`,
+        workOrderId,
+        agent.agentId,
+      );
     }
 
     const startTime = Date.now();
@@ -242,13 +287,29 @@ export const agentExecutionService = {
       // Persist result
       await agentOutputStore.save(result);
 
-      return result;
+      return {
+        success: true,
+        result,
+      };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const providerFailures = sharedPromptPipeline.getLastModelFailure();
+      const failureReason: AgentExecutionFailureReason =
+        message.includes('Model call failed') || providerFailures.length > 0
+          ? 'all_providers_failed'
+          : 'agent_execution_error';
+
       console.error(`Agent ${agent.agentId} execution failed:`, error);
       workOrderService.updateState(workOrderId, 'FAILED', {
-        error: `Agent execution error: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Agent execution error: ${message}`,
       });
-      return null;
+      return normalizeFailureReason(
+        failureReason,
+        `Agent execution error: ${message}`,
+        workOrderId,
+        agent.agentId,
+        providerFailures,
+      );
     }
   },
 

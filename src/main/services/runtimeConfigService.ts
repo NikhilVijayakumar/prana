@@ -1,16 +1,27 @@
 import { getGovernanceRepoPath, getGovernanceRepoUrl } from './governanceRepoService';
 import { readMainEnv } from './envService';
 
-const DEFAULT_DIRECTOR_NAME = 'Director';
-const DEFAULT_DIRECTOR_EMAIL = 'director@prana.local';
 const DEFAULT_VAULT_SPEC_VERSION = 'v1';
 const DEFAULT_VAULT_TEMP_ZIP_EXT = '.zip';
 const DEFAULT_VAULT_OUTPUT_PREFIX = 'vault_export_';
-const DEFAULT_VAULT_KDF_ITERATIONS = 210_000;
-const DEFAULT_SYNC_PUSH_INTERVAL_MS = 120_000;
-const DEFAULT_SYNC_CRON_ENABLED = true;
-const DEFAULT_SYNC_PUSH_CRON_EXPRESSION = '*/10 * * * *';
-const DEFAULT_SYNC_PULL_CRON_EXPRESSION = '*/15 * * * *';
+
+interface RequiredRuntimeKey {
+  neutralKey: string;
+  legacyKey: string;
+  expectedType: 'string' | 'number' | 'boolean';
+}
+
+const REQUIRED_RUNTIME_KEYS: RequiredRuntimeKey[] = [
+  { neutralKey: 'PRANA_DIRECTOR_NAME', legacyKey: 'DHI_DIRECTOR_NAME', expectedType: 'string' },
+  { neutralKey: 'PRANA_DIRECTOR_EMAIL', legacyKey: 'DHI_DIRECTOR_EMAIL', expectedType: 'string' },
+  { neutralKey: 'PRANA_VAULT_ARCHIVE_PASSWORD', legacyKey: 'DHI_VAULT_ARCHIVE_PASSWORD', expectedType: 'string' },
+  { neutralKey: 'PRANA_VAULT_ARCHIVE_SALT', legacyKey: 'DHI_VAULT_ARCHIVE_SALT', expectedType: 'string' },
+  { neutralKey: 'PRANA_VAULT_KDF_ITERATIONS', legacyKey: 'DHI_VAULT_KDF_ITERATIONS', expectedType: 'number' },
+  { neutralKey: 'PRANA_SYNC_PUSH_INTERVAL_MS', legacyKey: 'DHI_SYNC_PUSH_INTERVAL_MS', expectedType: 'number' },
+  { neutralKey: 'PRANA_SYNC_CRON_ENABLED', legacyKey: 'DHI_SYNC_CRON_ENABLED', expectedType: 'boolean' },
+  { neutralKey: 'PRANA_SYNC_PUSH_CRON_EXPRESSION', legacyKey: 'DHI_SYNC_PUSH_CRON_EXPRESSION', expectedType: 'string' },
+  { neutralKey: 'PRANA_SYNC_PULL_CRON_EXPRESSION', legacyKey: 'DHI_SYNC_PULL_CRON_EXPRESSION', expectedType: 'string' },
+];
 
 const normalizeExtension = (extension: string): string => {
   return extension.startsWith('.') ? extension : `.${extension}`;
@@ -18,6 +29,171 @@ const normalizeExtension = (extension: string): string => {
 
 const readRuntimeEnv = (neutralKey: string, legacyKey: string): string | undefined => {
   return readMainEnv(neutralKey) ?? readMainEnv(legacyKey);
+};
+
+const readRuntimeEnvWithSource = (
+  neutralKey: string,
+  legacyKey: string,
+): { value?: string; source: 'neutral' | 'legacy' | 'missing' } => {
+  const neutral = readMainEnv(neutralKey);
+  if (neutral) {
+    return {
+      value: neutral,
+      source: 'neutral',
+    };
+  }
+
+  const legacy = readMainEnv(legacyKey);
+  if (legacy) {
+    return {
+      value: legacy,
+      source: 'legacy',
+    };
+  }
+
+  return {
+    source: 'missing',
+  };
+};
+
+export interface RuntimeIntegrationKeyStatus {
+  key: string;
+  legacyKey: string;
+  expectedType: 'string' | 'number' | 'boolean';
+  present: boolean;
+  valid: boolean;
+  source: 'neutral' | 'legacy' | 'missing';
+  issue?: 'missing' | 'invalid_number' | 'invalid_boolean';
+}
+
+export interface RuntimeIntegrationStatus {
+  ready: boolean;
+  summary: {
+    total: number;
+    available: number;
+    missing: number;
+    invalid: number;
+  };
+  keys: RuntimeIntegrationKeyStatus[];
+}
+
+const evaluateRuntimeKey = (config: RequiredRuntimeKey): RuntimeIntegrationKeyStatus => {
+  const result = readRuntimeEnvWithSource(config.neutralKey, config.legacyKey);
+  const present = typeof result.value === 'string';
+
+  if (!present) {
+    return {
+      key: config.neutralKey,
+      legacyKey: config.legacyKey,
+      expectedType: config.expectedType,
+      present: false,
+      valid: false,
+      source: 'missing',
+      issue: 'missing',
+    };
+  }
+
+  if (config.expectedType === 'number') {
+    const parsed = Number.parseInt(result.value as string, 10);
+    if (Number.isNaN(parsed)) {
+      return {
+        key: config.neutralKey,
+        legacyKey: config.legacyKey,
+        expectedType: config.expectedType,
+        present: true,
+        valid: false,
+        source: result.source,
+        issue: 'invalid_number',
+      };
+    }
+  }
+
+  if (config.expectedType === 'boolean') {
+    const normalized = (result.value as string).trim().toLowerCase();
+    if (normalized !== 'true' && normalized !== 'false') {
+      return {
+        key: config.neutralKey,
+        legacyKey: config.legacyKey,
+        expectedType: config.expectedType,
+        present: true,
+        valid: false,
+        source: result.source,
+        issue: 'invalid_boolean',
+      };
+    }
+  }
+
+  return {
+    key: config.neutralKey,
+    legacyKey: config.legacyKey,
+    expectedType: config.expectedType,
+    present: true,
+    valid: true,
+    source: result.source,
+  };
+};
+
+export const getRuntimeIntegrationStatus = (): RuntimeIntegrationStatus => {
+  const keys = REQUIRED_RUNTIME_KEYS.map((entry) => evaluateRuntimeKey(entry));
+  const missing = keys.filter((entry) => !entry.present).length;
+  const invalid = keys.filter((entry) => entry.present && !entry.valid).length;
+  const available = keys.filter((entry) => entry.present).length;
+
+  return {
+    ready: missing === 0 && invalid === 0,
+    summary: {
+      total: keys.length,
+      available,
+      missing,
+      invalid,
+    },
+    keys,
+  };
+};
+
+const assertRequiredRuntimeEnv = (): void => {
+  const status = getRuntimeIntegrationStatus();
+  const missingKeys = status.keys
+    .filter((entry) => entry.issue === 'missing')
+    .map((entry) => `${entry.key} (legacy: ${entry.legacyKey})`);
+  const invalidKeys = status.keys
+    .filter((entry) => entry.issue === 'invalid_number' || entry.issue === 'invalid_boolean')
+    .map((entry) => `${entry.key} (${entry.issue})`);
+
+  if (missingKeys.length > 0 || invalidKeys.length > 0) {
+    const parts: string[] = [];
+    if (missingKeys.length > 0) {
+      parts.push(`missing: ${missingKeys.join(', ')}`);
+    }
+    if (invalidKeys.length > 0) {
+      parts.push(`invalid: ${invalidKeys.join(', ')}`);
+    }
+
+    throw new Error(
+      `[PRANA_CONFIG_ERROR] Runtime env validation failed (${parts.join('; ')}). ` +
+        'Prana standalone integration requires these keys to be defined before bootstrap.',
+    );
+  }
+};
+
+const parseRequiredNumber = (value: string, key: string): number => {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`[PRANA_CONFIG_ERROR] Invalid numeric value for ${key}: "${value}"`);
+  }
+  return parsed;
+};
+
+const parseRequiredBoolean = (value: string, key: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+
+  throw new Error(`[PRANA_CONFIG_ERROR] Invalid boolean value for ${key}: "${value}". Use true|false.`);
 };
 
 export interface RuntimeBootstrapConfig {
@@ -77,38 +253,26 @@ export interface PublicRuntimeConfig {
 }
 
 export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
-  const directorName = readRuntimeEnv('PRANA_DIRECTOR_NAME', 'DHI_DIRECTOR_NAME') ?? DEFAULT_DIRECTOR_NAME;
-  const directorEmail = readRuntimeEnv('PRANA_DIRECTOR_EMAIL', 'DHI_DIRECTOR_EMAIL') ?? DEFAULT_DIRECTOR_EMAIL;
+  assertRequiredRuntimeEnv();
+
+  const directorName = readRuntimeEnv('PRANA_DIRECTOR_NAME', 'DHI_DIRECTOR_NAME') as string;
+  const directorEmail = readRuntimeEnv('PRANA_DIRECTOR_EMAIL', 'DHI_DIRECTOR_EMAIL') as string;
   const directorPassword = readRuntimeEnv('PRANA_DIRECTOR_PASSWORD', 'DHI_DIRECTOR_PASSWORD');
   const directorPasswordHash = readRuntimeEnv('PRANA_DIRECTOR_PASSWORD_HASH', 'DHI_DIRECTOR_PASSWORD_HASH');
 
-  const vaultPassword = readRuntimeEnv('PRANA_VAULT_ARCHIVE_PASSWORD', 'DHI_VAULT_ARCHIVE_PASSWORD');
-  const vaultSalt = readRuntimeEnv('PRANA_VAULT_ARCHIVE_SALT', 'DHI_VAULT_ARCHIVE_SALT');
-  const vaultKdfIterationsRaw = readRuntimeEnv('PRANA_VAULT_KDF_ITERATIONS', 'DHI_VAULT_KDF_ITERATIONS');
-  const vaultKdfIterations = vaultKdfIterationsRaw
-    ? Math.max(100_000, Number.parseInt(vaultKdfIterationsRaw, 10) || DEFAULT_VAULT_KDF_ITERATIONS)
-    : DEFAULT_VAULT_KDF_ITERATIONS;
+  const vaultPassword = readRuntimeEnv('PRANA_VAULT_ARCHIVE_PASSWORD', 'DHI_VAULT_ARCHIVE_PASSWORD') as string;
+  const vaultSalt = readRuntimeEnv('PRANA_VAULT_ARCHIVE_SALT', 'DHI_VAULT_ARCHIVE_SALT') as string;
+  const vaultKdfIterationsRaw = readRuntimeEnv('PRANA_VAULT_KDF_ITERATIONS', 'DHI_VAULT_KDF_ITERATIONS') as string;
+  const vaultKdfIterations = Math.max(100_000, parseRequiredNumber(vaultKdfIterationsRaw, 'PRANA_VAULT_KDF_ITERATIONS'));
   const keepTempOnClose = readRuntimeEnv('PRANA_VAULT_KEEP_TEMP_ON_CLOSE', 'DHI_VAULT_KEEP_TEMP_ON_CLOSE') === 'true';
-  const syncPushIntervalRaw = readRuntimeEnv('PRANA_SYNC_PUSH_INTERVAL_MS', 'DHI_SYNC_PUSH_INTERVAL_MS');
-  const syncPushIntervalMs = syncPushIntervalRaw
-    ? Math.max(30_000, Number.parseInt(syncPushIntervalRaw, 10) || DEFAULT_SYNC_PUSH_INTERVAL_MS)
-    : DEFAULT_SYNC_PUSH_INTERVAL_MS;
-  const syncCronEnabledRaw = readRuntimeEnv('PRANA_SYNC_CRON_ENABLED', 'DHI_SYNC_CRON_ENABLED');
-  const syncCronEnabled = syncCronEnabledRaw ? syncCronEnabledRaw !== 'false' : DEFAULT_SYNC_CRON_ENABLED;
+  const syncPushIntervalRaw = readRuntimeEnv('PRANA_SYNC_PUSH_INTERVAL_MS', 'DHI_SYNC_PUSH_INTERVAL_MS') as string;
+  const syncPushIntervalMs = Math.max(30_000, parseRequiredNumber(syncPushIntervalRaw, 'PRANA_SYNC_PUSH_INTERVAL_MS'));
+  const syncCronEnabledRaw = readRuntimeEnv('PRANA_SYNC_CRON_ENABLED', 'DHI_SYNC_CRON_ENABLED') as string;
+  const syncCronEnabled = parseRequiredBoolean(syncCronEnabledRaw, 'PRANA_SYNC_CRON_ENABLED');
   const syncPushCronExpression =
-    readRuntimeEnv('PRANA_SYNC_PUSH_CRON_EXPRESSION', 'DHI_SYNC_PUSH_CRON_EXPRESSION') ?? DEFAULT_SYNC_PUSH_CRON_EXPRESSION;
+    readRuntimeEnv('PRANA_SYNC_PUSH_CRON_EXPRESSION', 'DHI_SYNC_PUSH_CRON_EXPRESSION') as string;
   const syncPullCronExpression =
-    readRuntimeEnv('PRANA_SYNC_PULL_CRON_EXPRESSION', 'DHI_SYNC_PULL_CRON_EXPRESSION') ?? DEFAULT_SYNC_PULL_CRON_EXPRESSION;
-
-  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
-  const resolvedVaultPassword = vaultPassword ?? (isTestEnv ? 'test-only-prana-vault-password' : undefined);
-  const resolvedVaultSalt = vaultSalt ?? (isTestEnv ? 'test-only-prana-vault-salt' : undefined);
-
-  if (!resolvedVaultPassword || !resolvedVaultSalt) {
-    throw new Error(
-      'Missing vault encryption env. Set PRANA_VAULT_ARCHIVE_PASSWORD and PRANA_VAULT_ARCHIVE_SALT (legacy DHI_* aliases still supported).',
-    );
-  }
+    readRuntimeEnv('PRANA_SYNC_PULL_CRON_EXPRESSION', 'DHI_SYNC_PULL_CRON_EXPRESSION') as string;
 
   return {
     director: {
@@ -127,8 +291,8 @@ export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
         readRuntimeEnv('PRANA_VAULT_TEMP_ZIP_EXT', 'DHI_VAULT_TEMP_ZIP_EXT') ?? DEFAULT_VAULT_TEMP_ZIP_EXT,
       ),
       outputPrefix: readRuntimeEnv('PRANA_VAULT_OUTPUT_PREFIX', 'DHI_VAULT_OUTPUT_PREFIX') ?? DEFAULT_VAULT_OUTPUT_PREFIX,
-      archivePassword: resolvedVaultPassword,
-      archiveSalt: resolvedVaultSalt,
+      archivePassword: vaultPassword,
+      archiveSalt: vaultSalt,
       kdfIterations: vaultKdfIterations,
       keepTempOnClose,
     },

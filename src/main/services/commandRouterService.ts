@@ -210,11 +210,15 @@ export const commandRouterService = {
       const agent = agentRegistryService.getAgent(started.workOrder.targetEmployeeId);
       if (agent && agentRegistryService.isImplemented(started.workOrder.targetEmployeeId)) {
         try {
-          const result = await agentExecutionService.executeAgent(agent, started.workOrder.id);
-          if (result) {
+          const outcome = await agentExecutionService.executeAgent(agent, started.workOrder.id);
+          if (outcome.success) {
             // Update with agent synthesis
             workOrderService.updateState(started.workOrder.id, 'SYNTHESIS', {
-              summary: result.synthesis,
+              summary: outcome.result.synthesis,
+            });
+          } else {
+            workOrderService.updateState(started.workOrder.id, 'FAILED', {
+              error: outcome.message,
             });
           }
         } catch (error) {

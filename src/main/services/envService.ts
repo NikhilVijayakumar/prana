@@ -14,11 +14,20 @@ const loadDotEnv = (): void => {
   if (dotEnvLoaded) return;
   dotEnvLoaded = true;
 
+  // Detect if running in test mode (vitest, jest, etc.)
+  const isTestMode = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || typeof global.it === 'function';
+
   // Candidate locations for the .env file
-  const candidates: string[] = [
-    resolve('.env'),                                  // CWD (typical for dev)
-    join(dirname(process.execPath), '.env'),          // next to the Electron binary
-  ];
+  // In test mode, prioritize .env.test to avoid conflicts with .env (dev) and .env.production
+  const candidates: string[] = [];
+
+  if (isTestMode) {
+    candidates.push(resolve('.env.test'));                                  // CWD .env.test (test)
+    candidates.push(resolve(__dirname, '..', '..', '.env.test'));          // project root .env.test
+  }
+
+  candidates.push(resolve('.env'),                                  // CWD (typical for dev)
+  join(dirname(process.execPath), '.env'));          // next to the Electron binary
 
   // When running inside electron-vite dev, __dirname is out/main
   // The project root .env is two levels up.

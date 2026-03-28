@@ -73,6 +73,33 @@ export interface AgentExecutionResult {
   requiresDirectorReview: boolean;
 }
 
+export type AgentExecutionFailureReason =
+  | 'work_order_not_found'
+  | 'invalid_work_order_state'
+  | 'all_providers_failed'
+  | 'agent_execution_error';
+
+export interface AgentProviderFailureDetail {
+  provider: 'lm-studio' | 'openrouter' | 'gemini-cli';
+  error: string;
+}
+
+export interface AgentExecutionFailure {
+  success: false;
+  workOrderId: string;
+  agentId: string;
+  failureReason: AgentExecutionFailureReason;
+  message: string;
+  providerFailures: AgentProviderFailureDetail[];
+}
+
+export interface AgentExecutionSuccess {
+  success: true;
+  result: AgentExecutionResult;
+}
+
+export type AgentExecutionOutcome = AgentExecutionSuccess | AgentExecutionFailure;
+
 /**
  * Protocol: AgentCapability
  * Defines what an agent can do.
@@ -124,6 +151,11 @@ export interface SharedPromptPipeline {
    * Returns synthesis or null if failed.
    */
   callModel(systemPrompt: string, userPrompt: string): Promise<string | null>;
+
+  /**
+   * Returns diagnostics from the most recent callModel invocation.
+   */
+  getLastModelFailure(): AgentProviderFailureDetail[];
 
   /**
    * Parse model output into structured synthesis.

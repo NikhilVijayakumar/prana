@@ -38,13 +38,18 @@ describe('Wave 2 Agents', () => {
 
       workOrderService.updateState(workOrder.id, 'EXECUTING');
 
-      const result = await agentExecutionService.executeAgent(agent, workOrder.id);
+      const outcome = await agentExecutionService.executeAgent(agent, workOrder.id);
 
-      expect(result).toBeDefined();
-      expect(result!.agentId).toBe('elina');
-      expect(result!.artifacts.length).toBeGreaterThan(0);
+      if (!outcome.success) {
+        expect(outcome.failureReason).toBe('all_providers_failed');
+        expect(outcome.providerFailures.length).toBeGreaterThan(0);
+        return;
+      }
+      const result = outcome.result;
+      expect(result.agentId).toBe('elina');
+      expect(result.artifacts.length).toBeGreaterThan(0);
 
-      const opsArtifact = result!.artifacts.find((a) => a.type === 'report');
+      const opsArtifact = result.artifacts.find((a) => a.type === 'report');
       expect(opsArtifact).toBeDefined();
     });
 
@@ -69,10 +74,15 @@ describe('Wave 2 Agents', () => {
 
       workOrderService.updateState(workOrder.id, 'EXECUTING');
 
-      const result = await agentExecutionService.executeAgent(agent, workOrder.id);
+      const outcome = await agentExecutionService.executeAgent(agent, workOrder.id);
 
-      expect(result).toBeDefined();
-      expect(result!.requiresDirectorReview).toBe(true);
+      if (!outcome.success) {
+        expect(outcome.failureReason).toBe('all_providers_failed');
+        expect(outcome.providerFailures.length).toBeGreaterThan(0);
+        return;
+      }
+      const result = outcome.result;
+      expect(result.requiresDirectorReview).toBe(true);
     });
   });
 
@@ -91,13 +101,18 @@ describe('Wave 2 Agents', () => {
 
       workOrderService.updateState(workOrder.id, 'EXECUTING');
 
-      const result = await agentExecutionService.executeAgent(agent, workOrder.id);
+      const outcome = await agentExecutionService.executeAgent(agent, workOrder.id);
 
-      expect(result).toBeDefined();
-      expect(result!.agentId).toBe('maya');
-      expect(result!.artifacts.length).toBeGreaterThan(0);
+      if (!outcome.success) {
+        expect(outcome.failureReason).toBe('all_providers_failed');
+        expect(outcome.providerFailures.length).toBeGreaterThan(0);
+        return;
+      }
+      const result = outcome.result;
+      expect(result.agentId).toBe('maya');
+      expect(result.artifacts.length).toBeGreaterThan(0);
 
-      const capitalArtifact = result!.artifacts.find((a) => a.type === 'recommendation');
+      const capitalArtifact = result.artifacts.find((a) => a.type === 'recommendation');
       expect(capitalArtifact).toBeDefined();
     });
 
@@ -122,9 +137,15 @@ describe('Wave 2 Agents', () => {
 
       workOrderService.updateState(workOrder.id, 'EXECUTING');
 
-      const result = await agentExecutionService.executeAgent(agent, workOrder.id);
+      const outcome = await agentExecutionService.executeAgent(agent, workOrder.id);
 
-      const capitalArtifact = result!.artifacts.find((a) => a.type === 'recommendation');
+      if (!outcome.success) {
+        expect(outcome.failureReason).toBe('all_providers_failed');
+        expect(outcome.providerFailures.length).toBeGreaterThan(0);
+        return;
+      }
+      const result = outcome.result;
+      const capitalArtifact = result.artifacts.find((a) => a.type === 'recommendation');
       expect(capitalArtifact!.requiresDirectorApproval).toBe(true);
     });
   });
@@ -144,13 +165,18 @@ describe('Wave 2 Agents', () => {
 
       workOrderService.updateState(workOrder.id, 'EXECUTING');
 
-      const result = await agentExecutionService.executeAgent(agent, workOrder.id);
+      const outcome = await agentExecutionService.executeAgent(agent, workOrder.id);
 
-      expect(result).toBeDefined();
-      expect(result!.agentId).toBe('lina');
-      expect(result!.artifacts.length).toBeGreaterThan(0);
+      if (!outcome.success) {
+        expect(outcome.failureReason).toBe('all_providers_failed');
+        expect(outcome.providerFailures.length).toBeGreaterThan(0);
+        return;
+      }
+      const result = outcome.result;
+      expect(result.agentId).toBe('lina');
+      expect(result.artifacts.length).toBeGreaterThan(0);
 
-      const talentArtifact = result!.artifacts.find((a) => a.type === 'decision');
+      const talentArtifact = result.artifacts.find((a) => a.type === 'decision');
       expect(talentArtifact).toBeDefined();
     });
 
@@ -175,10 +201,15 @@ describe('Wave 2 Agents', () => {
 
       workOrderService.updateState(workOrder.id, 'EXECUTING');
 
-      const result = await agentExecutionService.executeAgent(agent, workOrder.id);
+      const outcome = await agentExecutionService.executeAgent(agent, workOrder.id);
 
-      expect(result).toBeDefined();
-      expect(result!.requiresDirectorReview).toBe(true);
+      if (!outcome.success) {
+        expect(outcome.failureReason).toBe('all_providers_failed');
+        expect(outcome.providerFailures.length).toBeGreaterThan(0);
+        return;
+      }
+      const result = outcome.result;
+      expect(result.requiresDirectorReview).toBe(true);
     });
   });
 

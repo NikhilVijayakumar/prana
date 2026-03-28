@@ -1,5 +1,13 @@
 # Bug Report: Missing `externalizeDepsPlugin` in Prana
 
+## Status (2026-03-28)
+Overall: CLOSED
+
+Resolution evidence:
+1. `electron.vite.config.ts` uses `externalizeDepsPlugin()` for main and preload.
+2. Main/preload Rollup external dependencies include `sql.js`, `bcryptjs`, `js-tiktoken`, `mammoth`, `marked`, and `turndown`.
+3. Typecheck and build pass in this workspace.
+
 ## Issue Description
 We encountered a crash when running the dev server for the `dhi` app which consumes `prana`. 
 The dev server crashed during the initial electron main process loading with the following error:
@@ -16,8 +24,6 @@ The root cause was that Vite (via Rollup) was aggressively bundling `sql.js` ins
 While this was fixed inside `dhi` by adding `externalizeDepsPlugin` and explicit external configurations (e.g., `external: ['sql.js']`) to `dhi/electron.vite.config.ts`, a similar bug might be present in `prana`'s own build configuration. 
 
 ## Recommended Fix in Prana
-Upon inspecting `prana/electron.vite.config.ts`, it also lacks the `externalizeDepsPlugin` import and explicit `external` configurations for its `rollupOptions`. 
+Completed.
 
-The `prana` development team should update `prana/electron.vite.config.ts` to include:
-1. `externalizeDepsPlugin` for both `main` and `preload`.
-2. Explicit `external: ['sql.js', 'bcryptjs', 'js-tiktoken', 'mammoth', 'marked', 'turndown']` where necessary to avoid native-module/UMD bundling issues in the main environment.
+No further action is required unless new ESM dependency regressions are introduced.

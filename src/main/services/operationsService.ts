@@ -2044,8 +2044,18 @@ const ensureOperationsStateStore = async (): Promise<void> => {
 
 const readOperationsState = async (): Promise<PersistedOperationsState> => {
   await ensureOperationsStateStore();
-  const raw = await readFile(getOperationsStatePath(), 'utf8');
-  const parsed = normalizeOperationsState(JSON.parse(raw) as PersistedOperationsState);
+  const statePath = getOperationsStatePath();
+  let parsed: PersistedOperationsState;
+
+  try {
+    const raw = await readFile(statePath, 'utf8');
+    parsed = normalizeOperationsState(JSON.parse(raw) as PersistedOperationsState);
+  } catch {
+    const seeded = seedOperationsState();
+    await writeFile(statePath, JSON.stringify(seeded, null, 2), 'utf8');
+    parsed = seeded;
+  }
+
   const pruned = pruneLegacyDemoState(parsed);
 
   if (
@@ -2199,6 +2209,34 @@ const synthesizeOnboardingRegistry = (): OnboardingAgentKpiRecord[] => {
     role: agent.role,
     kpis: buildOnboardingKpisForAgent(agent.agentId, agent.role),
   }));
+};
+
+const buildOnboardingKpiPayloadFromState = (state: PersistedOperationsState): OnboardingKpiPayload => {
+  const generatedAt = state.onboardingGeneratedAt ?? new Date().toISOString();
+
+  const registry = agentRegistryService.listAgents().map((agent) => {
+    const existing = state.onboardingKpis.find((record) => record.agentId === agent.agentId);
+    return {
+      agentId: agent.agentId,
+      agent: agent.name,
+      role: agent.role,
+      kpis: existing ? existing.kpis : [],
+    };
+  });
+
+  const statuses: OnboardingAgentStatus[] = registry.map((record) => ({
+    id: record.agentId,
+    name: record.agent,
+    role: record.role,
+    status: record.kpis.length > 0 ? 'DONE' : 'QUEUED',
+    kpiCount: record.kpis.length,
+  }));
+
+  return {
+    generatedAt,
+    statuses,
+    registry,
+  };
 };
 
 const roleToDesignation = (role: string): string => {
@@ -3021,31 +3059,7 @@ export const operationsService = {
 
   async getOnboardingKpiPayload(): Promise<OnboardingKpiPayload> {
     const state = await readOperationsState();
-    const generatedAt = state.onboardingGeneratedAt ?? new Date().toISOString();
-
-    const registry = agentRegistryService.listAgents().map((agent) => {
-      const existing = state.onboardingKpis.find((record) => record.agentId === agent.agentId);
-      return {
-        agentId: agent.agentId,
-        agent: agent.name,
-        role: agent.role,
-        kpis: existing ? existing.kpis : [],
-      };
-    });
-
-    const statuses: OnboardingAgentStatus[] = registry.map((record) => ({
-      id: record.agentId,
-      name: record.agent,
-      role: record.role,
-      status: record.kpis.length > 0 ? 'DONE' : 'QUEUED',
-      kpiCount: record.kpis.length,
-    }));
-
-    return {
-      generatedAt,
-      statuses,
-      registry,
-    };
+    return buildOnboardingKpiPayloadFromState(state);
   },
 
   async getOnboardingCommitStatus(): Promise<boolean> {
@@ -3067,7 +3081,7 @@ export const operationsService = {
     state.onboardingKpis = synthesizeOnboardingRegistry();
     state.onboardingGeneratedAt = new Date().toISOString();
     await writeOperationsState(state);
-    return this.getOnboardingKpiPayload();
+    return buildOnboardingKpiPayloadFromState(state);
   },
 
   async removeOnboardingKpi(agentId: string, kpiId: string): Promise<OnboardingKpiPayload> {
@@ -3075,12 +3089,12 @@ export const operationsService = {
     const record = state.onboardingKpis.find((entry) => entry.agentId === agentId);
 
     if (!record) {
-      return this.getOnboardingKpiPayload();
+      return buildOnboardingKpiPayloadFromState(state);
     }
 
     record.kpis = record.kpis.filter((kpi) => kpi.id !== kpiId);
     await writeOperationsState(state);
-    return this.getOnboardingKpiPayload();
+    return buildOnboardingKpiPayloadFromState(state);
   },
 
   async commitOnboarding(payload: OnboardingCommitPayload): Promise<OnboardingCommitResult> {

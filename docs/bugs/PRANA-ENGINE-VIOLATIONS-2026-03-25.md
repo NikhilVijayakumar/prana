@@ -1,5 +1,12 @@
 # PRANA Engine Violation Audit (2026-03-25)
 
+## Status (2026-03-28)
+Overall: CLOSED for current repository scope.
+
+Notes:
+1. This file is retained as historical audit evidence from dependency-tree review.
+2. Current repository implementation has moved core identity/config to neutralized runtime contracts and startup integration gates.
+
 ## Scope
 - Source reviewed from dependency tree: `e:/Python/dhi/node_modules/prana/src`
 - Objective: verify Prana shared-library behavior against split model (shared by Dhi and Vidhan, app-agnostic core)

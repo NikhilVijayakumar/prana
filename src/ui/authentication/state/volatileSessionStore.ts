@@ -1,5 +1,5 @@
 /**
- * Re-export from @prana/ui/state/volatileSessionStore.
+ * Re-export from prana/ui/state/volatileSessionStore.
  *
  * This re-export exists only for backward-compatibility during the transition.
  */

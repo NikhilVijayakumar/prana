@@ -1,7 +1,7 @@
 import { FC, ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useVolatileSessionStore } from '@prana/ui/state/volatileSessionStore';
-import { SESSION_TOKEN_PREFIX, LEGACY_SESSION_TOKEN_PREFIX } from '@prana/ui/constants/storageKeys';
+import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
+import { SESSION_TOKEN_PREFIX, LEGACY_SESSION_TOKEN_PREFIX } from 'prana/ui/constants/storageKeys';
 import { getFirstEnabledMainRoute, isRouteEnabledByManifest } from '../constants/moduleRegistry';
 
 interface AuthGuardProps {

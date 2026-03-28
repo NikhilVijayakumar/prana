@@ -2,7 +2,7 @@ import { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOnboardingViewModel } from '../viewmodel/useOnboardingViewModel';
 import { OnboardingView } from './OnboardingView';
-import { getFirstEnabledMainRoute } from '@prana/ui/constants/moduleRegistry';
+import { getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 
 export const OnboardingContainer: FC = () => {
   const navigate = useNavigate();

@@ -1,5 +1,13 @@
 # Prana Consolidated Bug and Gap Log (2026-03-25)
 
+## Status (2026-03-28)
+Overall: CLOSED for active bug remediation scope.
+
+Notes:
+1. Critical BUG items are resolved.
+2. Enhancement GAP items are resolved.
+3. Remaining technical-debt notes are documentation/planning follow-ups, not active runtime blockers.
+
 Source ledgers reviewed:
 - `docs/reference/issue/prana/Engine/Logic/PRANA-ENGINE-VIOLATIONS-2026-03-25.md`
 - `docs/reference/bugs/Dhi Executive/IMPLEMENTATION-VIOLATION-AUDIT-2026-03-25.md`
@@ -126,7 +134,7 @@ Resolution summary:
 
 ## [TECHNICAL-DEBT] TD-001 - Legacy schema contract diverges from implementation
 Type: Gap
-Status: OPEN
+Status: TRACKED (non-blocking)
 
 Evidence:
 - Legacy contract in `docs/reference/monorepo/system/hybrid schema.md` defines canonical tables not fully mirrored by current runtime table naming and model split.
@@ -139,7 +147,7 @@ Action:
 
 ## [TECHNICAL-DEBT] TD-002 - Legacy docs mention feature sets without matching service implementation
 Type: Gap
-Status: PARTIALLY RESOLVED (documentation status labeling)
+Status: TRACKED (non-blocking)
 
 Evidence:
 - Feature docs for email heartbeat and draft sync exist, but dedicated email service implementation is not present under `src/main/services/*email*`.

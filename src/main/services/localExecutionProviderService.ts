@@ -49,9 +49,11 @@ export interface ModelExecutionResult {
 class ConfigEncryption {
   private static readonly KEY_LENGTH = 32;
   private static readonly NONCE_LENGTH = 12;
+  private static readonly KDF_SALT_CURRENT = 'prana-local-config-salt';
+  private static readonly KDF_SALT_LEGACY = 'dhi-local-config-salt';
 
-  static deriveKey(masterPassword: string): Buffer {
-    const salt = Buffer.from('dhi-local-config-salt', 'utf8');
+  static deriveKey(masterPassword: string, saltValue = ConfigEncryption.KDF_SALT_CURRENT): Buffer {
+    const salt = Buffer.from(saltValue, 'utf8');
     return crypto.pbkdf2Sync(masterPassword, salt, 100000, this.KEY_LENGTH, 'sha256');
   }
 
@@ -67,23 +69,30 @@ class ConfigEncryption {
     return `${nonce.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
   }
 
+  private static decryptWithSalt(value: string, masterPassword: string, saltValue: string): string | null {
+    const [nonceHex, authTagHex, ciphertextHex] = value.split(':');
+    if (!nonceHex || !authTagHex || !ciphertextHex) {
+      return null;
+    }
+
+    const key = this.deriveKey(masterPassword, saltValue);
+    const nonce = Buffer.from(nonceHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+    decipher.setAuthTag(authTag);
+
+    let plaintext = decipher.update(ciphertextHex, 'hex', 'utf8');
+    plaintext += decipher.final('utf8');
+    return plaintext;
+  }
+
   static decrypt(value: string, masterPassword: string): string | null {
     try {
-      const [nonceHex, authTagHex, ciphertextHex] = value.split(':');
-      if (!nonceHex || !authTagHex || !ciphertextHex) {
-        return null;
-      }
-
-      const key = this.deriveKey(masterPassword);
-      const nonce = Buffer.from(nonceHex, 'hex');
-      const authTag = Buffer.from(authTagHex, 'hex');
-
-      const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-      decipher.setAuthTag(authTag);
-
-      let plaintext = decipher.update(ciphertextHex, 'hex', 'utf8');
-      plaintext += decipher.final('utf8');
-      return plaintext;
+      return (
+        this.decryptWithSalt(value, masterPassword, ConfigEncryption.KDF_SALT_CURRENT) ??
+        this.decryptWithSalt(value, masterPassword, ConfigEncryption.KDF_SALT_LEGACY)
+      );
     } catch {
       return null;
     }

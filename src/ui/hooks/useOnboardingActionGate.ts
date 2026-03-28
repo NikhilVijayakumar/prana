@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from 'astra';
-import { useVolatileSessionStore } from '@prana/ui/state/volatileSessionStore';
+import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
 
 export interface OnboardingActionGate {
   isBlocked: boolean;

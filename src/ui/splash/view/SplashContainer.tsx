@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSplashViewModel } from '../viewmodel/useSplashViewModel';
 import { SplashView } from './SplashView';
 import { StateType } from 'astra';
-import { volatileSessionStore } from '@prana/ui/authentication/state/volatileSessionStore';
-import { getFirstEnabledMainRoute } from '@prana/ui/constants/moduleRegistry';
+import { volatileSessionStore } from 'prana/ui/authentication/state/volatileSessionStore';
+import { getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 
 export const SplashContainer: FC = () => {
   const navigate = useNavigate();

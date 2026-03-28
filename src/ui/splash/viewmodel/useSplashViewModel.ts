@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useDataState, StateType } from 'astra';
 import { AuthRepo } from '../../authentication/repo/AuthRepo';
-import { ModelGatewayRepo } from '@prana/ui/repo/modelGateway';
+import { ModelGatewayRepo } from 'prana/ui/repo/modelGateway';
+
+const REQUIRED_STARTUP_STAGE_IDS = new Set(['integration', 'governance', 'vault']);
+
+const hasRequiredStartupStagesReady = (startupStatus: any): boolean => {
+  const stages = Array.isArray(startupStatus?.stages) ? startupStatus.stages : [];
+  return stages
+    .filter((stage: any) => REQUIRED_STARTUP_STAGE_IDS.has(stage.id))
+    .every((stage: any) => stage.status === 'SUCCESS');
+};
 
 export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => void) => {
   // useDataState returns: [state, execute, setAppState]
@@ -15,6 +24,21 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
 
     const runBootSequence = async () => {
       setBootState(prev => ({ ...prev, state: StateType.LOADING }));
+
+      const startupStatus = window.api?.app?.getStartupStatus
+        ? await window.api.app.getStartupStatus()
+        : null;
+
+      if (!isMounted) return;
+
+      if (!hasRequiredStartupStagesReady(startupStatus)) {
+        setStatusMessage('Startup orchestration did not pass required checks. Access blocked.');
+        setBootState(prev => ({ ...prev, state: StateType.COMPLETED, isSuccess: false }));
+        setTimeout(() => {
+          if (isMounted) onSshFailure();
+        }, 300);
+        return;
+      }
 
       const sshStatus = await authRepo.checkSSHStatus();
       if (!isMounted) return;

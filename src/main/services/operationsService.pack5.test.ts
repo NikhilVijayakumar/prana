@@ -59,6 +59,11 @@ describe('operationsService Phase E Pack 5', () => {
       preferredModelProvider: 'openrouter',
       themeMode: 'dark',
       reducedMotion: true,
+      syncCronEnabled: false,
+      syncPushCronEnabled: false,
+      syncPullCronEnabled: false,
+      syncPushCronExpression: '*/5 * * * *',
+      syncPullCronExpression: '0 * * * *',
     });
 
     const loaded = await operationsService.loadSettings();

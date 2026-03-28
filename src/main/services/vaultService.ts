@@ -10,8 +10,9 @@ import { memoryIndexService } from './memoryIndexService';
 
 const DEFAULT_SCHEMA_FILE = 'schema_validation.json';
 const DEFAULT_INDEX_FILE = 'vault_index.json';
-const ENVELOPE_MAGIC = 'DHI_VAULT_V1';
-const STASH_MARKER = 'dhi-vault-auto-stash';
+const ENVELOPE_MAGIC_V1_CURRENT = 'PRANA_VAULT_V1';
+const ENVELOPE_MAGIC_V1_LEGACY = 'DHI_VAULT_V1';
+const STASH_MARKER_CURRENT = 'prana-vault-auto-stash';
 
 export type VaultClassification = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED';
 export type VaultScanStatus = 'PENDING' | 'SCANNING' | 'CLEAN' | 'QUARANTINE';
@@ -168,7 +169,7 @@ const encryptVaultPayload = (payload: VaultArchivePayload): VaultArchiveEnvelope
   const tag = cipher.getAuthTag();
 
   return {
-    magic: ENVELOPE_MAGIC,
+    magic: ENVELOPE_MAGIC_V1_CURRENT,
     algorithm: 'aes-256-gcm',
     kdf: 'pbkdf2-sha256',
     iterations: vaultConfig.kdfIterations,
@@ -186,7 +187,7 @@ const decryptVaultEnvelope = (envelopeRaw: string): VaultArchivePayload => {
     throw new Error('Vault archive is not a valid encrypted envelope.');
   }
 
-  if (envelope.magic !== ENVELOPE_MAGIC) {
+  if (envelope.magic !== ENVELOPE_MAGIC_V1_CURRENT && envelope.magic !== ENVELOPE_MAGIC_V1_LEGACY) {
     throw new Error('Vault archive signature mismatch. Renaming to .zip will not produce an extractable file.');
   }
 
@@ -375,7 +376,7 @@ const stashChanges = async (repoPath: string): Promise<string | null> => {
     return null;
   }
 
-  const stashLabel = `${STASH_MARKER}-${Date.now()}`;
+  const stashLabel = `${STASH_MARKER_CURRENT}-${Date.now()}`;
 
   const stashResult = await executeCommand(
     'git',

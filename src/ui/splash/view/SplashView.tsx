@@ -2,7 +2,7 @@ import { FC } from 'react';
 import { Box, Typography, CircularProgress, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
 import { spacing } from 'astra';
-import { APP_BRAND_NAME, APP_SPLASH_SUBTITLE } from '@prana/ui/constants/appBranding';
+import { APP_BRAND_NAME, APP_SPLASH_SUBTITLE } from 'prana/ui/constants/appBranding';
 
 interface SplashViewProps {
   isLoading: boolean;

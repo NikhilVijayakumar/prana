@@ -20,11 +20,11 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, useTheme, ThemeToggle } from 'astra';
 import { spacing } from 'astra';
-import { DirectorInteractionBar } from '@prana/ui/components/DirectorInteractionBar';
-import { APP_BRAND_NAME, APP_TITLEBAR_TAGLINE } from '@prana/ui/constants/appBranding';
-import { getInteractionContextForPath } from '@prana/ui/constants/employeeDirectory';
-import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from '@prana/ui/constants/moduleRegistry';
-import { useVolatileSessionStore } from '@prana/ui/state/volatileSessionStore';
+import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionBar';
+import { APP_BRAND_NAME, APP_TITLEBAR_TAGLINE } from 'prana/ui/constants/appBranding';
+import { getInteractionContextForPath } from 'prana/ui/constants/employeeDirectory';
+import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
+import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
 
 interface MainLayoutProps {
   children?: ReactNode;

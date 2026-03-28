@@ -15,7 +15,7 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@prana': resolve(__dirname, 'src')
+        'prana': resolve(__dirname, 'src')
       }
     }
   },
@@ -24,20 +24,31 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        external: ['sql.js', 'bcryptjs', 'js-tiktoken', 'mammoth', 'marked', 'turndown']
+        external: ['sql.js', 'bcryptjs', 'js-tiktoken', 'mammoth', 'marked', 'turndown'],
+        input: {
+          index: resolve(__dirname, 'src/main/preload.ts')
+        }
       }
     },
     resolve: {
       alias: {
-        '@prana': resolve(__dirname, 'src')
+        'prana': resolve(__dirname, 'src')
       }
     }
   },
+
+
   renderer: {
+    root: '.',
+    build: {
+      rollupOptions: {
+        input: resolve(__dirname, 'index.html')
+      }
+    },
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/ui'),
-        '@prana': resolve(__dirname, 'src'),
+        'prana': resolve(__dirname, 'src'),
         '@astra': resolve(__dirname, 'node_modules/astra')
       }
     },

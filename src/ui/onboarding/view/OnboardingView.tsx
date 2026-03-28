@@ -29,8 +29,8 @@ import {
   PhaseTrackerStatus,
   ProfileAlignmentWarning,
 } from '../viewmodel/useOnboardingViewModel';
-import { DynamicProfileRenderer } from '@prana/ui/components/DynamicProfileRenderer';
-import { LifecycleGlobalSkill, LifecycleProfileDraft } from '@prana/ui/state/LifecycleProvider';
+import { DynamicProfileRenderer } from 'prana/ui/components/DynamicProfileRenderer';
+import { LifecycleGlobalSkill, LifecycleProfileDraft } from 'prana/ui/state/LifecycleProvider';
 
 interface SummarySection {
   stepId: string;

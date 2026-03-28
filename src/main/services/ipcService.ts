@@ -1,7 +1,7 @@
 import { dialog, ipcMain } from 'electron';
 import { authService } from './authService';
 import { modelGatewayService } from './modelGatewayService';
-import { getPublicRuntimeConfig } from './runtimeConfigService';
+import { getPublicRuntimeConfig, getRuntimeIntegrationStatus } from './runtimeConfigService';
 import { skillSystemService } from './skillSystemService';
 import { vaultService } from './vaultService';
 import { operationsService } from './operationsService';
@@ -21,6 +21,7 @@ import { coreRegistryService } from './coreRegistryService';
 import { channelRouterService } from './channelRouterService';
 import { syncProviderService } from './syncProviderService';
 import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRuntimeService';
+import { startupOrchestratorService } from './startupOrchestratorService';
 
 const enforceToolPolicy = (payload: {
   actor: string;
@@ -49,6 +50,14 @@ export const registerIpcHandlers = (options?: { registryRuntime?: Partial<Regist
 
   ipcMain.handle('app:get-runtime-config', async () => {
     return getPublicRuntimeConfig();
+  });
+
+  ipcMain.handle('app:get-integration-status', async () => {
+    return getRuntimeIntegrationStatus();
+  });
+
+  ipcMain.handle('app:get-startup-status', async () => {
+    return startupOrchestratorService.getLatestStartupStatus();
   });
 
   ipcMain.handle('auth:get-status', async () => {

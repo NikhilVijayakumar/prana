@@ -303,6 +303,8 @@ const markRun = (
 };
 
 const enqueueDueJobs = async (now: Date, source: 'SCHEDULED' | 'MISSED'): Promise<void> => {
+  const dueJobs: Array<{ job: CronJob; scheduledFor: string }> = [];
+
   for (const job of jobs.values()) {
     if (!job.enabled || !job.nextRunAt) {
       continue;
@@ -313,10 +315,34 @@ const enqueueDueJobs = async (now: Date, source: 'SCHEDULED' | 'MISSED'): Promis
       continue;
     }
 
+    dueJobs.push({ job, scheduledFor: job.nextRunAt });
+  }
+
+  const priority = (jobId: string): number => {
+    if (jobId === SYNC_PULL_CRON_JOB_ID) {
+      return 0;
+    }
+    if (jobId === SYNC_PUSH_CRON_JOB_ID) {
+      return 1;
+    }
+    return 2;
+  };
+
+  dueJobs.sort((a, b) => {
+    const delta = priority(a.job.id) - priority(b.job.id);
+    if (delta !== 0) {
+      return delta;
+    }
+    return a.job.name.localeCompare(b.job.name);
+  });
+
+  for (const entry of dueJobs) {
+    const { job, scheduledFor } = entry;
+
     await governanceLifecycleQueueStoreService.enqueueTask({
       jobId: job.id,
       jobName: job.name,
-      scheduledFor: job.nextRunAt,
+      scheduledFor,
       source,
     });
 

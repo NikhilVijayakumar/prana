@@ -4,7 +4,7 @@ import {
   ONBOARDING_COMPLETE_STORAGE_KEY,
   LEGACY_SESSION_STORAGE_KEY,
   LEGACY_ONBOARDING_COMPLETE_STORAGE_KEY,
-} from '@prana/ui/constants/storageKeys';
+} from 'prana/ui/constants/storageKeys';
 
 export const SESSION_KEY = SESSION_STORAGE_KEY;
 export const ONBOARDING_COMPLETE_KEY = ONBOARDING_COMPLETE_STORAGE_KEY;

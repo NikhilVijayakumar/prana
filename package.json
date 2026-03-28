@@ -1,5 +1,5 @@
 {
-  "name": "prana-app",
+  "name": "prana",
   "version": "1.0.4",
   "description": "Prana desktop application built with Electron and TypeScript",
   "main": "./out/main/index.js",
@@ -18,8 +18,8 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "cross-env NODE_ENV=test vitest run",
+    "test:watch": "cross-env NODE_ENV=test vitest"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
@@ -45,6 +45,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "cross-env": "^10.1.0",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",

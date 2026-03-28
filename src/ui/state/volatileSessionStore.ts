@@ -8,7 +8,7 @@ import {
   LEGACY_ONBOARDING_COMPLETE_STORAGE_KEY,
   ONBOARDING_LEDGER_STORAGE_KEY,
   LEGACY_ONBOARDING_LEDGER_STORAGE_KEY,
-} from '@prana/ui/constants/storageKeys';
+} from 'prana/ui/constants/storageKeys';
 
 interface VolatileSessionState {
   sessionToken: string | null;

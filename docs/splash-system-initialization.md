@@ -1,5 +1,33 @@
 # Setup & Config: System Initialization - Atomic Feature Specification
 
+## Implementation Sync (2026-03-28)
+
+Current implemented services relevant to splash startup:
+- `src/main/index.ts`
+- `src/main/services/ipcService.ts`
+- `src/main/services/governanceRepoService.ts`
+- `src/main/services/vaultService.ts`
+- `src/main/services/syncProviderService.ts`
+- `src/main/services/syncStoreService.ts`
+- `src/main/services/cronSchedulerService.ts`
+- `src/main/services/recoveryOrchestratorService.ts`
+- `src/ui/splash/viewmodel/useSplashViewModel.ts`
+- `src/ui/integration/view/IntegrationVerificationPage.tsx`
+
+Current reality:
+1. Startup concerns are distributed across main bootstrap, IPC init side effects, sync provider splash init, and splash/auth checks.
+2. Pre-auth integration diagnostics exist, but full startup stage reporting is still being consolidated.
+3. Cron missed-run recovery exists in scheduler initialization, but startup diagnostics do not yet expose complete cron recovery summaries.
+4. Vault pull/hydration and SQLite sync recovery exist, but deterministic stage ownership is being moved to a unified orchestrator.
+
+Planned alignment docs:
+- `docs/module/startup-orchestrator.md`
+- `docs/module/vault-sync-contract.md`
+- `docs/module/cron-recovery-contract.md`
+- `docs/bugs/splash-startup-orchestration-gap-2026-03-28.md`
+- `docs/bugs/vault-sqlite-sync-gap-2026-03-28.md`
+- `docs/bugs/cron-catchup-recovery-gap-2026-03-28.md`
+
 ## 1. Single Reason to Change (SRP)
 This document handles updates **exclusively** related to the background loading and hydration sequence that triggers when the Electron application boots up. It is entirely headless.
 
@@ -29,3 +57,7 @@ This document handles updates **exclusively** related to the background loading 
 
 ## 7. Cron & Queue Management
 - **Failover / Catch-up Mechanic:** The Initialization logic is the *executor* of all catch-ups. During the final hydration millisecond, it checks all SQLite `last_run` timestamps against `Date.now()`. If gaps exist for crons or queue items, it dispatches the failover routines immediately to the execution engines.
+
+## 8. Constraint
+- Do not expose any env values, credentials, or secret payloads in pre-auth diagnostics.
+- Diagnostics can show key names and statuses only.

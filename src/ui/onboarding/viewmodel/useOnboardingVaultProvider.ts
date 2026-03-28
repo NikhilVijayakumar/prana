@@ -3,7 +3,7 @@ import {
   ONBOARDING_LEDGER_STORAGE_KEY,
   LEGACY_ONBOARDING_LEDGER_STORAGE_KEY,
   readStorageWithLegacy,
-} from '@prana/ui/constants/storageKeys';
+} from 'prana/ui/constants/storageKeys';
 
 export interface ScreenDraftRecord {
   stepId: string;

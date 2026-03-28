@@ -1,0 +1,284 @@
+import { ensureGovernanceRepoReady } from './governanceRepoService';
+import { getRuntimeIntegrationStatus } from './runtimeConfigService';
+import { vaultService } from './vaultService';
+import { syncProviderService } from './syncProviderService';
+import { recoveryOrchestratorService } from './recoveryOrchestratorService';
+import { cronSchedulerService } from './cronSchedulerService';
+
+export type StartupStageId =
+  | 'integration'
+  | 'governance'
+  | 'vault'
+  | 'sync-recovery'
+  | 'cron-recovery';
+
+export type StartupStageStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
+
+export interface StartupStageReport {
+  id: StartupStageId;
+  label: string;
+  status: StartupStageStatus;
+  message: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface StartupStatusReport {
+  startedAt: string;
+  finishedAt: string | null;
+  overallStatus: 'READY' | 'DEGRADED' | 'BLOCKED';
+  stages: StartupStageReport[];
+}
+
+const nowIso = (): string => new Date().toISOString();
+
+const createInitialStages = (): StartupStageReport[] => [
+  {
+    id: 'integration',
+    label: 'Integration Contract Check',
+    status: 'PENDING',
+    message: 'Waiting...',
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'governance',
+    label: 'Governance Repo Readiness',
+    status: 'PENDING',
+    message: 'Waiting...',
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'vault',
+    label: 'Vault Initialization and Pull',
+    status: 'PENDING',
+    message: 'Waiting...',
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'sync-recovery',
+    label: 'Sync Queue Recovery',
+    status: 'PENDING',
+    message: 'Waiting...',
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'cron-recovery',
+    label: 'Cron Catch-up Recovery',
+    status: 'PENDING',
+    message: 'Waiting...',
+    startedAt: null,
+    finishedAt: null,
+  },
+];
+
+let latestStartupReport: StartupStatusReport = {
+  startedAt: nowIso(),
+  finishedAt: null,
+  overallStatus: 'DEGRADED',
+  stages: createInitialStages(),
+};
+
+let runningSequence: Promise<StartupStatusReport> | null = null;
+
+const markStage = (
+  stages: StartupStageReport[],
+  id: StartupStageId,
+  status: StartupStageStatus,
+  message: string,
+): void => {
+  const stage = stages.find((entry) => entry.id === id);
+  if (!stage) {
+    return;
+  }
+
+  if (!stage.startedAt) {
+    stage.startedAt = nowIso();
+  }
+
+  stage.status = status;
+  stage.message = message;
+  stage.finishedAt = nowIso();
+};
+
+const skipStage = (stages: StartupStageReport[], id: StartupStageId, reason: string): void => {
+  markStage(stages, id, 'SKIPPED', reason);
+};
+
+const determineOverallStatus = (stages: StartupStageReport[]): StartupStatusReport['overallStatus'] => {
+  const failedIds = new Set(stages.filter((stage) => stage.status === 'FAILED').map((stage) => stage.id));
+
+  // These are startup blockers before auth flow.
+  if (failedIds.has('integration') || failedIds.has('governance') || failedIds.has('vault')) {
+    return 'BLOCKED';
+  }
+
+  // Recovery stage failures degrade startup but can still allow diagnostics/login policy decisions.
+  if (failedIds.size > 0) {
+    return 'DEGRADED';
+  }
+
+  return 'READY';
+};
+
+const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
+  const stages = createInitialStages();
+  const startedAt = nowIso();
+
+  markStage(stages, 'integration', 'PENDING', 'Running required key checks...');
+  const integration = getRuntimeIntegrationStatus();
+  if (!integration.ready) {
+    markStage(
+      stages,
+      'integration',
+      'FAILED',
+      `Integration contract failed. Missing=${integration.summary.missing}, Invalid=${integration.summary.invalid}`,
+    );
+    skipStage(stages, 'governance', 'Skipped due to integration failure.');
+    skipStage(stages, 'vault', 'Skipped due to integration failure.');
+    skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
+    skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
+
+    latestStartupReport = {
+      startedAt,
+      finishedAt: nowIso(),
+      overallStatus: determineOverallStatus(stages),
+      stages,
+    };
+
+    return latestStartupReport;
+  }
+  markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
+
+  markStage(stages, 'governance', 'PENDING', 'Verifying SSH and governance repository...');
+  const governanceStatus = await ensureGovernanceRepoReady();
+  if (!governanceStatus.repoReady || !governanceStatus.sshVerified) {
+    markStage(
+      stages,
+      'governance',
+      'FAILED',
+      governanceStatus.sshMessage || 'Governance repository is not ready.',
+    );
+
+    skipStage(stages, 'vault', 'Skipped because governance repository is not ready.');
+    skipStage(stages, 'sync-recovery', 'Skipped because governance repository is not ready.');
+    skipStage(stages, 'cron-recovery', 'Skipped because governance repository is not ready.');
+
+    latestStartupReport = {
+      startedAt,
+      finishedAt: nowIso(),
+      overallStatus: determineOverallStatus(stages),
+      stages,
+    };
+
+    return latestStartupReport;
+  }
+
+  markStage(
+    stages,
+    'governance',
+    'SUCCESS',
+    governanceStatus.clonedNow ? 'Governance repository cloned and ready.' : 'Governance repository already ready.',
+  );
+
+  try {
+    markStage(stages, 'vault', 'PENDING', 'Initializing vault and pulling remote changes...');
+    await vaultService.initializeVault();
+    const splashSync = await syncProviderService.initializeOnSplash();
+    markStage(
+      stages,
+      'vault',
+      'SUCCESS',
+      splashSync.skippedReason
+        ? `Vault sync completed with note: ${splashSync.skippedReason}`
+        : 'Vault initialized and remote pull/merge path executed.',
+    );
+  } catch (error) {
+    markStage(
+      stages,
+      'vault',
+      'FAILED',
+      error instanceof Error ? error.message : 'Vault startup stage failed.',
+    );
+
+    skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
+    skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
+
+    latestStartupReport = {
+      startedAt,
+      finishedAt: nowIso(),
+      overallStatus: determineOverallStatus(stages),
+      stages,
+    };
+
+    return latestStartupReport;
+  }
+
+  try {
+    markStage(stages, 'sync-recovery', 'PENDING', 'Recovering interrupted sync tasks...');
+    const recovery = await recoveryOrchestratorService.recoverPendingSyncTasks();
+    markStage(
+      stages,
+      'sync-recovery',
+      'SUCCESS',
+      `Recovered sync tasks: ${recovery.recoveredTasks}`,
+    );
+  } catch (error) {
+    markStage(
+      stages,
+      'sync-recovery',
+      'FAILED',
+      error instanceof Error ? error.message : 'Sync recovery stage failed.',
+    );
+  }
+
+  try {
+    markStage(stages, 'cron-recovery', 'PENDING', 'Recovering cron scheduler and missed runs...');
+    await cronSchedulerService.initialize();
+    await cronSchedulerService.tick();
+    const telemetry = await cronSchedulerService.getTelemetry();
+    markStage(
+      stages,
+      'cron-recovery',
+      'SUCCESS',
+      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
+    );
+  } catch (error) {
+    markStage(
+      stages,
+      'cron-recovery',
+      'FAILED',
+      error instanceof Error ? error.message : 'Cron recovery stage failed.',
+    );
+  }
+
+  latestStartupReport = {
+    startedAt,
+    finishedAt: nowIso(),
+    overallStatus: determineOverallStatus(stages),
+    stages,
+  };
+
+  return latestStartupReport;
+};
+
+export const startupOrchestratorService = {
+  async runStartupSequence(): Promise<StartupStatusReport> {
+    if (runningSequence) {
+      return runningSequence;
+    }
+
+    runningSequence = runStartupSequenceInternal().finally(() => {
+      runningSequence = null;
+    });
+
+    return runningSequence;
+  },
+
+  getLatestStartupStatus(): StartupStatusReport {
+    return latestStartupReport;
+  },
+};

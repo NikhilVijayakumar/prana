@@ -15,7 +15,7 @@
       "@renderer/*": [
         "src/ui/*"
       ],
-      "@prana/*": ["src/*"],
+      "prana/*": ["src/*"],
       "@astra/*": ["node_modules/astra/*"]
     }
   }

@@ -1,4 +1,4 @@
-import { listModuleManifests } from '@prana/ui/constants/manifestBridge';
+import { listModuleManifests } from 'prana/ui/constants/manifestBridge';
 
 type NavLabelKey =
   | 'nav.triage'

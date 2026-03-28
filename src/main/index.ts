@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './services/ipcService'
 import { vaultService } from './services/vaultService'
 import { syncProviderService } from './services/syncProviderService'
+import { startupOrchestratorService } from './services/startupOrchestratorService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -40,6 +41,11 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  const startupStatus = await startupOrchestratorService.runStartupSequence()
+  if (startupStatus.overallStatus !== 'READY') {
+    console.warn('[PRANA] Startup orchestration completed with non-ready status:', startupStatus.overallStatus)
+  }
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.prana.app')
 
@@ -55,19 +61,6 @@ app.whenReady().then(async () => {
       registryRoot: process.env.PRANA_REGISTRY_ROOT ?? join(process.cwd(), '.prana', 'registry')
     }
   })
-
-  try {
-    const splashSync = await syncProviderService.initializeOnSplash()
-    if (splashSync.machineLockWarning) {
-      console.warn('[PRANA] Machine lock warning:', splashSync.machineLockWarning)
-    }
-    if (splashSync.skippedReason) {
-      console.info('[PRANA] Splash sync skipped:', splashSync.skippedReason)
-    }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown splash sync error'
-    console.warn('[PRANA] Splash sync initialization failed:', message)
-  }
 
   createWindow()
 
