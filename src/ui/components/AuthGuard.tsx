@@ -1,87 +1,19 @@
-import { FC, ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
-import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
-import { SESSION_TOKEN_PREFIX, LEGACY_SESSION_TOKEN_PREFIX } from 'prana/ui/constants/storageKeys';
-import { getFirstEnabledMainRoute, isRouteEnabledByManifest } from '../constants/moduleRegistry';
+/**
+ * AuthGuard.tsx
+ * Prana route protection components.
+ * 
+ * Re-exports from AuthGuardAdapter which connects neutral RouteGuards (in common package)
+ * to Prana's session store and manifest system.
+ * 
+ * Lane B (Decomposed for Astra adoption): Neutral guard logic is in
+ * prana/ui/common/components/RouteGuards.tsx for reuse. App-specific
+ * configuration is in AuthGuardAdapter.tsx.
+ */
 
-interface AuthGuardProps {
-  children: ReactNode;
-}
-
-const hasValidSessionToken = (sessionToken: string | null): boolean => {
-  return Boolean(
-    sessionToken
-      && (sessionToken.startsWith(SESSION_TOKEN_PREFIX) || sessionToken.startsWith(LEGACY_SESSION_TOKEN_PREFIX)),
-  );
-};
-
-export const AuthGuard: FC<AuthGuardProps> = ({ children }) => {
-  const session = useVolatileSessionStore();
-  const hasSession = hasValidSessionToken(session.sessionToken);
-  if (!hasSession) {
-    return <Navigate to="/login" replace />;
-  }
-  return <>{children}</>;
-};
-
-interface MainAppGuardProps {
-  children: ReactNode;
-}
-
-export const MainAppGuard: FC<MainAppGuardProps> = ({ children }) => {
-  const session = useVolatileSessionStore();
-  const hasSession = hasValidSessionToken(session.sessionToken);
-  if (!hasSession) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-};
-
-interface OnboardingGuardProps {
-  children: ReactNode;
-}
-
-export const OnboardingGuard: FC<OnboardingGuardProps> = ({ children }) => {
-  const session = useVolatileSessionStore();
-  const hasSession = hasValidSessionToken(session.sessionToken);
-  if (!hasSession) {
-    return <Navigate to="/login" replace />;
-  }
-
-  const onboardingComplete = session.onboardingComplete;
-  if (onboardingComplete) {
-    return <Navigate to={getFirstEnabledMainRoute()} replace />;
-  }
-
-  return <>{children}</>;
-};
-
-interface PublicOnlyGuardProps {
-  children: ReactNode;
-}
-
-export const PublicOnlyGuard: FC<PublicOnlyGuardProps> = ({ children }) => {
-  const session = useVolatileSessionStore();
-  const hasSession = hasValidSessionToken(session.sessionToken);
-
-  if (!hasSession) {
-    return <>{children}</>;
-  }
-
-  return <Navigate to={getFirstEnabledMainRoute()} replace />;
-};
-
-interface ModuleRouteGuardProps {
-  routePath: string;
-  children: ReactNode;
-}
-
-export const ModuleRouteGuard: FC<ModuleRouteGuardProps> = ({ routePath, children }) => {
-  const isEnabled = isRouteEnabledByManifest(routePath);
-  if (!isEnabled) {
-    return <Navigate to={getFirstEnabledMainRoute()} replace />;
-  }
-
-  return <>{children}</>;
-};
+export {
+  AuthGuard,
+  MainAppGuard,
+  OnboardingGuard,
+  PublicOnlyGuard,
+  PranaModuleRouteGuard as ModuleRouteGuard,
+} from './AuthGuardAdapter';

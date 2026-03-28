@@ -1,0 +1,109 @@
+{
+  "metadata": {
+    "astraPackageVersion": "",
+    "astraCommit": "",
+    "generatedAt": "",
+    "owner": "prana-team",
+    "status": "draft",
+    "sourceContract": "docs/pr/astra/Handover-Contract.md"
+  },
+  "executionPhases": [
+    {
+      "phase": "A",
+      "title": "Rename-only import swaps",
+      "risk": "LOW",
+      "exitCriteria": [
+        "Typecheck passes",
+        "No unresolved imports"
+      ]
+    },
+    {
+      "phase": "B",
+      "title": "Contract refactor integrations",
+      "risk": "MEDIUM-HIGH",
+      "exitCriteria": [
+        "Typecheck passes",
+        "Impacted UI smoke checks pass"
+      ]
+    },
+    {
+      "phase": "C",
+      "title": "Duplicate replacements",
+      "risk": "MEDIUM",
+      "exitCriteria": [
+        "All mapped duplicates replaced",
+        "No local duplicate usage remains"
+      ]
+    },
+    {
+      "phase": "D",
+      "title": "Deferred/split-required cleanup",
+      "risk": "HIGH",
+      "exitCriteria": [
+        "Deferred rationale documented",
+        "Revisit trigger documented"
+      ]
+    }
+  ],
+  "mappings": [
+    {
+      "oldComponent": "PhaseProgressIndicator",
+      "newComponent": "",
+      "oldImport": "import { PhaseProgressIndicator } from 'prana/ui/common/components/PhaseProgressIndicator'",
+      "newImport": "import {  } from 'astra/components'",
+      "status": "mapped",
+      "executionPhase": "A",
+      "priority": "LOW",
+      "effort": "< 30 min",
+      "breakingChanges": [],
+      "migrationNotes": "",
+      "decisionRationale": ""
+    },
+    {
+      "oldComponent": "ReviewActionModal",
+      "newComponent": "",
+      "oldImport": "import { ReviewActionModal } from 'prana/ui/common/components/ReviewActionModal'",
+      "newImport": "import {  } from 'astra/components'",
+      "status": "mapped",
+      "executionPhase": "B",
+      "priority": "HIGH",
+      "effort": "2-4 hrs",
+      "breakingChanges": [
+        {
+          "type": "rename | remove | type-change | behavior-change",
+          "old": "",
+          "new": "",
+          "note": ""
+        }
+      ],
+      "migrationNotes": "",
+      "decisionRationale": ""
+    },
+    {
+      "oldComponent": "PlaceholderPage",
+      "newComponent": "",
+      "oldImport": "import { PlaceholderPage } from 'prana/ui/common/components/PlaceholderPage'",
+      "newImport": "import {  } from 'astra/components'",
+      "status": "duplicate",
+      "executionPhase": "C",
+      "priority": "MEDIUM",
+      "effort": "30-45 min",
+      "breakingChanges": [],
+      "migrationNotes": "",
+      "decisionRationale": ""
+    },
+    {
+      "oldComponent": "DirectorInteractionBar",
+      "newComponent": "",
+      "oldImport": "import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionBar'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "4-6 hrs",
+      "breakingChanges": [],
+      "migrationNotes": "",
+      "decisionRationale": ""
+    }
+  ]
+}

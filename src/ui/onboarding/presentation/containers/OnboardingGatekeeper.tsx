@@ -6,16 +6,25 @@
 
 import { FC, useEffect } from 'react';
 import { Box, CircularProgress, Alert, useTheme as useMuiTheme } from '@mui/material';
-import { useLanguage } from 'astra';
+import { MultiStepProgressIndicator, ProgressStep, StepStatus, useLanguage } from 'astra/components';
 import { spacing } from 'astra';
-import { OnboardingState } from '../../domain/onboarding.types';
-import { PhaseProgressIndicator } from '../components/PhaseProgressIndicator';
+import { OnboardingPhaseStatus, OnboardingState } from '../../domain/onboarding.types';
 
 interface OnboardingGatekeeperProps {
   state: OnboardingState;
   isLoading?: boolean;
   onPhaseChange?: (phase: 1 | 2 | 3) => void;
 }
+
+const mapStatusToStepStatus = (status: OnboardingPhaseStatus): StepStatus => {
+  if (status === 'committed') {
+    return 'completed';
+  }
+  if (status === 'locked') {
+    return 'blocked';
+  }
+  return status;
+};
 
 /**
  * OnboardingGatekeeper: Main component
@@ -28,6 +37,26 @@ export const OnboardingGatekeeper: FC<OnboardingGatekeeperProps> = ({
 }) => {
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
+  const steps: ProgressStep[] = [
+    {
+      id: 'phase-1',
+      label: literal['onboarding.phase1.shortLabel'],
+      shortLabel: literal['onboarding.phase1.shortLabel'],
+      status: mapStatusToStepStatus(state.phase1.status),
+    },
+    {
+      id: 'phase-2',
+      label: literal['onboarding.phase2.shortLabel'],
+      shortLabel: literal['onboarding.phase2.shortLabel'],
+      status: mapStatusToStepStatus(state.phase2.status),
+    },
+    {
+      id: 'phase-3',
+      label: literal['onboarding.phase3.shortLabel'],
+      shortLabel: literal['onboarding.phase3.shortLabel'],
+      status: mapStatusToStepStatus(state.phase3.status),
+    },
+  ];
 
   // Handle phase transitions
   useEffect(() => {
@@ -68,13 +97,12 @@ export const OnboardingGatekeeper: FC<OnboardingGatekeeperProps> = ({
       }}
     >
       {/* Step Indicator */}
-      <PhaseProgressIndicator
-        currentPhase={state.currentPhase}
-        phase1Status={state.phase1.status}
-        phase2Status={state.phase2.status}
-        phase3Status={state.phase3.status}
-        sx={{ marginBottom: spacing.xl }}
-      />
+      <Box sx={{ marginBottom: spacing.xl }}>
+        <MultiStepProgressIndicator
+          steps={steps}
+          currentStepId={`phase-${state.currentPhase}`}
+        />
+      </Box>
 
       {/* Error Alert (if any) */}
       {state.commitError && (

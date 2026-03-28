@@ -1,0 +1,241 @@
+{
+  "metadata": {
+    "astraPackageVersion": "0.0.9",
+    "astraCommit": "53af9ad",
+    "generatedAt": "2026-03-28",
+    "owner": "astra-integration-review",
+    "status": "completed",
+    "sourceContract": "docs/pr/prana/request/Handover-Contract.md"
+  },
+  "executionPhases": [
+    {
+      "phase": "A",
+      "title": "Rename-only import swaps",
+      "risk": "LOW",
+      "exitCriteria": [
+        "Typecheck passes",
+        "No unresolved imports"
+      ]
+    },
+    {
+      "phase": "B",
+      "title": "Contract refactor integrations",
+      "risk": "MEDIUM-HIGH",
+      "exitCriteria": [
+        "Typecheck passes",
+        "Impacted UI smoke checks pass"
+      ]
+    },
+    {
+      "phase": "C",
+      "title": "Duplicate replacements",
+      "risk": "MEDIUM",
+      "exitCriteria": [
+        "All mapped duplicates replaced",
+        "No local duplicate usage remains"
+      ]
+    },
+    {
+      "phase": "D",
+      "title": "Deferred or split-required cleanup",
+      "risk": "HIGH",
+      "exitCriteria": [
+        "Deferred rationale documented",
+        "Revisit trigger documented"
+      ]
+    }
+  ],
+  "mappings": [
+    {
+      "oldComponent": "PhaseProgressIndicator",
+      "newComponent": "MultiStepProgressIndicator",
+      "oldImport": "import { PhaseProgressIndicator } from 'prana/ui/common/components/PhaseProgressIndicator'",
+      "newImport": "import { MultiStepProgressIndicator } from 'astra/components'",
+      "status": "mapped",
+      "executionPhase": "B",
+      "priority": "MEDIUM",
+      "effort": "30-60 min",
+      "breakingChanges": [
+        {
+          "type": "type-change",
+          "old": "currentPhase + phase1Status/phase2Status/phase3Status",
+          "new": "steps[] + currentStepId",
+          "note": "Move to generic step contract"
+        }
+      ],
+      "migrationNotes": "Build generic steps array in container and map old phase states to StepStatus values.",
+      "decisionRationale": "Promoted with generalized API and naming to remove onboarding coupling."
+    },
+    {
+      "oldComponent": "PlaceholderPage",
+      "newComponent": "HeroSection",
+      "oldImport": "import { PlaceholderPage } from 'prana/ui/common/components/PlaceholderPage'",
+      "newImport": "import { HeroSection } from 'astra/components'",
+      "status": "duplicate",
+      "executionPhase": "C",
+      "priority": "MEDIUM",
+      "effort": "15-30 min",
+      "breakingChanges": [
+        {
+          "type": "behavior-change",
+          "old": "headline + code",
+          "new": "headline + description composition",
+          "note": "Use HeroSection text composition"
+        }
+      ],
+      "migrationNotes": "Replace placeholder usage with HeroSection and container-provided description.",
+      "decisionRationale": "Rejected as net-new because Astra already provides equivalent placeholder composition behavior."
+    },
+    {
+      "oldComponent": "ReviewActionModal",
+      "newComponent": "ReviewDecisionDialog",
+      "oldImport": "import { ReviewActionModal } from 'prana/ui/common/components/ReviewActionModal'",
+      "newImport": "import { ReviewDecisionDialog } from 'astra/components'",
+      "status": "duplicate",
+      "executionPhase": "B",
+      "priority": "CRITICAL",
+      "effort": "4-6 hrs",
+      "breakingChanges": [
+        {
+          "type": "behavior-change",
+          "old": "internal action and note state",
+          "new": "fully controlled state contract",
+          "note": "Container owns mode, approveNote, rejectNote"
+        }
+      ],
+      "migrationNotes": "Extract modal state into viewmodel/container and bind controlled props/callbacks.",
+      "decisionRationale": "Rejected as net-new because Astra already includes equivalent review decision dialog behavior."
+    },
+    {
+      "oldComponent": "SyncHealthWidget",
+      "newComponent": "OperationHealthPanel",
+      "oldImport": "import { SyncHealthWidget } from 'prana/ui/common/components/SyncHealthWidget'",
+      "newImport": "import { OperationHealthPanel } from 'astra/components'",
+      "status": "mapped",
+      "executionPhase": "B",
+      "priority": "HIGH",
+      "effort": "2-4 hrs",
+      "breakingChanges": [
+        {
+          "type": "type-change",
+          "old": "SyncStatusSnapshot payload",
+          "new": "summaryItems + actions",
+          "note": "Adapter maps domain status to generic panel data"
+        }
+      ],
+      "migrationNotes": "Create adapter function in Prana to map sync status fields into generic summary items and actions.",
+      "decisionRationale": "Promoted as reusable presentational shell after removing sync-domain assumptions from public contract."
+    },
+    {
+      "oldComponent": "ModelProviderForm",
+      "newComponent": "",
+      "oldImport": "import { ModelProviderForm } from 'prana/ui/onboarding/presentation/components/ModelProviderForm'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "1-2 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep local until provider schema and provider-specific copy are externalized into neutral contracts.",
+      "decisionRationale": "Domain/provider coupling remains too strong for shared promotion."
+    },
+    {
+      "oldComponent": "SkillRegistry",
+      "newComponent": "",
+      "oldImport": "import { SkillRegistry } from 'prana/ui/onboarding/presentation/components/SkillRegistry'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "1-2 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep local until catalog ownership and neutral item DTO contracts are extracted.",
+      "decisionRationale": "Onboarding and domain naming coupling remains in public behavior and data model."
+    },
+    {
+      "oldComponent": "EmployeeProfileEditor",
+      "newComponent": "",
+      "oldImport": "import { EmployeeProfileEditor } from 'prana/ui/onboarding/presentation/components/EmployeeProfileEditor'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "2-3 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep local until ProfileDto extraction and metadata/editor split are complete.",
+      "decisionRationale": "Lifecycle-specific schema assumptions currently prevent a reusable Astra contract."
+    },
+    {
+      "oldComponent": "AuthGuard suite",
+      "newComponent": "",
+      "oldImport": "import { AuthGuard, MainAppGuard, OnboardingGuard, PublicOnlyGuard, ModuleRouteGuard } from 'prana/ui/components/AuthGuard'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "1-2 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep local until a router/session abstraction is formally added to Astra package contracts.",
+      "decisionRationale": "Current Astra package surface does not carry router-bound guard contracts."
+    },
+    {
+      "oldComponent": "PreAuthLayout",
+      "newComponent": "EntryLayoutFrame",
+      "oldImport": "import { PreAuthLayout } from 'prana/ui/layout/PreAuthLayout'",
+      "newImport": "import { EntryLayoutFrame } from 'astra/components'",
+      "status": "mapped",
+      "executionPhase": "A",
+      "priority": "MEDIUM",
+      "effort": "30-60 min",
+      "breakingChanges": [
+        {
+          "type": "rename",
+          "old": "PreAuthLayout",
+          "new": "EntryLayoutFrame",
+          "note": "Keep branding/title wrapper local in Prana"
+        }
+      ],
+      "migrationNotes": "Swap frame import and preserve app-specific title composition in adapter wrapper.",
+      "decisionRationale": "Promoted as neutral reusable frame after removing app naming assumptions."
+    },
+    {
+      "oldComponent": "DirectorInteractionBar",
+      "newComponent": "",
+      "oldImport": "import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionBar'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "2-3 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep local until side-effect orchestration is extracted from the visual interaction bar.",
+      "decisionRationale": "Direct channel and workflow orchestration coupling blocks shared promotion."
+    },
+    {
+      "oldComponent": "DynamicProfileRenderer",
+      "newComponent": "",
+      "oldImport": "import { DynamicProfileRenderer } from 'prana/ui/components/DynamicProfileRenderer'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "2-3 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep local until lifecycle provider types are replaced by neutral profile view contracts.",
+      "decisionRationale": "Lifecycle-specific data model coupling blocks reusable shared API design."
+    },
+    {
+      "oldComponent": "MainLayout shell fragments",
+      "newComponent": "",
+      "oldImport": "import { MainLayout } from 'prana/ui/layout/MainLayout'",
+      "newImport": "",
+      "status": "deferred",
+      "executionPhase": "D",
+      "priority": "HIGH",
+      "effort": "2-3 days",
+      "breakingChanges": [],
+      "migrationNotes": "Keep orchestration shell local and only promote view-only fragments after extraction.",
+      "decisionRationale": "Session and route orchestration policy remains app-local and non-reusable in current form."
+    }
+  ]
+}
