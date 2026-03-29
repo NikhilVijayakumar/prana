@@ -1,13 +1,13 @@
-import { getPranaRuntimeConfig, validatePranaRuntimeConfig } from './pranaRuntimeConfig';
+import {
+  getPranaRuntimeConfig,
+  validatePranaRuntimeConfig,
+  type PranaConfigValidationIssue,
+  type PranaRuntimeConfig,
+} from './pranaRuntimeConfig';
 
 const DEFAULT_VAULT_SPEC_VERSION = 'v1';
 const DEFAULT_VAULT_TEMP_ZIP_EXT = '.zip';
 const DEFAULT_VAULT_OUTPUT_PREFIX = 'vault_export_';
-const DEFAULT_SYNC_PUSH_INTERVAL_MS = 120_000;
-const DEFAULT_SYNC_CRON_ENABLED = true;
-const DEFAULT_SYNC_PUSH_CRON_EXPRESSION = '*/10 * * * *';
-const DEFAULT_SYNC_PULL_CRON_EXPRESSION = '*/15 * * * *';
-
 const normalizeExtension = (extension: string): string => {
   return extension.startsWith('.') ? extension : `.${extension}`;
 };
@@ -18,7 +18,7 @@ export interface RuntimeIntegrationKeyStatus {
   present: boolean;
   valid: boolean;
   source: 'config' | 'missing';
-  issue?: 'missing' | 'invalid_number' | 'invalid_boolean';
+  issue?: 'missing' | 'invalid_string' | 'invalid_number' | 'invalid_boolean';
 }
 
 export interface RuntimeIntegrationStatus {
@@ -89,73 +89,101 @@ export interface PublicRuntimeConfig {
   };
 }
 
-const getRequiredKeys = (): RuntimeIntegrationKeyStatus[] => {
+interface RequiredRuntimeKeyDescriptor {
+  key: string;
+  expectedType: 'string' | 'number' | 'boolean';
+  readValue: (config: PranaRuntimeConfig | null) => unknown;
+}
+
+const REQUIRED_RUNTIME_KEYS: RequiredRuntimeKeyDescriptor[] = [
+  {
+    key: 'director.name',
+    expectedType: 'string',
+    readValue: (config) => config?.director?.name,
+  },
+  {
+    key: 'director.email',
+    expectedType: 'string',
+    readValue: (config) => config?.director?.email,
+  },
+  {
+    key: 'governance.repoUrl',
+    expectedType: 'string',
+    readValue: (config) => config?.governance?.repoUrl,
+  },
+  {
+    key: 'governance.repoPath',
+    expectedType: 'string',
+    readValue: (config) => config?.governance?.repoPath,
+  },
+  {
+    key: 'vault.archivePassword',
+    expectedType: 'string',
+    readValue: (config) => config?.vault?.archivePassword,
+  },
+  {
+    key: 'vault.archiveSalt',
+    expectedType: 'string',
+    readValue: (config) => config?.vault?.archiveSalt,
+  },
+  {
+    key: 'vault.kdfIterations',
+    expectedType: 'number',
+    readValue: (config) => config?.vault?.kdfIterations,
+  },
+  {
+    key: 'sync.pushIntervalMs',
+    expectedType: 'number',
+    readValue: (config) => config?.sync?.pushIntervalMs,
+  },
+  {
+    key: 'sync.cronEnabled',
+    expectedType: 'boolean',
+    readValue: (config) => config?.sync?.cronEnabled,
+  },
+  {
+    key: 'sync.pushCronExpression',
+    expectedType: 'string',
+    readValue: (config) => config?.sync?.pushCronExpression,
+  },
+  {
+    key: 'sync.pullCronExpression',
+    expectedType: 'string',
+    readValue: (config) => config?.sync?.pullCronExpression,
+  },
+];
+
+const isPresentByType = (value: unknown, expectedType: RuntimeIntegrationKeyStatus['expectedType']): boolean => {
+  if (expectedType === 'string') {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  return typeof value === expectedType;
+};
+
+const getRequiredKeys = (issues: PranaConfigValidationIssue[]): RuntimeIntegrationKeyStatus[] => {
   const config = getPranaRuntimeConfig();
-  return [
-    {
-      key: 'director.name',
-      expectedType: 'string',
-      present: typeof config?.director?.name === 'string' && config.director.name.trim().length > 0,
-      valid: typeof config?.director?.name === 'string' && config.director.name.trim().length > 0,
-      source: config?.director?.name ? 'config' : 'missing',
-      issue: typeof config?.director?.name === 'string' && config.director.name.trim().length > 0 ? undefined : 'missing',
-    },
-    {
-      key: 'director.email',
-      expectedType: 'string',
-      present: typeof config?.director?.email === 'string' && config.director.email.trim().length > 0,
-      valid: typeof config?.director?.email === 'string' && config.director.email.trim().length > 0,
-      source: config?.director?.email ? 'config' : 'missing',
-      issue: typeof config?.director?.email === 'string' && config.director.email.trim().length > 0 ? undefined : 'missing',
-    },
-    {
-      key: 'vault.archivePassword',
-      expectedType: 'string',
-      present: typeof config?.vault?.archivePassword === 'string' && config.vault.archivePassword.trim().length > 0,
-      valid: typeof config?.vault?.archivePassword === 'string' && config.vault.archivePassword.trim().length > 0,
-      source: config?.vault?.archivePassword ? 'config' : 'missing',
-      issue: typeof config?.vault?.archivePassword === 'string' && config.vault.archivePassword.trim().length > 0 ? undefined : 'missing',
-    },
-    {
-      key: 'vault.archiveSalt',
-      expectedType: 'string',
-      present: typeof config?.vault?.archiveSalt === 'string' && config.vault.archiveSalt.trim().length > 0,
-      valid: typeof config?.vault?.archiveSalt === 'string' && config.vault.archiveSalt.trim().length > 0,
-      source: config?.vault?.archiveSalt ? 'config' : 'missing',
-      issue: typeof config?.vault?.archiveSalt === 'string' && config.vault.archiveSalt.trim().length > 0 ? undefined : 'missing',
-    },
-    {
-      key: 'vault.kdfIterations',
-      expectedType: 'number',
-      present: typeof config?.vault?.kdfIterations === 'number',
-      valid: typeof config?.vault?.kdfIterations === 'number' && Number.isInteger(config.vault.kdfIterations) && config.vault.kdfIterations > 0,
-      source: typeof config?.vault?.kdfIterations === 'number' ? 'config' : 'missing',
-      issue:
-        typeof config?.vault?.kdfIterations !== 'number'
-          ? 'missing'
-          : Number.isInteger(config.vault.kdfIterations) && config.vault.kdfIterations > 0
-            ? undefined
-            : 'invalid_number',
-    },
-    {
-      key: 'sync.cronEnabled',
-      expectedType: 'boolean',
-      present: typeof config?.sync?.cronEnabled === 'boolean',
-      valid: typeof config?.sync?.cronEnabled === 'boolean' || config?.sync?.cronEnabled === undefined,
-      source: typeof config?.sync?.cronEnabled === 'boolean' ? 'config' : 'missing',
-      issue:
-        config?.sync?.cronEnabled === undefined
-          ? undefined
-          : typeof config.sync.cronEnabled === 'boolean'
-            ? undefined
-            : 'invalid_boolean',
-    },
-  ];
+  const issueByKey = new Map(issues.map((issue) => [issue.key, issue]));
+
+  return REQUIRED_RUNTIME_KEYS.map((descriptor) => {
+    const value = descriptor.readValue(config);
+    const issue = issueByKey.get(descriptor.key);
+    const present = isPresentByType(value, descriptor.expectedType);
+
+    return {
+      key: descriptor.key,
+      expectedType: descriptor.expectedType,
+      present,
+      valid: issue === undefined,
+      source: present ? 'config' : 'missing',
+      issue: issue?.code,
+    };
+  });
 };
 
 export const getRuntimeIntegrationStatus = (): RuntimeIntegrationStatus => {
-  const keys = getRequiredKeys();
   const validation = validatePranaRuntimeConfig();
+  const keys = getRequiredKeys(validation.issues);
   const missing = keys.filter((entry) => !entry.present).length;
   const invalid = keys.filter((entry) => entry.present && !entry.valid).length;
   const available = keys.filter((entry) => entry.present).length;
@@ -183,37 +211,52 @@ const assertRequiredRuntimeConfig = (): void => {
 export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
   assertRequiredRuntimeConfig();
   const config = getPranaRuntimeConfig()!;
+  const {
+    director,
+    governance,
+    vault,
+    sync,
+    channels,
+  } = config as PranaRuntimeConfig & {
+    vault: PranaRuntimeConfig['vault'] & { kdfIterations: number };
+    sync: {
+      pushIntervalMs: number;
+      cronEnabled: boolean;
+      pushCronExpression: string;
+      pullCronExpression: string;
+    };
+  };
 
   return {
     director: {
-      name: config.director.name,
-      email: config.director.email,
-      password: config.director.password,
-      passwordHash: config.director.passwordHash,
+      name: director.name,
+      email: director.email,
+      password: director.password,
+      passwordHash: director.passwordHash,
     },
     governance: {
-      repoUrl: config.governance.repoUrl,
-      repoPath: config.governance.repoPath,
+      repoUrl: governance.repoUrl,
+      repoPath: governance.repoPath,
     },
     vault: {
-      specVersion: config.vault.specVersion ?? DEFAULT_VAULT_SPEC_VERSION,
-      tempZipExtension: normalizeExtension(config.vault.tempZipExtension ?? DEFAULT_VAULT_TEMP_ZIP_EXT),
-      outputPrefix: config.vault.outputPrefix ?? DEFAULT_VAULT_OUTPUT_PREFIX,
-      archivePassword: config.vault.archivePassword,
-      archiveSalt: config.vault.archiveSalt,
-      kdfIterations: Math.max(100_000, config.vault.kdfIterations),
-      keepTempOnClose: config.vault.keepTempOnClose ?? false,
+      specVersion: vault.specVersion ?? DEFAULT_VAULT_SPEC_VERSION,
+      tempZipExtension: normalizeExtension(vault.tempZipExtension ?? DEFAULT_VAULT_TEMP_ZIP_EXT),
+      outputPrefix: vault.outputPrefix ?? DEFAULT_VAULT_OUTPUT_PREFIX,
+      archivePassword: vault.archivePassword,
+      archiveSalt: vault.archiveSalt,
+      kdfIterations: vault.kdfIterations,
+      keepTempOnClose: vault.keepTempOnClose ?? false,
     },
     channels: {
-      telegramChannelId: config.channels?.telegramChannelId,
-      slackChannelId: config.channels?.slackChannelId,
-      teamsChannelId: config.channels?.teamsChannelId,
+      telegramChannelId: channels?.telegramChannelId,
+      slackChannelId: channels?.slackChannelId,
+      teamsChannelId: channels?.teamsChannelId,
     },
     sync: {
-      pushIntervalMs: Math.max(30_000, config.sync.pushIntervalMs ?? DEFAULT_SYNC_PUSH_INTERVAL_MS),
-      cronEnabled: config.sync.cronEnabled ?? DEFAULT_SYNC_CRON_ENABLED,
-      pushCronExpression: config.sync.pushCronExpression ?? DEFAULT_SYNC_PUSH_CRON_EXPRESSION,
-      pullCronExpression: config.sync.pullCronExpression ?? DEFAULT_SYNC_PULL_CRON_EXPRESSION,
+      pushIntervalMs: sync.pushIntervalMs,
+      cronEnabled: sync.cronEnabled,
+      pushCronExpression: sync.pushCronExpression,
+      pullCronExpression: sync.pullCronExpression,
     },
   };
 };

@@ -78,7 +78,22 @@ describe('startupOrchestratorService', () => {
     recoverPendingSyncTasksMock.mockResolvedValue({ recoveredTasks: 0 });
     cronInitializeMock.mockResolvedValue(undefined);
     cronTickMock.mockResolvedValue(undefined);
-    cronGetTelemetryMock.mockResolvedValue({ schedulerActive: true, enabledJobs: 3 });
+    cronGetTelemetryMock.mockResolvedValue({
+      schedulerActive: true,
+      enabledJobs: 3,
+      totalRuns: 0,
+      failedRuns: 0,
+      skippedOverlapRuns: 0,
+      recovery: {
+        recoveredInterruptedTasks: 0,
+        missedJobsDetected: 0,
+        missedJobsEnqueued: 0,
+        duplicatePreventions: 0,
+        processedTasks: 0,
+        failedTasks: 0,
+        completedAt: '2026-03-29T00:00:00.000Z',
+      },
+    });
   });
 
   it('blocks startup when integration contract fails', async () => {
@@ -120,12 +135,30 @@ describe('startupOrchestratorService', () => {
 
   it('marks startup READY when all startup stages pass', async () => {
     recoverPendingSyncTasksMock.mockResolvedValue({ recoveredTasks: 4 });
+    cronGetTelemetryMock.mockResolvedValue({
+      schedulerActive: true,
+      enabledJobs: 3,
+      totalRuns: 2,
+      failedRuns: 0,
+      skippedOverlapRuns: 0,
+      recovery: {
+        recoveredInterruptedTasks: 2,
+        missedJobsDetected: 2,
+        missedJobsEnqueued: 2,
+        duplicatePreventions: 0,
+        processedTasks: 2,
+        failedTasks: 0,
+        completedAt: '2026-03-29T00:00:00.000Z',
+      },
+    });
 
     const { startupOrchestratorService } = await import('./startupOrchestratorService');
     const report = await startupOrchestratorService.runStartupSequence();
 
     expect(report.overallStatus).toBe('READY');
     expect(report.stages.every((stage) => stage.status === 'SUCCESS')).toBe(true);
+    expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.message).toContain('missedEnqueued=2');
+    expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.message).toContain('recoveredInterrupted=2');
   });
 
   it('marks startup DEGRADED when non-blocking cron recovery fails', async () => {

@@ -1,5 +1,34 @@
 # Cron Recovery and Catch-up Contract
 
+## Master-Spec Reference
+- Source of truth: docs/module/master-spec.md
+- Capability status: Partial
+
+## Current State
+- Recovery lifecycle and missed-job handling are defined with startup-first ordering.
+- Diagnostics contract is documented and connected to startup reporting surfaces.
+
+## Target State
+- Full deterministic replay behavior across repeated restarts and overlapping due windows.
+- Strong parity between documented ordering rules and all runtime branches.
+
+## Gap Notes
+- Dependency-sensitive ordering and replay counters need complete parity verification and standardized reporting depth.
+
+## Dependencies
+- docs/module/startup-orchestrator.md
+- docs/module/vault-sync-contract.md
+- docs/module/master-spec.md
+
+## Acceptance Criteria
+1. Missed and interrupted jobs recover once per due occurrence.
+2. Recovery runs before normal scheduler loop every startup cycle.
+3. Overlap and failure summaries are consistently reported in diagnostics.
+
+## Immediate Roadmap
+1. Add parity verification for recovery ordering and idempotent replay.
+2. Align startup summaries with full cron recovery counters.
+
 ## Purpose
 Define restart-safe cron behavior when app downtime causes missed schedules or interrupted runs.
 

@@ -6,6 +6,8 @@ import { getAppDataRoot } from './governanceRepoService';
 
 const DB_FILE_NAME = 'context-history.sqlite';
 
+export type StoredContextSessionStatus = 'ACTIVE' | 'ARCHIVED';
+
 export interface StoredHistoryDigest {
   id: string;
   sessionId: string;
@@ -27,6 +29,27 @@ interface CreateDigestPayload {
   afterTokens: number;
   removedMessages: number;
   compactedAt: string;
+}
+
+interface UpsertRawMessagePayload {
+  id: string;
+  sessionId: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  tokenEstimate: number;
+  createdAt: string;
+  payloadJson: string;
+}
+
+interface ReplaceActiveContextPayload {
+  sessionId: string;
+  messages: Array<{
+    id: string;
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content: string;
+    tokenEstimate: number;
+    createdAt: string;
+  }>;
 }
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
@@ -89,6 +112,45 @@ const initializeDatabase = async (): Promise<Database> => {
 
   database.run('CREATE INDEX IF NOT EXISTS idx_history_digests_session ON history_digests(session_id, compacted_at DESC);');
 
+  database.run(`
+    CREATE TABLE IF NOT EXISTS context_session_state (
+      session_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      last_summary TEXT,
+      archived_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS chat_history_raw (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      token_estimate INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+  `);
+
+  database.run('CREATE INDEX IF NOT EXISTS idx_chat_history_raw_session ON chat_history_raw(session_id, created_at DESC);');
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS chat_context_active (
+      session_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      token_estimate INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      active_rank INTEGER NOT NULL,
+      PRIMARY KEY (session_id, message_id)
+    );
+  `);
+
+  database.run('CREATE INDEX IF NOT EXISTS idx_chat_context_active_session ON chat_context_active(session_id, active_rank ASC);');
+
   await persistDatabase(database);
   return database;
 };
@@ -107,6 +169,103 @@ const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
 };
 
 export const contextDigestStoreService = {
+  async ensureSessionActive(sessionId: string, summary?: string | null): Promise<void> {
+    await queueWrite(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare(`
+        INSERT INTO context_session_state (session_id, status, last_summary, archived_at, updated_at)
+        VALUES (?, 'ACTIVE', ?, NULL, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+          status = 'ACTIVE',
+          last_summary = excluded.last_summary,
+          archived_at = NULL,
+          updated_at = excluded.updated_at
+      `);
+
+      const now = new Date().toISOString();
+      statement.run([sessionId, summary ?? null, now]);
+      statement.free();
+      await persistDatabase(db);
+    });
+  },
+
+  async archiveSession(sessionId: string, summary?: string | null): Promise<void> {
+    await queueWrite(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare(`
+        INSERT INTO context_session_state (session_id, status, last_summary, archived_at, updated_at)
+        VALUES (?, 'ARCHIVED', ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+          status = 'ARCHIVED',
+          last_summary = excluded.last_summary,
+          archived_at = excluded.archived_at,
+          updated_at = excluded.updated_at
+      `);
+
+      const now = new Date().toISOString();
+      statement.run([sessionId, summary ?? null, now, now]);
+      statement.free();
+      await persistDatabase(db);
+    });
+  },
+
+  async appendRawMessage(payload: UpsertRawMessagePayload): Promise<void> {
+    await queueWrite(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare(`
+        INSERT INTO chat_history_raw (id, session_id, role, content, token_estimate, created_at, payload_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          role = excluded.role,
+          content = excluded.content,
+          token_estimate = excluded.token_estimate,
+          created_at = excluded.created_at,
+          payload_json = excluded.payload_json
+      `);
+
+      statement.run([
+        payload.id,
+        payload.sessionId,
+        payload.role,
+        payload.content,
+        payload.tokenEstimate,
+        payload.createdAt,
+        payload.payloadJson,
+      ]);
+      statement.free();
+      await persistDatabase(db);
+    });
+  },
+
+  async replaceActiveContext(payload: ReplaceActiveContextPayload): Promise<void> {
+    await queueWrite(async () => {
+      const db = await getDatabase();
+      const deleteStatement = db.prepare('DELETE FROM chat_context_active WHERE session_id = ?');
+      deleteStatement.run([payload.sessionId]);
+      deleteStatement.free();
+
+      const insertStatement = db.prepare(`
+        INSERT INTO chat_context_active (session_id, message_id, role, content, token_estimate, created_at, active_rank)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      payload.messages.forEach((message, index) => {
+        insertStatement.run([
+          payload.sessionId,
+          message.id,
+          message.role,
+          message.content,
+          message.tokenEstimate,
+          message.createdAt,
+          index,
+        ]);
+      });
+
+      insertStatement.free();
+      await persistDatabase(db);
+    });
+  },
+
   async createDigest(payload: CreateDigestPayload): Promise<StoredHistoryDigest> {
     const createdAt = new Date().toISOString();
 

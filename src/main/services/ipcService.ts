@@ -20,6 +20,7 @@ import { skillRegistryService, SkillType } from './skillRegistry';
 import { coreRegistryService } from './coreRegistryService';
 import { channelRouterService } from './channelRouterService';
 import { syncProviderService } from './syncProviderService';
+import { runtimeModelAccessService } from './runtimeModelAccessService';
 import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRuntimeService';
 import { startupOrchestratorService } from './startupOrchestratorService';
 
@@ -352,9 +353,27 @@ export const registerIpcHandlers = (options?: { registryRuntime?: Partial<Regist
     async (_event, payload: {
       sessionId: string;
       budget?: { maxTokens?: number; reservedOutputTokens?: number; compactThresholdTokens?: number; highWaterMarkRatio?: number };
-      modelConfig?: { provider: 'lmstudio' | 'openrouter' | 'gemini'; model?: string };
+      modelConfig?: {
+        provider?: 'lmstudio' | 'openrouter' | 'gemini';
+        model?: string;
+        contextWindow?: number;
+        reservedOutputTokens?: number;
+      };
     }) => {
-      const result = contextEngineService.bootstrapSession(payload.sessionId, payload.budget, payload.modelConfig);
+      const resolvedModelConfig = await runtimeModelAccessService.resolveContextModelConfig(payload.modelConfig);
+      const fallbackModelConfig = payload.modelConfig?.provider
+        ? {
+            provider: payload.modelConfig.provider,
+            model: payload.modelConfig.model,
+            contextWindow: payload.modelConfig.contextWindow,
+            reservedOutputTokens: payload.modelConfig.reservedOutputTokens,
+          }
+        : undefined;
+      const result = contextEngineService.bootstrapSession(
+        payload.sessionId,
+        payload.budget,
+        resolvedModelConfig ?? fallbackModelConfig,
+      );
       await hookSystemService.emit('session.bootstrap', { sessionId: payload.sessionId });
       return result;
     },

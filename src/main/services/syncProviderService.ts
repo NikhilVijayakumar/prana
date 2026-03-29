@@ -10,6 +10,8 @@ import { vaultService } from './vaultService';
 import { recoveryOrchestratorService } from './recoveryOrchestratorService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { getAppDataRoot } from './governanceRepoService';
+import { diffEngine } from './diffEngine';
+import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
 
 const REGISTRY_SYNC_RELATIVE_PATH = join('data', 'registry-sync', 'registry-sync.snapshot.json');
 const MACHINE_LOCK_RELATIVE_PATH = join('data', 'registry-sync', 'active-client-lock.json');
@@ -27,8 +29,12 @@ interface ActiveClientLock {
 }
 
 export interface SplashSyncResult {
+  installMode: 'FIRST_INSTALL' | 'RETURNING_INSTALL';
   pulled: boolean;
   merged: boolean;
+  pullStatus: 'SUCCESS' | 'SKIPPED' | 'FAILED';
+  mergeStatus: 'MERGED' | 'REBUILT_FROM_VAULT_MIRROR' | 'PURGED_FROM_REMOTE_DELETE' | 'SKIPPED_LOCAL_NEWER_OR_EQUAL' | 'SKIPPED_NO_REMOTE' | 'BLOCKED_INTEGRITY' | 'FAILED';
+  integrityStatus: 'VALID' | 'INVALID' | 'NOT_PRESENT' | 'UNKNOWN';
   skippedReason?: string;
   machineLockWarning?: string;
 }
@@ -53,6 +59,13 @@ export interface SyncStatusSnapshot {
     valid: boolean | null;
     issues: string[];
   };
+  startupSync: {
+    installMode: 'FIRST_INSTALL' | 'RETURNING_INSTALL' | null;
+    pullStatus: SplashSyncResult['pullStatus'] | null;
+    mergeStatus: SplashSyncResult['mergeStatus'] | null;
+    integrityStatus: SplashSyncResult['integrityStatus'] | null;
+    message: string | null;
+  };
   queue: {
     pendingOrFailed: number;
     running: number;
@@ -73,6 +86,11 @@ let lastPushMessage: string | null = null;
 let lastIntegrityAt: string | null = null;
 let lastIntegrityValid: boolean | null = null;
 let lastIntegrityIssues: string[] = [];
+let lastStartupInstallMode: SplashSyncResult['installMode'] | null = null;
+let lastStartupPullStatus: SplashSyncResult['pullStatus'] | null = null;
+let lastStartupMergeStatus: SplashSyncResult['mergeStatus'] | null = null;
+let lastStartupIntegrityStatus: SplashSyncResult['integrityStatus'] | null = null;
+let lastStartupSyncMessage: string | null = null;
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -177,15 +195,43 @@ const writeRemoteSnapshot = async (snapshot: RegistrySyncSnapshot): Promise<void
   await writeFile(getSnapshotPath(), JSON.stringify(snapshot, null, 2), 'utf8');
 };
 
-const applyRemoteSnapshotIfNewer = async (): Promise<{ pulled: boolean; merged: boolean; skippedReason?: string }> => {
+const applyRemoteSnapshotIfNewer = async (
+  installMode: SplashSyncResult['installMode'],
+): Promise<SplashSyncResult> => {
   lastPullAt = nowIso();
   const snapshotPath = getSnapshotPath();
   if (!existsSync(snapshotPath)) {
+    const local = await syncStoreService.getDecryptedRegistrySnapshot();
+    if (diffEngine.detectRemoteSourceDeletion(local?.snapshot ?? null)) {
+      await registryRuntimeStoreService.clearApprovedRuntimeState();
+      await syncStoreService.clearEncryptedRegistrySnapshot();
+      lastPullStatus = 'SUCCESS';
+      lastPullMessage = 'Vault snapshot was removed remotely. Local SQLite mirror was purged to match Vault.';
+      await auditLogService.appendTransaction(AUDIT_ACTIONS.SYNC_REMOTE_MIRROR_APPLIED, {
+        workOrderId: 'sync-provider',
+        mode: installMode,
+        action: 'purge_from_remote_delete',
+      });
+      return {
+        installMode,
+        pulled: true,
+        merged: true,
+        pullStatus: 'SUCCESS',
+        mergeStatus: 'PURGED_FROM_REMOTE_DELETE',
+        integrityStatus: 'NOT_PRESENT',
+        skippedReason: 'Vault snapshot was removed remotely. Local SQLite mirror was purged to match Vault.',
+      };
+    }
+
     lastPullStatus = 'SKIPPED';
     lastPullMessage = 'No remote registry snapshot found in vault.';
     return {
+      installMode,
       pulled: false,
       merged: false,
+      pullStatus: 'SKIPPED',
+      mergeStatus: 'SKIPPED_NO_REMOTE',
+      integrityStatus: 'NOT_PRESENT',
       skippedReason: 'No remote registry snapshot found in vault.',
     };
   }
@@ -196,8 +242,12 @@ const applyRemoteSnapshotIfNewer = async (): Promise<{ pulled: boolean; merged: 
     lastPullStatus = 'FAILED';
     lastPullMessage = 'Remote registry snapshot is not valid JSON.';
     return {
+      installMode,
       pulled: true,
       merged: false,
+      pullStatus: 'FAILED',
+      mergeStatus: 'FAILED',
+      integrityStatus: 'UNKNOWN',
       skippedReason: 'Remote registry snapshot is not valid JSON.',
     };
   }
@@ -211,21 +261,59 @@ const applyRemoteSnapshotIfNewer = async (): Promise<{ pulled: boolean; merged: 
     lastPullStatus = 'FAILED';
     lastPullMessage = `Integrity check failed: ${integrity.issues.join('; ')}`;
     return {
+      installMode,
       pulled: true,
       merged: false,
+      pullStatus: 'FAILED',
+      mergeStatus: 'BLOCKED_INTEGRITY',
+      integrityStatus: 'INVALID',
       skippedReason: `Integrity check failed: ${integrity.issues.join('; ')}`,
     };
   }
 
   const local = await syncStoreService.getDecryptedRegistrySnapshot();
   const localVersion = local?.sourceVersion ?? '';
+  const remoteVersion = Date.parse(snapshot.generatedAt);
+  const parsedLocalVersion = Date.parse(localVersion);
+  const mirrorDiff = diffEngine.compareVaultToLocal(local?.snapshot ?? null, snapshot);
 
-  if (localVersion && Date.parse(localVersion) >= Date.parse(snapshot.generatedAt)) {
+  if (mirrorDiff.requiresMirrorRebuild) {
+    await registryRuntimeStoreService.importApprovedRuntimeFromSync({
+      committedAt: snapshot.runtime.committedAt,
+      contextByStep: snapshot.runtime.contextByStep,
+      approvalByStep: snapshot.runtime.approvalByStep,
+      agentMappings: snapshot.runtime.agentMappings,
+    });
+    await syncStoreService.saveEncryptedRegistrySnapshot(snapshot, snapshot.generatedAt);
+    lastPullStatus = 'SUCCESS';
+    lastPullMessage = `Vault mirror rebuild applied. Missing from Vault: ${mirrorDiff.missingFromVaultPaths.join(', ')}`;
+    await auditLogService.appendTransaction(AUDIT_ACTIONS.SYNC_REMOTE_MIRROR_APPLIED, {
+      workOrderId: 'sync-provider',
+      mode: installMode,
+      action: 'rebuild_from_vault_mirror',
+      missingCount: mirrorDiff.missingFromVaultPaths.length,
+    });
+    return {
+      installMode,
+      pulled: true,
+      merged: true,
+      pullStatus: 'SUCCESS',
+      mergeStatus: 'REBUILT_FROM_VAULT_MIRROR',
+      integrityStatus: 'VALID',
+      skippedReason: `Vault mirror rebuild applied. Missing from Vault: ${mirrorDiff.missingFromVaultPaths.join(', ')}`,
+    };
+  }
+
+  if (localVersion && !Number.isNaN(parsedLocalVersion) && !Number.isNaN(remoteVersion) && parsedLocalVersion >= remoteVersion) {
     lastPullStatus = 'SKIPPED';
     lastPullMessage = 'Local registry state is already newer or equal.';
     return {
+      installMode,
       pulled: true,
       merged: false,
+      pullStatus: 'SKIPPED',
+      mergeStatus: 'SKIPPED_LOCAL_NEWER_OR_EQUAL',
+      integrityStatus: 'VALID',
       skippedReason: 'Local registry state is already newer or equal.',
     };
   }
@@ -243,9 +331,22 @@ const applyRemoteSnapshotIfNewer = async (): Promise<{ pulled: boolean; merged: 
   lastPullMessage = 'Remote vault snapshot merged into local registry runtime store.';
 
   return {
+    installMode,
     pulled: true,
     merged: true,
+    pullStatus: 'SUCCESS',
+    mergeStatus: 'MERGED',
+    integrityStatus: 'VALID',
   };
+};
+
+const recordStartupSyncResult = (result: SplashSyncResult): SplashSyncResult => {
+  lastStartupInstallMode = result.installMode;
+  lastStartupPullStatus = result.pullStatus;
+  lastStartupMergeStatus = result.mergeStatus;
+  lastStartupIntegrityStatus = result.integrityStatus;
+  lastStartupSyncMessage = result.skippedReason ?? lastPullMessage;
+  return result;
 };
 
 const stageCurrentRegistryStateForSync = async (reason: string): Promise<void> => {
@@ -305,20 +406,26 @@ const pushLatestApprovedSnapshot = async (): Promise<void> => {
   }
 };
 
-const pullLatestFromRemoteVaultAndMerge = async (): Promise<{ pulled: boolean; merged: boolean; skippedReason?: string }> => {
+const pullLatestFromRemoteVaultAndMerge = async (
+  installMode: SplashSyncResult['installMode'],
+): Promise<SplashSyncResult> => {
   const syncResult = await vaultService.syncFromRemoteVault();
   if (!syncResult.success) {
     lastPullAt = nowIso();
     lastPullStatus = 'FAILED';
     lastPullMessage = syncResult.message;
     return {
+      installMode,
       pulled: false,
       merged: false,
+      pullStatus: 'FAILED',
+      mergeStatus: 'FAILED',
+      integrityStatus: 'UNKNOWN',
       skippedReason: syncResult.message,
     };
   }
 
-  return applyRemoteSnapshotIfNewer();
+  return applyRemoteSnapshotIfNewer(installMode);
 };
 
 const startPushTimer = (): void => {
@@ -341,12 +448,10 @@ const stopPushTimer = (): void => {
 };
 
 export const syncProviderService = {
-  async initializeOnSplash(): Promise<SplashSyncResult> {
+  async initializeOnSplash(options?: { installMode?: SplashSyncResult['installMode'] }): Promise<SplashSyncResult> {
+    const installMode = options?.installMode ?? 'RETURNING_INSTALL';
     if (initialized) {
-      const result = await pullLatestFromRemoteVaultAndMerge();
-      return {
-        ...result,
-      };
+      return recordStartupSyncResult(await pullLatestFromRemoteVaultAndMerge(installMode));
     }
 
     await vaultService.initializeVault();
@@ -359,15 +464,15 @@ export const syncProviderService = {
 
     const machineLockWarning = await updateActiveMachineLock();
     lastMachineLockWarning = machineLockWarning ?? null;
-  const pullResult = await pullLatestFromRemoteVaultAndMerge();
+    const pullResult = await pullLatestFromRemoteVaultAndMerge(installMode);
 
     startPushTimer();
     initialized = true;
 
-    return {
+    return recordStartupSyncResult({
       ...pullResult,
       machineLockWarning,
-    };
+    });
   },
 
   async stageApprovedRegistryForSync(reason: string): Promise<void> {
@@ -379,7 +484,7 @@ export const syncProviderService = {
   },
 
   async triggerBackgroundPull(): Promise<{ pulled: boolean; merged: boolean; skippedReason?: string }> {
-    return pullLatestFromRemoteVaultAndMerge();
+    return pullLatestFromRemoteVaultAndMerge('RETURNING_INSTALL');
   },
 
   async syncOnClose(): Promise<void> {
@@ -426,6 +531,13 @@ export const syncProviderService = {
         at: lastIntegrityAt,
         valid: lastIntegrityValid,
         issues: [...lastIntegrityIssues],
+      },
+      startupSync: {
+        installMode: lastStartupInstallMode,
+        pullStatus: lastStartupPullStatus,
+        mergeStatus: lastStartupMergeStatus,
+        integrityStatus: lastStartupIntegrityStatus,
+        message: lastStartupSyncMessage,
       },
       queue: {
         pendingOrFailed: tasks.filter((task) => task.status === 'PENDING' || task.status === 'FAILED').length,

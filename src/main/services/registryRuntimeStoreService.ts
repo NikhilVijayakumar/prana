@@ -4,9 +4,11 @@ import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { agentRegistryService } from './agentRegistryService';
 import { getAppDataRoot } from './governanceRepoService';
+import { syncStoreService } from './syncStoreService';
 
 const DB_FILE_NAME = 'registry-runtime.sqlite';
 const META_STATE_KEY = 'approved_runtime_state';
+const APPROVED_RUNTIME_SYNC_RECORD_KEY = 'approved_runtime_state';
 
 interface RuntimeAgentMapping {
   skills: string[];
@@ -295,6 +297,16 @@ const writeApprovedRuntimeState = async (state: ApprovedRuntimeState): Promise<v
   });
 };
 
+const clearApprovedRuntimeStateInternal = async (): Promise<void> => {
+  await queueWrite(async () => {
+    const db = await getDatabase();
+    const statement = db.prepare('DELETE FROM runtime_registry_meta WHERE key = ?');
+    statement.run([META_STATE_KEY]);
+    statement.free();
+    await persistDatabase(db);
+  });
+};
+
 export const registryRuntimeStoreService = {
   async saveApprovedRuntime(payload: ApprovedRuntimeWritePayload): Promise<void> {
     const state: ApprovedRuntimeState = {
@@ -307,10 +319,41 @@ export const registryRuntimeStoreService = {
     };
 
     await writeApprovedRuntimeState(state);
+    await syncStoreService.upsertSyncLineageRecord({
+      recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
+      tableName: 'runtime_registry_meta',
+      syncStatus: 'PENDING_UPDATE',
+      payload: JSON.stringify(state),
+      lastModified: payload.committedAt,
+    });
+    await syncStoreService.upsertSyncLineageRecord({
+      recordKey: 'runtime_model_access',
+      tableName: 'runtime_registry_meta',
+      syncStatus: 'LOCAL_ONLY',
+      payload: JSON.stringify(payload.modelAccess ?? null),
+      lastModified: payload.committedAt,
+    });
   },
 
   async getApprovedRuntimeState(): Promise<ApprovedRuntimeState | null> {
     return readApprovedRuntimeState();
+  },
+
+  async markApprovedRuntimePendingDelete(): Promise<void> {
+    const existing = await readApprovedRuntimeState();
+    const lastModified = existing?.committedAt ?? new Date().toISOString();
+    await syncStoreService.upsertSyncLineageRecord({
+      recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
+      tableName: 'runtime_registry_meta',
+      syncStatus: 'PENDING_DELETE',
+      payload: JSON.stringify(existing ?? null),
+      lastModified,
+    });
+  },
+
+  async clearApprovedRuntimeState(): Promise<void> {
+    await clearApprovedRuntimeStateInternal();
+    await syncStoreService.deleteSyncLineageRecord(APPROVED_RUNTIME_SYNC_RECORD_KEY);
   },
 
   async importApprovedRuntimeFromSync(payload: SyncImportedRuntimePayload): Promise<void> {
@@ -335,6 +378,13 @@ export const registryRuntimeStoreService = {
     };
 
     await writeApprovedRuntimeState(importedState);
+    await syncStoreService.upsertSyncLineageRecord({
+      recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
+      tableName: 'runtime_registry_meta',
+      syncStatus: 'SYNCED',
+      payload: JSON.stringify(importedState),
+      lastModified: payload.committedAt,
+    });
   },
 
   async listRuntimePersonas(): Promise<RuntimePersonaRecord[]> {
@@ -456,6 +506,13 @@ export const registryRuntimeStoreService = {
     };
 
     await writeApprovedRuntimeState(nextState);
+    await syncStoreService.upsertSyncLineageRecord({
+      recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
+      tableName: 'runtime_registry_meta',
+      syncStatus: 'PENDING_UPDATE',
+      payload: JSON.stringify(nextState),
+      lastModified: nextState.committedAt,
+    });
     return nextState.channelDetails;
   },
 };

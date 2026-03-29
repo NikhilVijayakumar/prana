@@ -35,6 +35,7 @@ import {
   RuntimeChannelDetails,
   RuntimeChannelDetailsUpdatePayload,
 } from './registryRuntimeStoreService';
+import { runtimeModelAccessService } from './runtimeModelAccessService';
 import { getPublicRuntimeConfig, getRuntimeBootstrapConfig } from './runtimeConfigService';
 import {
   documentConversionService,
@@ -2433,7 +2434,8 @@ export const operationsService = {
   },
 
   async getQueueMonitorPayload(): Promise<QueueMonitorPayload> {
-    contextEngineService.bootstrapSession('operations-main');
+    const runtimeModelConfig = await runtimeModelAccessService.resolveContextModelConfig();
+    contextEngineService.bootstrapSession('operations-main', undefined, runtimeModelConfig ?? undefined);
     await contextEngineService.afterTurn('operations-main');
     subagentService.timeoutSweep();
 
@@ -3133,12 +3135,13 @@ export const operationsService = {
     await writeOperationsState(state);
 
     const stageSnapshot = await onboardingStageStoreService.getSnapshot();
+    const normalizedModelAccess = runtimeModelAccessService.normalizeRuntimeModelAccess(stageSnapshot.modelAccess);
     await registryRuntimeStoreService.saveApprovedRuntime({
       committedAt,
       contextByStep: payload.contextByStep,
       approvalByStep: payload.approvalByStep,
       agentMappings: payload.agentMappings,
-      modelAccess: stageSnapshot.modelAccess,
+      modelAccess: normalizedModelAccess as unknown as Record<string, unknown> | null,
     });
 
     await persistOnboardingVaultStructure(committedAt, payload, validation.normalizedKpis);

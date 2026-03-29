@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { getAppDataRoot } from './governanceRepoService';
@@ -12,6 +12,7 @@ const META_SYNC_STATE_KEY = 'registry_sync_state';
 const ENVELOPE_MAGIC = 'DHI_VAULT_V1';
 
 export type SyncQueueStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+export type SyncRecordStatus = 'SYNCED' | 'PENDING_UPDATE' | 'PENDING_DELETE' | 'LOCAL_ONLY';
 
 interface RegistrySyncEnvelope {
   magic: string;
@@ -40,6 +41,16 @@ export interface SyncQueueTask {
   updatedAt: string;
 }
 
+export interface SyncLineageRecord {
+  recordKey: string;
+  tableName: string;
+  syncStatus: SyncRecordStatus;
+  vaultHash: string | null;
+  lastModified: string;
+  payloadHash: string;
+  updatedAt: string;
+}
+
 export interface PromptCacheRecord {
   cacheKey: string;
   prompt: string;
@@ -65,6 +76,7 @@ let dbPromise: Promise<Database> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
+const computePayloadHash = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
 const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
 
@@ -171,6 +183,18 @@ const initializeDatabase = async (): Promise<Database> => {
       attempts INTEGER NOT NULL,
       last_error TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS sync_lineage (
+      record_key TEXT PRIMARY KEY,
+      table_name TEXT NOT NULL,
+      sync_status TEXT NOT NULL,
+      vault_hash TEXT,
+      last_modified TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
@@ -320,6 +344,126 @@ export const syncStoreService = {
     });
 
     return task;
+  },
+
+  async clearEncryptedRegistrySnapshot(): Promise<void> {
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare('DELETE FROM sync_meta WHERE key = ?');
+      statement.run([META_SYNC_STATE_KEY]);
+      statement.free();
+      await persistDatabase(db);
+    });
+  },
+
+  async upsertSyncLineageRecord(input: {
+    recordKey: string;
+    tableName: string;
+    syncStatus: SyncRecordStatus;
+    payload: string;
+    lastModified?: string;
+    vaultHash?: string | null;
+  }): Promise<SyncLineageRecord> {
+    const record: SyncLineageRecord = {
+      recordKey: input.recordKey,
+      tableName: input.tableName,
+      syncStatus: input.syncStatus,
+      vaultHash: input.vaultHash ?? null,
+      lastModified: input.lastModified ?? nowIso(),
+      payloadHash: computePayloadHash(input.payload),
+      updatedAt: nowIso(),
+    };
+
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare(`
+        INSERT INTO sync_lineage (record_key, table_name, sync_status, vault_hash, last_modified, payload_hash, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(record_key) DO UPDATE SET
+          table_name = excluded.table_name,
+          sync_status = excluded.sync_status,
+          vault_hash = excluded.vault_hash,
+          last_modified = excluded.last_modified,
+          payload_hash = excluded.payload_hash,
+          updated_at = excluded.updated_at
+      `);
+
+      statement.run([
+        record.recordKey,
+        record.tableName,
+        record.syncStatus,
+        record.vaultHash,
+        record.lastModified,
+        record.payloadHash,
+        record.updatedAt,
+      ]);
+      statement.free();
+      await persistDatabase(db);
+    });
+
+    return record;
+  },
+
+  async getSyncLineageRecord(recordKey: string): Promise<SyncLineageRecord | null> {
+    const db = await getDatabase();
+    const statement = db.prepare('SELECT * FROM sync_lineage WHERE record_key = ?');
+    statement.bind([recordKey]);
+
+    if (!statement.step()) {
+      statement.free();
+      return null;
+    }
+
+    const row = statement.getAsObject() as Record<string, unknown>;
+    statement.free();
+
+    return {
+      recordKey: String(row.record_key ?? ''),
+      tableName: String(row.table_name ?? ''),
+      syncStatus: String(row.sync_status ?? 'LOCAL_ONLY') as SyncRecordStatus,
+      vaultHash: row.vault_hash ? String(row.vault_hash) : null,
+      lastModified: String(row.last_modified ?? nowIso()),
+      payloadHash: String(row.payload_hash ?? ''),
+      updatedAt: String(row.updated_at ?? nowIso()),
+    };
+  },
+
+  async listSyncLineageRecords(status?: SyncRecordStatus): Promise<SyncLineageRecord[]> {
+    const db = await getDatabase();
+    const statement = status
+      ? db.prepare('SELECT * FROM sync_lineage WHERE sync_status = ? ORDER BY updated_at DESC')
+      : db.prepare('SELECT * FROM sync_lineage ORDER BY updated_at DESC');
+
+    if (status) {
+      statement.bind([status]);
+    }
+
+    const records: SyncLineageRecord[] = [];
+    while (statement.step()) {
+      const row = statement.getAsObject() as Record<string, unknown>;
+      records.push({
+        recordKey: String(row.record_key ?? ''),
+        tableName: String(row.table_name ?? ''),
+        syncStatus: String(row.sync_status ?? 'LOCAL_ONLY') as SyncRecordStatus,
+        vaultHash: row.vault_hash ? String(row.vault_hash) : null,
+        lastModified: String(row.last_modified ?? nowIso()),
+        payloadHash: String(row.payload_hash ?? ''),
+        updatedAt: String(row.updated_at ?? nowIso()),
+      });
+    }
+
+    statement.free();
+    return records;
+  },
+
+  async deleteSyncLineageRecord(recordKey: string): Promise<void> {
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare('DELETE FROM sync_lineage WHERE record_key = ?');
+      statement.run([recordKey]);
+      statement.free();
+      await persistDatabase(db);
+    });
   },
 
   async claimNextPendingTask(): Promise<SyncQueueTask | null> {

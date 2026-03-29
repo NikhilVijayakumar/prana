@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { getAppDataRoot } from './governanceRepoService';
@@ -49,6 +49,12 @@ export interface TaskQueueRecord {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskEnqueueResult {
+  record: TaskQueueRecord;
+  inserted: boolean;
+  duplicatePrevented: boolean;
 }
 
 export interface TaskAuditLogRecord {
@@ -152,6 +158,11 @@ const initializeDatabase = async (): Promise<Database> => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+  `);
+
+  database.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS task_queue_job_due_occurrence_idx
+    ON task_queue (job_id, scheduled_for);
   `);
 
   database.run(`
@@ -467,7 +478,7 @@ export const governanceLifecycleQueueStoreService = {
     jobName: string;
     scheduledFor: string;
     source: TaskQueueRecord['source'];
-  }): Promise<TaskQueueRecord> {
+  }): Promise<TaskEnqueueResult> {
     const record: TaskQueueRecord = {
       taskId: createId('task'),
       jobId: payload.jobId,
@@ -481,8 +492,53 @@ export const governanceLifecycleQueueStoreService = {
       updatedAt: nowIso(),
     };
 
+    let result: TaskEnqueueResult = {
+      record,
+      inserted: false,
+      duplicatePrevented: false,
+    };
+
     await queueWrite(async () => {
       const database = await getDatabase();
+      const existingStatement = database.prepare(`
+        SELECT task_id, job_id, job_name, scheduled_for, source, status, attempt_count, last_error, created_at, updated_at
+        FROM task_queue
+        WHERE job_id = ? AND scheduled_for = ?
+        LIMIT 1
+      `);
+      existingStatement.bind([payload.jobId, payload.scheduledFor]);
+
+      if (existingStatement.step()) {
+        const row = existingStatement.getAsObject() as Record<string, unknown>;
+        result = {
+          record: {
+            taskId: String(row.task_id ?? ''),
+            jobId: String(row.job_id ?? ''),
+            jobName: String(row.job_name ?? ''),
+            scheduledFor: String(row.scheduled_for ?? payload.scheduledFor),
+            source: String(row.source ?? payload.source) as TaskQueueRecord['source'],
+            status: String(row.status ?? 'PENDING') as TaskQueueStatus,
+            attemptCount: Number(row.attempt_count ?? 0),
+            lastError: row.last_error ? String(row.last_error) : null,
+            createdAt: String(row.created_at ?? nowIso()),
+            updatedAt: String(row.updated_at ?? nowIso()),
+          },
+          inserted: false,
+          duplicatePrevented: true,
+        };
+        existingStatement.free();
+        appendTaskAudit(
+          database,
+          'task_enqueue_skipped_duplicate',
+          `Skipped duplicate due occurrence for job ${payload.jobId} at ${payload.scheduledFor}`,
+          payload.jobId,
+          null,
+        );
+        await persistDatabase(database);
+        return;
+      }
+      existingStatement.free();
+
       const statement = database.prepare(`
         INSERT INTO task_queue (task_id, job_id, job_name, scheduled_for, source, status, attempt_count, last_error, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -502,10 +558,15 @@ export const governanceLifecycleQueueStoreService = {
       statement.free();
 
       appendTaskAudit(database, 'task_enqueued', `Task ${record.taskId} enqueued (${record.source})`, record.jobId, record.taskId);
+      result = {
+        record,
+        inserted: true,
+        duplicatePrevented: false,
+      };
       await persistDatabase(database);
     });
 
-    return record;
+    return result;
   },
 
   async listPendingTasks(): Promise<TaskQueueRecord[]> {
@@ -603,5 +664,13 @@ export const governanceLifecycleQueueStoreService = {
 
     statement.free();
     return rows;
+  },
+
+  async __resetForTesting(): Promise<void> {
+    await writeQueue;
+    dbPromise = null;
+    sqlRuntimePromise = null;
+    writeQueue = Promise.resolve();
+    await rm(getDbPath(), { force: true });
   },
 };

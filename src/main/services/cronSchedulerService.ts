@@ -9,7 +9,7 @@ import {
   SYNC_PUSH_CRON_JOB_ID,
   syncProviderService,
 } from './syncProviderService';
-import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 
 export type CronRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED_OVERLAP';
 
@@ -37,6 +37,17 @@ export interface CronTelemetry {
   skippedOverlapRuns: number;
   schedulerActive: boolean;
   lastTickAt: string | null;
+  recovery: CronRecoverySummary;
+}
+
+export interface CronRecoverySummary {
+  recoveredInterruptedTasks: number;
+  missedJobsDetected: number;
+  missedJobsEnqueued: number;
+  duplicatePreventions: number;
+  processedTasks: number;
+  failedTasks: number;
+  completedAt: string | null;
 }
 
 interface PersistedCronState {
@@ -46,13 +57,18 @@ interface PersistedCronState {
 
 const STORE_FILE = 'cron-schedules.json';
 const TICK_INTERVAL_MS = 30_000;
-const DEFAULT_SYNC_CRON_ENABLED = true;
-const DEFAULT_SYNC_PUSH_CRON_EXPRESSION = '*/10 * * * *';
-const DEFAULT_SYNC_PULL_CRON_EXPRESSION = '*/15 * * * *';
-
 let initialized = false;
 let tickTimer: NodeJS.Timeout | null = null;
 let lastTickAt: string | null = null;
+let latestRecoverySummary: CronRecoverySummary = {
+  recoveredInterruptedTasks: 0,
+  missedJobsDetected: 0,
+  missedJobsEnqueued: 0,
+  duplicatePreventions: 0,
+  processedTasks: 0,
+  failedTasks: 0,
+  completedAt: null,
+};
 
 const jobs = new Map<string, CronJob>();
 
@@ -61,13 +77,11 @@ const nowIso = (): string => new Date().toISOString();
 const getStorePath = (): string => join(getAppDataRoot(), STORE_FILE);
 
 const cloneJob = (job: CronJob): CronJob => ({ ...job });
+const cloneRecoverySummary = (): CronRecoverySummary => ({ ...latestRecoverySummary });
 
 const defaultJobs = (): CronJob[] => {
   const now = new Date();
-  const syncConfig = getPranaRuntimeConfig()?.sync;
-  const syncCronEnabled = syncConfig?.cronEnabled ?? DEFAULT_SYNC_CRON_ENABLED;
-  const syncPushCronExpression = syncConfig?.pushCronExpression ?? DEFAULT_SYNC_PUSH_CRON_EXPRESSION;
-  const syncPullCronExpression = syncConfig?.pullCronExpression ?? DEFAULT_SYNC_PULL_CRON_EXPRESSION;
+  const syncConfig = getRuntimeBootstrapConfig().sync;
   return [
     {
       id: 'job-daily-brief',
@@ -100,11 +114,11 @@ const defaultJobs = (): CronJob[] => {
     {
       id: SYNC_PUSH_CRON_JOB_ID,
       name: 'Registry Sync Push (DB -> Vault)',
-      expression: syncPushCronExpression,
-      enabled: syncCronEnabled,
+      expression: syncConfig.pushCronExpression,
+      enabled: syncConfig.cronEnabled,
       retentionDays: 30,
       maxRuntimeMs: 30_000,
-      nextRunAt: computeNextRunIso(syncPushCronExpression, now),
+      nextRunAt: computeNextRunIso(syncConfig.pushCronExpression, now),
       lastRunAt: null,
       lastRunStatus: null,
       lastRunSource: null,
@@ -114,11 +128,11 @@ const defaultJobs = (): CronJob[] => {
     {
       id: SYNC_PULL_CRON_JOB_ID,
       name: 'Registry Sync Pull (Vault -> DB)',
-      expression: syncPullCronExpression,
-      enabled: syncCronEnabled,
+      expression: syncConfig.pullCronExpression,
+      enabled: syncConfig.cronEnabled,
       retentionDays: 30,
       maxRuntimeMs: 30_000,
-      nextRunAt: computeNextRunIso(syncPullCronExpression, now),
+      nextRunAt: computeNextRunIso(syncConfig.pullCronExpression, now),
       lastRunAt: null,
       lastRunStatus: null,
       lastRunSource: null,
@@ -300,7 +314,24 @@ const markRun = (
   job.nextRunAt = computeNextRunIso(job.expression, completedAt);
 };
 
-const enqueueDueJobs = async (now: Date, source: 'SCHEDULED' | 'MISSED'): Promise<void> => {
+const getJobPriority = (jobId: string): number => {
+  if (jobId === SYNC_PULL_CRON_JOB_ID) {
+    return 0;
+  }
+  if (jobId === SYNC_PUSH_CRON_JOB_ID) {
+    return 1;
+  }
+  return 2;
+};
+
+const enqueueDueJobs = async (
+  now: Date,
+  source: 'SCHEDULED' | 'MISSED',
+): Promise<{
+  detected: number;
+  enqueued: number;
+  duplicatePreventions: number;
+}> => {
   const dueJobs: Array<{ job: CronJob; scheduledFor: string }> = [];
 
   for (const job of jobs.values()) {
@@ -316,58 +347,91 @@ const enqueueDueJobs = async (now: Date, source: 'SCHEDULED' | 'MISSED'): Promis
     dueJobs.push({ job, scheduledFor: job.nextRunAt });
   }
 
-  const priority = (jobId: string): number => {
-    if (jobId === SYNC_PULL_CRON_JOB_ID) {
-      return 0;
-    }
-    if (jobId === SYNC_PUSH_CRON_JOB_ID) {
-      return 1;
-    }
-    return 2;
-  };
-
   dueJobs.sort((a, b) => {
-    const delta = priority(a.job.id) - priority(b.job.id);
+    const delta = getJobPriority(a.job.id) - getJobPriority(b.job.id);
     if (delta !== 0) {
       return delta;
     }
     return a.job.name.localeCompare(b.job.name);
   });
 
+  let enqueued = 0;
+  let duplicatePreventions = 0;
+
   for (const entry of dueJobs) {
     const { job, scheduledFor } = entry;
 
-    await governanceLifecycleQueueStoreService.enqueueTask({
+    const result = await governanceLifecycleQueueStoreService.enqueueTask({
       jobId: job.id,
       jobName: job.name,
       scheduledFor,
       source,
     });
+    if (result.inserted) {
+      enqueued += 1;
+    }
+    if (result.duplicatePrevented) {
+      duplicatePreventions += 1;
+    }
 
     // Advance next run immediately so repeated sweeps do not duplicate queue inserts.
     job.nextRunAt = computeNextRunIso(job.expression, now);
   }
+
+  return {
+    detected: dueJobs.length,
+    enqueued,
+    duplicatePreventions,
+  };
 };
 
-const processPendingTaskQueue = async (): Promise<void> => {
+const processPendingTaskQueue = async (): Promise<{
+  processed: number;
+  failed: number;
+}> => {
   const pending = await governanceLifecycleQueueStoreService.listPendingTasks();
+  pending.sort((a, b) => {
+    const timeDelta = Date.parse(a.scheduledFor) - Date.parse(b.scheduledFor);
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
+
+    const priorityDelta = getJobPriority(a.jobId) - getJobPriority(b.jobId);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+
+  let processed = 0;
+  let failed = 0;
 
   for (const task of pending) {
     const job = jobs.get(task.jobId);
     if (!job) {
       await governanceLifecycleQueueStoreService.markTaskFailed(task.taskId, `Unknown cron job: ${task.jobId}`);
+      processed += 1;
+      failed += 1;
       continue;
     }
 
     await governanceLifecycleQueueStoreService.markTaskRunning(task.taskId);
     const status = await executeJob(job, task.source === 'SCHEDULED' ? 'scheduler' : 'manual');
+    processed += 1;
 
     if (status === 'SUCCESS' || status === 'SKIPPED_OVERLAP') {
       await governanceLifecycleQueueStoreService.markTaskCompleted(task.taskId);
     } else {
       await governanceLifecycleQueueStoreService.markTaskFailed(task.taskId, 'Cron execution failed');
+      failed += 1;
     }
   }
+
+  return {
+    processed,
+    failed,
+  };
 };
 
 const executeJob = async (
@@ -449,9 +513,19 @@ const ensureInitialized = async (): Promise<void> => {
     }
   }
 
-  await governanceLifecycleQueueStoreService.recoverInterruptedTasks();
-  await enqueueDueJobs(new Date(), 'MISSED');
-  await processPendingTaskQueue();
+  const recoveredInterruptedTasks = await governanceLifecycleQueueStoreService.recoverInterruptedTasks();
+  const missedSummary = await enqueueDueJobs(new Date(), 'MISSED');
+  const processedSummary = await processPendingTaskQueue();
+
+  latestRecoverySummary = {
+    recoveredInterruptedTasks,
+    missedJobsDetected: missedSummary.detected,
+    missedJobsEnqueued: missedSummary.enqueued,
+    duplicatePreventions: missedSummary.duplicatePreventions,
+    processedTasks: processedSummary.processed,
+    failedTasks: processedSummary.failed,
+    completedAt: nowIso(),
+  };
 
   await writeStore();
   startTimer();
@@ -576,6 +650,7 @@ export const cronSchedulerService = {
       skippedOverlapRuns: all.filter((job) => job.lastRunStatus === 'SKIPPED_OVERLAP').length,
       schedulerActive: tickTimer !== null,
       lastTickAt,
+      recovery: cloneRecoverySummary(),
     };
   },
 
@@ -595,11 +670,32 @@ export const cronSchedulerService = {
     await this.dispose();
     jobs.clear();
     lastTickAt = null;
+    latestRecoverySummary = {
+      recoveredInterruptedTasks: 0,
+      missedJobsDetected: 0,
+      missedJobsEnqueued: 0,
+      duplicatePreventions: 0,
+      processedTasks: 0,
+      failedTasks: 0,
+      completedAt: null,
+    };
     await mkdir(getAppDataRoot(), { recursive: true });
     const seeded: PersistedCronState = {
       jobs: defaultJobs(),
       updatedAt: nowIso(),
     };
     await writeFile(getStorePath(), JSON.stringify(seeded, null, 2), 'utf8');
+  },
+
+  async __setJobStateForTesting(jobId: string, patch: Partial<CronJob>): Promise<CronJob | null> {
+    await ensureInitialized();
+    const job = jobs.get(jobId);
+    if (!job) {
+      return null;
+    }
+
+    Object.assign(job, patch);
+    await writeStore();
+    return cloneJob(job);
   },
 };

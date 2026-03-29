@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cronSchedulerService } from './cronSchedulerService';
+import { governanceLifecycleQueueStoreService } from './governanceLifecycleQueueStoreService';
 import { hookSystemService } from './hookSystemService';
 
 describe('cronSchedulerService', () => {
   beforeEach(async () => {
+    await governanceLifecycleQueueStoreService.__resetForTesting();
     await cronSchedulerService.__resetForTesting();
     await hookSystemService.__resetForTesting();
     await hookSystemService.clearRuntimeState();
@@ -88,5 +90,32 @@ describe('cronSchedulerService', () => {
     const executions = await hookSystemService.listExecutions(20);
 
     expect(executions.some((entry) => entry.event === 'schedule.tick')).toBe(true);
+  });
+
+  it('recovers a missed due occurrence only once across restart windows', async () => {
+    const jobs = await cronSchedulerService.listJobs();
+    const target = jobs.find((job) => job.id === 'job-daily-brief') ?? jobs[0];
+    expect(target).toBeTruthy();
+    if (!target) {
+      return;
+    }
+
+    await cronSchedulerService.__setJobStateForTesting(target.id, {
+      nextRunAt: '2026-03-19T07:00:00.000Z',
+    });
+
+    await cronSchedulerService.dispose();
+    await cronSchedulerService.initialize();
+
+    const firstTelemetry = await cronSchedulerService.getTelemetry();
+    expect(firstTelemetry.recovery.missedJobsDetected).toBeGreaterThanOrEqual(1);
+    expect(firstTelemetry.recovery.missedJobsEnqueued).toBeGreaterThanOrEqual(1);
+    expect(firstTelemetry.recovery.duplicatePreventions).toBe(0);
+
+    await cronSchedulerService.dispose();
+    await cronSchedulerService.initialize();
+
+    const secondTelemetry = await cronSchedulerService.getTelemetry();
+    expect(secondTelemetry.recovery.missedJobsEnqueued).toBe(0);
   });
 });

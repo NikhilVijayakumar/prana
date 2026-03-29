@@ -38,7 +38,7 @@ interface RuntimeIntegrationKeyStatus {
   present: boolean;
   valid: boolean;
   source: 'config' | 'missing';
-  issue?: 'missing' | 'invalid_number' | 'invalid_boolean';
+  issue?: 'missing' | 'invalid_string' | 'invalid_number' | 'invalid_boolean';
 }
 
 interface RuntimeIntegrationStatus {

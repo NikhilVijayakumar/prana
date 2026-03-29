@@ -1,5 +1,34 @@
 # Startup Orchestrator Contract
 
+## Master-Spec Reference
+- Source of truth: docs/module/master-spec.md
+- Capability status: Active
+
+## Current State
+- Deterministic stage sequence is defined and wired to startup diagnostics publication.
+- Required startup gates are enforced before protected navigation.
+
+## Target State
+- Keep strict deterministic sequencing as the non-negotiable baseline.
+- Expand recovery diagnostics for deeper cron and sync replay transparency.
+
+## Gap Notes
+- Startup diagnostics are present, but recovery telemetry depth is still being standardized across all recovery branches.
+
+## Dependencies
+- docs/module/vault-sync-contract.md
+- docs/module/cron-recovery-contract.md
+- docs/module/splash-system-initialization.md
+
+## Acceptance Criteria
+1. Integration, governance, and vault stages are always evaluated before login handoff.
+2. BLOCKED versus DEGRADED state decisions are deterministic and policy-aligned.
+3. Stage-level startup status is available through app:get-startup-status.
+
+## Immediate Roadmap
+1. Align cron recovery counters with startup summary contract.
+2. Align sync recovery decisions with deterministic merge reporting.
+
 ## Purpose
 Define deterministic app-start sequencing before pre-auth navigation, including integration validation, governance repo readiness, vault hydration, SQLite recovery, and cron catch-up.
 

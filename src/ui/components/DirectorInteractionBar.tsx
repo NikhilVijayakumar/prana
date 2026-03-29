@@ -18,7 +18,7 @@ import {
 } from '../constants/employeeDirectory';
 import { spacing } from 'astra';
 import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
-import type { PranaBrandingConfig } from '../constants/pranaConfig';
+import { assertRequiredBrandingFields, type PranaBrandingConfig } from '../constants/pranaConfig';
 
 interface DirectorInteractionBarProps {
   moduleRoute: string;
@@ -93,6 +93,8 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   branding,
   onOpenProfile,
 }) => {
+  assertRequiredBrandingFields('DirectorInteractionBar', branding, ['directorSenderEmail', 'directorSenderName']);
+
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
 
@@ -102,8 +104,8 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   const [channelMode, setChannelMode] = useState<'internal' | 'telegram'>('internal');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const directorSenderEmail = branding.directorSenderEmail ?? '';
-  const directorSenderName = branding.directorSenderName ?? '';
+  const directorSenderEmail = branding.directorSenderEmail as string;
+  const directorSenderName = branding.directorSenderName as string;
   const avatarBaseUrl = branding.avatarBaseUrl;
 
   const owner = EMPLOYEE_DIRECTORY[ownerId] ?? EMPLOYEE_DIRECTORY.mira;

@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { contextOptimizerService, ContextOptimizationStage } from './contextOptimizerService';
 import { contextDigestStoreService } from './contextDigestStoreService';
 import { summarizationAgentService } from './summarizationAgentService';
 import { getRegistryRuntimeConfig } from './registryRuntimeService';
+import { syncStoreService } from './syncStoreService';
 import {
   ContextProvider,
   tokenManagerService,
@@ -43,6 +45,8 @@ export interface ContextSessionState {
   lastCompactionAt: string | null;
   lastDigestId: string | null;
   summary: string | null;
+  optimizationStage: ContextOptimizationStage;
+  hardResetCount: number;
   budget: ContextTokenBudget;
   modelConfig: ContextModelConfig;
 }
@@ -82,7 +86,7 @@ export interface ContextStartNewResult {
 export interface ContextEvent {
   id: string;
   sessionId: string;
-  type: 'threshold_reached' | 'compaction_started' | 'compaction_completed' | 'new_context_prepared' | 'new_context_started';
+  type: 'warning_state' | 'threshold_reached' | 'compaction_started' | 'compaction_completed' | 'hard_limit_reset' | 'new_context_prepared' | 'new_context_started';
   message: string;
   createdAt: string;
 }
@@ -228,6 +232,57 @@ const toEnvelope = (role: ContextMessageRole, content: string): ContextMessageEn
 
 const sessions = new Map<string, ContextSessionRecord>();
 
+const persistRawMessage = async (sessionId: string, message: ContextMessageEnvelope): Promise<void> => {
+  await contextDigestStoreService.appendRawMessage({
+    id: message.id,
+    sessionId,
+    role: message.role,
+    content: message.content,
+    tokenEstimate: message.tokenEstimate,
+    createdAt: message.createdAt,
+    payloadJson: JSON.stringify(message),
+  });
+};
+
+const persistActiveContext = async (record: ContextSessionRecord): Promise<void> => {
+  await contextDigestStoreService.ensureSessionActive(record.state.sessionId, record.state.summary);
+  await contextDigestStoreService.replaceActiveContext({
+    sessionId: record.state.sessionId,
+    messages: record.messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      tokenEstimate: message.tokenEstimate,
+      createdAt: message.createdAt,
+    })),
+  });
+};
+
+const persistArchivedMessagesToEmbeddings = async (
+  sessionId: string,
+  messages: ContextMessageEnvelope[],
+): Promise<void> => {
+  for (const message of messages) {
+    const content = message.content.trim();
+    if (!content) {
+      continue;
+    }
+
+    await syncStoreService.upsertEmbedding({
+      embeddingId: `${sessionId}:${message.id}`,
+      namespace: `context-archive:${sessionId}`,
+      contentHash: `${sessionId}:${message.id}`,
+      vector: contextOptimizerService.createDeterministicEmbedding(content),
+      metadata: {
+        sessionId,
+        role: message.role,
+        createdAt: message.createdAt,
+        contentPreview: content.slice(0, 240),
+      },
+    });
+  }
+};
+
 const getOrCreateSession = (
   sessionId: string,
   budget?: Partial<ContextTokenBudget>,
@@ -242,6 +297,8 @@ const getOrCreateSession = (
       existing.state.modelConfig = {
         provider: modelConfig.provider,
         model: modelConfig.model?.trim() || existing.state.modelConfig.model,
+        contextWindow: modelConfig.contextWindow ?? existing.state.modelConfig.contextWindow,
+        reservedOutputTokens: modelConfig.reservedOutputTokens ?? existing.state.modelConfig.reservedOutputTokens,
       };
     }
     return existing;
@@ -280,6 +337,8 @@ const getOrCreateSession = (
       lastCompactionAt: null,
       lastDigestId: null,
       summary: null,
+      optimizationStage: 'NORMAL',
+      hardResetCount: 0,
       budget: normalizedBudget,
       modelConfig: resolvedModelConfig,
     },
@@ -287,7 +346,153 @@ const getOrCreateSession = (
   };
 
   sessions.set(sessionId, created);
+  void persistRawMessage(sessionId, seed);
+  void persistActiveContext(created);
   return created;
+};
+
+const updateOptimizationStage = (
+  sessionId: string,
+  record: ContextSessionRecord,
+  nextStage: ContextOptimizationStage,
+): void => {
+  if (record.state.optimizationStage === nextStage) {
+    return;
+  }
+
+  record.state.optimizationStage = nextStage;
+  if (nextStage === 'WARNING') {
+    emitEvent(
+      sessionId,
+      'warning_state',
+      'Context usage reached the warning threshold. Memory is approaching capacity.',
+    );
+  }
+};
+
+const buildCompactionSummary = async (
+  sessionId: string,
+  firstSystem: ContextMessageEnvelope | undefined,
+  currentGoalMessage: ContextMessageEnvelope | undefined,
+  middleSlice: ContextMessageEnvelope[],
+): Promise<string> => {
+  const contextMetadata = loadContextMetadata();
+  const previousDigest = await contextDigestStoreService.getLatestDigest(sessionId);
+  return summarizationAgentService.summarize({
+    sessionId,
+    initialInstruction: firstSystem?.content ?? '',
+    currentGoal: currentGoalMessage?.content ?? '',
+    coreMetadata: `company=${contextMetadata.companyIdentity};product_focus=${contextMetadata.productFocus}`,
+    previousDigest: previousDigest?.summary ?? null,
+    middleMessages: middleSlice.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  });
+};
+
+const forceHardLimitReset = async (
+  sessionId: string,
+  record: ContextSessionRecord,
+  reason: string,
+): Promise<void> => {
+  const originalMessages = [...record.messages];
+  const firstSystem = originalMessages.find((message) => message.role === 'system') ?? originalMessages[0];
+  const currentGoalMessage = [...originalMessages]
+    .reverse()
+    .find((message) => message.role === 'user') ?? originalMessages[originalMessages.length - 1];
+
+  const summaryContent = await buildCompactionSummary(
+    sessionId,
+    firstSystem,
+    currentGoalMessage,
+    originalMessages.filter((message) => message.id !== firstSystem?.id),
+  );
+
+  const metadata = loadContextMetadata();
+  const compactedAt = nowIso();
+  const digestId = `digest_${randomUUID()}`;
+  const resetDigest = toEnvelope(
+    'system',
+    `Forced Context Reset (${compactedAt}):\n${summaryContent}`,
+  );
+
+  const resetMessages = [
+    firstSystem,
+    toEnvelope('system', `Core Metadata | Company: ${metadata.companyIdentity} | Product Focus: ${metadata.productFocus}`),
+    resetDigest,
+    currentGoalMessage ? toEnvelope('system', `Current Goal Carryover: ${currentGoalMessage.content}`) : null,
+  ].filter((message): message is ContextMessageEnvelope => Boolean(message));
+
+  const retainedIds = new Set(resetMessages.map((message) => message.id));
+  const archivedMessages = originalMessages.filter((message) => !retainedIds.has(message.id));
+
+  record.messages = resetMessages;
+  recalcState(record);
+  record.state.summary = summaryContent;
+  record.state.lastCompactionAt = compactedAt;
+  record.state.lastDigestId = digestId;
+  record.state.hardResetCount += 1;
+  record.state.optimizationStage = contextOptimizerService.resolveStage(
+    record.state.totalTokens,
+    record.state.budget.maxTokens,
+  );
+
+  await contextDigestStoreService.createDigest({
+    id: digestId,
+    sessionId,
+    summary: summaryContent,
+    metadataJson: JSON.stringify({
+      reason,
+      forcedReset: true,
+      companyIdentity: metadata.companyIdentity,
+      productFocus: metadata.productFocus,
+      initialInstruction: firstSystem?.content.slice(0, 500) ?? '',
+      currentGoal: currentGoalMessage?.content.slice(0, 500) ?? '',
+      archivedMessageCount: archivedMessages.length,
+    }),
+    beforeTokens: originalMessages.reduce((sum, message) => sum + message.tokenEstimate, 0),
+    afterTokens: record.state.totalTokens,
+    removedMessages: archivedMessages.length,
+    compactedAt,
+  });
+  for (const message of resetMessages) {
+    if (!originalMessages.some((existing) => existing.id === message.id)) {
+      await persistRawMessage(sessionId, message);
+    }
+  }
+  await persistArchivedMessagesToEmbeddings(sessionId, archivedMessages);
+  await persistActiveContext(record);
+  emitEvent(sessionId, 'hard_limit_reset', `Context hard limit reached. Reset applied (${reason}).`);
+};
+
+const enforceOptimizationLifecycle = async (
+  sessionId: string,
+  record: ContextSessionRecord,
+  reason: string,
+): Promise<void> => {
+  const nextStage = contextOptimizerService.resolveStage(
+    record.state.totalTokens,
+    record.state.budget.maxTokens,
+  );
+
+  if (nextStage === 'HARD_LIMIT') {
+    await forceHardLimitReset(sessionId, record, reason);
+    return;
+  }
+
+  if (nextStage === 'COMPACTION_REQUIRED') {
+    emitEvent(sessionId, 'threshold_reached', 'Context threshold reached. Summarizing history for optimal performance...');
+    await compactRecord(sessionId, record, reason);
+    record.state.optimizationStage = contextOptimizerService.resolveStage(
+      record.state.totalTokens,
+      record.state.budget.maxTokens,
+    );
+    return;
+  }
+
+  updateOptimizationStage(sessionId, record, nextStage);
+  await persistActiveContext(record);
 };
 
 const compactRecord = (
@@ -315,33 +520,20 @@ const compactRecord = (
     };
   }
 
-  const headCount = Math.max(1, Math.floor(beforeCount * 0.2));
-  const tailCount = Math.max(2, Math.floor(beforeCount * 0.2));
-  const middleStart = Math.min(headCount, beforeCount);
-  const middleEnd = Math.max(middleStart, beforeCount - tailCount);
-
-  const headSlice = record.messages.slice(0, middleStart);
-  const middleSlice = record.messages.slice(middleStart, middleEnd);
-  const tailSlice = record.messages.slice(middleEnd);
-
-  const firstSystem = headSlice.find((message) => message.role === 'system') ?? record.messages[0];
+  const originalMessages = [...record.messages];
+  const plan = contextOptimizerService.createCompactionPlan(originalMessages);
+  const firstSystem = plan.pinnedMessages.find((message) => message.role === 'system') ?? originalMessages[0];
   const currentGoalMessage = [...record.messages]
     .reverse()
     .find((message) => message.role === 'user') ?? record.messages[record.messages.length - 1];
   const contextMetadata = loadContextMetadata();
 
-  const previousDigest = await contextDigestStoreService.getLatestDigest(sessionId);
-  const summaryContent = await summarizationAgentService.summarize({
+  const summaryContent = await buildCompactionSummary(
     sessionId,
-    initialInstruction: firstSystem?.content ?? '',
-    currentGoal: currentGoalMessage?.content ?? '',
-    coreMetadata: `company=${contextMetadata.companyIdentity};product_focus=${contextMetadata.productFocus}`,
-    previousDigest: previousDigest?.summary ?? null,
-    middleMessages: middleSlice.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
-  });
+    firstSystem,
+    currentGoalMessage,
+    plan.summarizationMessages,
+  );
 
   const digestId = `digest_${randomUUID()}`;
   const compactedAt = nowIso();
@@ -356,10 +548,10 @@ const compactRecord = (
     `History Digest (${compactedAt}):\n${summaryContent}`,
   );
 
-  const preservedTail = tailSlice.slice(-MAX_MESSAGES_AFTER_COMPACTION);
+  const preservedTail = plan.activeTailMessages.slice(-MAX_MESSAGES_AFTER_COMPACTION);
 
   record.messages = [
-    firstSystem,
+    ...plan.pinnedMessages,
     metadataEnvelope,
     digestEnvelope,
     ...preservedTail,
@@ -380,6 +572,10 @@ const compactRecord = (
   record.state.lastCompactionAt = compactedAt;
   record.state.lastDigestId = digestId;
   record.state.summary = summaryContent;
+  record.state.optimizationStage = 'NORMAL';
+
+  const retainedIds = new Set(record.messages.map((message) => message.id));
+  const archivedMessages = originalMessages.filter((message) => !retainedIds.has(message.id));
 
   await contextDigestStoreService.createDigest({
     id: digestId,
@@ -392,13 +588,20 @@ const compactRecord = (
       metadataSource: contextMetadata.source,
       initialInstruction: firstSystem?.content.slice(0, 500) ?? '',
       currentGoal: currentGoalMessage?.content.slice(0, 500) ?? '',
-      middleMessageCount: middleSlice.length,
+      middleMessageCount: plan.summarizationMessages.length,
     }),
     beforeTokens,
     afterTokens: record.state.totalTokens,
     removedMessages,
     compactedAt,
   });
+  for (const message of record.messages) {
+    if (!originalMessages.some((existing) => existing.id === message.id)) {
+      await persistRawMessage(sessionId, message);
+    }
+  }
+  await persistArchivedMessagesToEmbeddings(sessionId, archivedMessages);
+  await persistActiveContext(record);
 
   emitEvent(sessionId, 'compaction_completed', `Compaction completed (${reason}). Digest=${digestId}.`);
 
@@ -435,13 +638,11 @@ export const contextEngineService = {
     }
 
     const record = getOrCreateSession(sessionId);
-    record.messages.push(toEnvelope(role, normalizedContent));
+    const message = toEnvelope(role, normalizedContent);
+    record.messages.push(message);
+    await persistRawMessage(sessionId, message);
     recalcState(record);
-
-    if (record.state.totalTokens >= record.state.budget.compactThresholdTokens) {
-      emitEvent(sessionId, 'threshold_reached', 'Context threshold reached. Summarizing history for optimal performance...');
-      await compactRecord(record.state.sessionId, record, 'high-water-mark-ingest');
-    }
+    await enforceOptimizationLifecycle(record.state.sessionId, record, 'high-water-mark-ingest');
 
     return cloneState(record.state);
   },
@@ -457,15 +658,13 @@ export const contextEngineService = {
       if (!content) {
         continue;
       }
-      record.messages.push(toEnvelope(message.role, content));
+      const envelope = toEnvelope(message.role, content);
+      record.messages.push(envelope);
+      await persistRawMessage(sessionId, envelope);
     }
 
     recalcState(record);
-
-    if (record.state.totalTokens >= record.state.budget.compactThresholdTokens) {
-      emitEvent(sessionId, 'threshold_reached', 'Context threshold reached. Summarizing history for optimal performance...');
-      await compactRecord(record.state.sessionId, record, 'high-water-mark-batch');
-    }
+    await enforceOptimizationLifecycle(record.state.sessionId, record, 'high-water-mark-batch');
 
     return cloneState(record.state);
   },
@@ -510,11 +709,7 @@ export const contextEngineService = {
 
   async afterTurn(sessionId: string): Promise<ContextSessionState> {
     const record = getOrCreateSession(sessionId);
-
-    if (record.state.totalTokens >= record.state.budget.compactThresholdTokens) {
-      emitEvent(sessionId, 'threshold_reached', 'Context threshold reached. Summarizing history for optimal performance...');
-      await compactRecord(sessionId, record, 'after-turn-threshold');
-    }
+    await enforceOptimizationLifecycle(sessionId, record, 'after-turn-threshold');
 
     return cloneState(record.state);
   },
@@ -534,14 +729,18 @@ export const contextEngineService = {
     }
 
     recalcState(child);
+    void persistActiveContext(child);
     return cloneState(child.state);
   },
 
   onSubagentEnded(parentSessionId: string, childSessionId: string, summary: string): ContextSessionState {
     const record = getOrCreateSession(parentSessionId);
     const summaryText = summary.trim() || `Subagent ${childSessionId} completed without a summary.`;
-    record.messages.push(toEnvelope('assistant', `Subagent ${childSessionId} summary: ${summaryText}`));
+    const message = toEnvelope('assistant', `Subagent ${childSessionId} summary: ${summaryText}`);
+    record.messages.push(message);
+    void persistRawMessage(parentSessionId, message);
     recalcState(record);
+    void persistActiveContext(record);
     return cloneState(record.state);
   },
 
@@ -607,6 +806,11 @@ export const contextEngineService = {
 
     recalcState(target);
     pendingNewContextPreviews.delete(sourceSessionId);
+    void contextDigestStoreService.archiveSession(sourceSessionId, carriedSummary);
+    target.messages.forEach((message) => {
+      void persistRawMessage(targetSessionId, message);
+    });
+    void persistActiveContext(target);
     emitEvent(sourceSessionId, 'new_context_started', `Started new context session ${targetSessionId} with carryover summary.`);
 
     return {

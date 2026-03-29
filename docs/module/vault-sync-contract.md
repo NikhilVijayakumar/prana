@@ -1,5 +1,34 @@
 # Vault and SQLite Sync Contract
 
+## Master-Spec Reference
+- Source of truth: docs/module/master-spec.md
+- Capability status: Partial
+
+## Current State
+- First-install and returning-install flows are documented with pull and merge semantics.
+- Startup diagnostics expose sync outcomes through startup and integration surfaces.
+
+## Target State
+- Deterministic conflict and freshness handling across all startup and runtime sync paths.
+- Clear merge decision visibility and integrity failure behavior in every branch.
+
+## Gap Notes
+- Contract is strong, but parity between documented merge branches and all runtime code paths still needs explicit validation.
+
+## Dependencies
+- docs/module/startup-orchestrator.md
+- docs/module/cron-recovery-contract.md
+- docs/module/vault-folder-structure.md
+
+## Acceptance Criteria
+1. Install mode detection drives correct startup sync branch.
+2. Integrity failures never merge invalid snapshots.
+3. Recovery transitions for interrupted tasks are idempotent.
+
+## Immediate Roadmap
+1. Add full merge branch parity checks to implementation plan wave gates.
+2. Add conflict decision reporting to diagnostics contract.
+
 ## Purpose
 Define first-install and returning-install synchronization semantics between vault archive state and local SQLite projection layers.
 

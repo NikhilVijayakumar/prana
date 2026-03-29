@@ -4,6 +4,7 @@ import { vaultService } from './vaultService';
 import { syncProviderService } from './syncProviderService';
 import { recoveryOrchestratorService } from './recoveryOrchestratorService';
 import { cronSchedulerService } from './cronSchedulerService';
+import { sqliteDataProvider } from './sqliteDataProvider';
 
 export type StartupStageId =
   | 'integration'
@@ -154,6 +155,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     }
 
     markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
+    await sqliteDataProvider.ensureLocalRuntimeSeeded();
   } catch (error) {
     markStage(
       stages,
@@ -206,18 +208,19 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     'SUCCESS',
     governanceStatus.clonedNow ? 'Governance repository cloned and ready.' : 'Governance repository already ready.',
   );
+  const installMode = governanceStatus.clonedNow ? 'FIRST_INSTALL' : 'RETURNING_INSTALL';
 
   try {
     markStage(stages, 'vault', 'PENDING', 'Initializing vault and pulling remote changes...');
     await vaultService.initializeVault();
-    const splashSync = await syncProviderService.initializeOnSplash();
+    const splashSync = await syncProviderService.initializeOnSplash({ installMode });
     markStage(
       stages,
       'vault',
       'SUCCESS',
-      splashSync.skippedReason
-        ? `Vault sync completed with note: ${splashSync.skippedReason}`
-        : 'Vault initialized and remote pull/merge path executed.',
+      `Mode=${splashSync.installMode}, pull=${splashSync.pullStatus}, merge=${splashSync.mergeStatus}, integrity=${splashSync.integrityStatus}${
+        splashSync.skippedReason ? `, note=${splashSync.skippedReason}` : ''
+      }`,
     );
   } catch (error) {
     markStage(
@@ -267,7 +270,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       stages,
       'cron-recovery',
       'SUCCESS',
-      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
+      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
     );
   } catch (error) {
     markStage(

@@ -24,7 +24,7 @@ import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionB
 import { getInteractionContextForPath } from 'prana/ui/constants/employeeDirectory';
 import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
-import type { PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
+import { assertRequiredBrandingFields, type PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
 
 interface MainLayoutProps {
   branding: Partial<PranaBrandingConfig>;
@@ -32,6 +32,8 @@ interface MainLayoutProps {
 }
 
 export const MainLayout: FC<MainLayoutProps> = ({ branding, children }) => {
+  assertRequiredBrandingFields('MainLayout', branding, ['appBrandName', 'appTitlebarTagline']);
+
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
   const themeContext = useTheme();
@@ -41,8 +43,8 @@ export const MainLayout: FC<MainLayoutProps> = ({ branding, children }) => {
   const session = useVolatileSessionStore();
   const routeStackRef = useRef<string[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const appBrandName = branding.appBrandName ?? '';
-  const appTitlebarTagline = branding.appTitlebarTagline ?? '';
+  const appBrandName = branding.appBrandName as string;
+  const appTitlebarTagline = branding.appTitlebarTagline as string;
 
   const primaryNavItems = useMemo(() => getEnabledPrimaryNavItems(), []);
   const defaultHomePath = useMemo(() => getFirstEnabledMainRoute(), []);

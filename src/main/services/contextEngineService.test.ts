@@ -100,4 +100,47 @@ describe('contextEngineService', () => {
 
     expect(parentText.includes('delegated summary payload')).toBe(true);
   });
+
+  it('emits a warning stage before compaction when usage crosses 70 percent', async () => {
+    contextEngineService.bootstrapSession('s-warning', {
+      maxTokens: 1024,
+      reservedOutputTokens: 256,
+      compactThresholdTokens: 900,
+      highWaterMarkRatio: 0.8,
+    });
+
+    await contextEngineService.ingest('s-warning', 'user', 'warning-message '.repeat(60));
+
+    const snapshot = contextEngineService.getSessionSnapshot('s-warning');
+    const telemetry = contextEngineService.getTelemetry();
+
+    expect(snapshot?.optimizationStage).toBe('WARNING');
+    expect(telemetry.recentEvents.some((event) => event.type === 'warning_state')).toBe(true);
+  });
+
+  it('forces a hard reset with summary injection when usage crosses 95 percent', async () => {
+    contextEngineService.bootstrapSession('s-reset', {
+      maxTokens: 1024,
+      reservedOutputTokens: 256,
+      compactThresholdTokens: 900,
+      highWaterMarkRatio: 0.8,
+    });
+
+    for (let i = 0; i < 12; i += 1) {
+      await contextEngineService.ingest(
+        's-reset',
+        i % 2 === 0 ? 'user' : 'assistant',
+        `reset-message-${i} ${'y'.repeat(220)}`,
+      );
+    }
+
+    const snapshot = contextEngineService.getSessionSnapshot('s-reset');
+    const assembled = contextEngineService.assemble('s-reset');
+    const telemetry = contextEngineService.getTelemetry();
+    const text = assembled.messages.map((message) => message.content).join(' ');
+
+    expect(snapshot?.hardResetCount).toBeGreaterThan(0);
+    expect(text.includes('Forced Context Reset')).toBe(true);
+    expect(telemetry.recentEvents.some((event) => event.type === 'hard_limit_reset')).toBe(true);
+  });
 });

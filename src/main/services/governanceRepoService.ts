@@ -4,13 +4,11 @@ import { mkdir, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { executeCommand } from './processService';
-import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
+import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 
 const APP_DATA_DIR = '.prana';
 const LEGACY_APP_DATA_DIR = '.dhi';
-const DEFAULT_GOVERNANCE_REPO_URL = 'git@bitbucket.org:NikhilVijayakumar/kumbha.git';
-
 export interface GovernanceRepoStatus {
   sshVerified: boolean;
   repoReady: boolean;
@@ -39,16 +37,11 @@ export const getAppDataRoot = (): string => {
 };
 
 export const getGovernanceRepoPath = (): string => {
-  const override = getPranaRuntimeConfig()?.governance.repoPath;
-  if (override) {
-    return override;
-  }
-
-  return join(getAppDataRoot(), 'governance');
+  return getRuntimeBootstrapConfig().governance.repoPath;
 };
 
 export const getGovernanceRepoUrl = (): string => {
-  return getPranaRuntimeConfig()?.governance.repoUrl ?? DEFAULT_GOVERNANCE_REPO_URL;
+  return getRuntimeBootstrapConfig().governance.repoUrl;
 };
 
 const hasGitRepository = (repoPath: string): boolean => {
