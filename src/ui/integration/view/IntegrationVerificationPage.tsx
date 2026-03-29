@@ -14,29 +14,30 @@ import {
   Typography,
   useTheme as useMuiTheme,
 } from '@mui/material';
+import { getPranaBranding, validatePranaBranding } from '../../constants/pranaConfig';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
-const REQUIRED_RENDERER_KEYS = [
-  'VITE_APP_BRAND_NAME',
-  'VITE_APP_TITLEBAR_TAGLINE',
-  'VITE_APP_SPLASH_SUBTITLE',
-  'VITE_DIRECTOR_SENDER_NAME',
-  'VITE_DIRECTOR_SENDER_EMAIL',
+const REQUIRED_RENDERER_FIELDS = [
+  'appBrandName',
+  'appTitlebarTagline',
+  'appSplashSubtitle',
+  'directorSenderName',
+  'directorSenderEmail',
 ] as const;
 
-type RendererKey = (typeof REQUIRED_RENDERER_KEYS)[number];
+type RendererField = (typeof REQUIRED_RENDERER_FIELDS)[number];
 
 interface RendererKeyStatus {
-  key: RendererKey;
+  key: RendererField;
   present: boolean;
 }
 
 interface RuntimeIntegrationKeyStatus {
   key: string;
-  legacyKey: string;
   expectedType: 'string' | 'number' | 'boolean';
   present: boolean;
   valid: boolean;
-  source: 'neutral' | 'legacy' | 'missing';
+  source: 'config' | 'missing';
   issue?: 'missing' | 'invalid_number' | 'invalid_boolean';
 }
 
@@ -49,6 +50,7 @@ interface RuntimeIntegrationStatus {
     invalid: number;
   };
   keys: RuntimeIntegrationKeyStatus[];
+  errors?: string[];
 }
 
 interface StartupStageReport {
@@ -81,9 +83,10 @@ interface IntegrationVerificationPageProps {
 }
 
 const collectRendererStatus = (): RendererKeyStatus[] => {
-  return REQUIRED_RENDERER_KEYS.map((key) => ({
+  const branding = getPranaBranding();
+  return REQUIRED_RENDERER_FIELDS.map((key) => ({
     key,
-    present: Boolean(import.meta.env[key]?.trim()),
+    present: Boolean(branding[key]?.trim()),
   }));
 };
 
@@ -106,9 +109,17 @@ const collectRuntimeStatus = async (): Promise<{
   }
 
   try {
-    const runtime = (await window.api.app.getIntegrationStatus()) as RuntimeIntegrationStatus;
+    const runtime = await safeIpcCall<RuntimeIntegrationStatus>(
+      'app.getIntegrationStatus',
+      () => window.api.app.getIntegrationStatus(),
+      (value) => typeof value === 'object' && value !== null,
+    );
     const startup = window.api?.app?.getStartupStatus
-      ? ((await window.api.app.getStartupStatus()) as StartupStatusReport)
+      ? await safeIpcCall<StartupStatusReport>(
+          'app.getStartupStatus',
+          () => window.api.app.getStartupStatus(),
+          (value) => typeof value === 'object' && value !== null,
+        )
       : null;
     return {
       runtime,
@@ -148,6 +159,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
     const run = async () => {
       setLoading(true);
       const rendererKeys = collectRendererStatus();
+      const rendererValidation = validatePranaBranding();
       const runtimeResult = await collectRuntimeStatus();
 
       if (!mounted) {
@@ -160,7 +172,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
         runtime: runtimeResult.runtime,
         startup: runtimeResult.startup,
         rendererKeys,
-        errors: runtimeResult.errors,
+        errors: [...rendererValidation.errors, ...runtimeResult.errors],
       });
       setLoading(false);
     };

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { OnboardingRepo } from '../repo/OnboardingRepo';
 import { volatileSessionStore } from 'prana/ui/state/volatileSessionStore';
 import { LifecycleProfileDraft, useLifecycle } from 'prana/ui/state/LifecycleProvider';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 // Type stubs for registry (module not yet implemented)
 interface FieldSchemaRule {
@@ -10,6 +11,15 @@ interface FieldSchemaRule {
   guidance: string;
   exampleText?: string;
   minWords?: number;
+}
+
+interface OnboardingBlueprintSnapshot {
+  fieldSchema?: Record<string, FieldSchemaRule[]>;
+  initialDrafts?: Record<string, DynamicFieldRecord[]>;
+}
+
+interface RegistrySnapshot {
+  agents?: Array<{ uid: string; protocols?: string[]; workflows?: string[] }>;
 }
 
 const getRegistryAgents = () => [];
@@ -488,9 +498,13 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
   useEffect(() => {
     const hydrateFromRegistry = async (): Promise<void> => {
       try {
-        const blueprint = await window.api.registry.getOnboardingBlueprint();
-        const liveFieldSchema = blueprint?.fieldSchema as Record<string, FieldSchemaRule[]> | undefined;
-        const liveInitialDrafts = blueprint?.initialDrafts as Record<string, DynamicFieldRecord[]> | undefined;
+        const blueprint = await safeIpcCall<OnboardingBlueprintSnapshot>(
+          'registry.getOnboardingBlueprint',
+          () => window.api.registry.getOnboardingBlueprint(),
+          (value) => typeof value === 'object' && value !== null,
+        );
+        const liveFieldSchema = blueprint.fieldSchema;
+        const liveInitialDrafts = blueprint.initialDrafts;
 
         if (liveFieldSchema && typeof liveFieldSchema === 'object') {
           setFieldSchemaByStep(liveFieldSchema);
@@ -503,8 +517,12 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
           }));
         }
 
-        const snapshot = await window.api.registry.getSnapshot();
-        const agentsArray = (snapshot.agents ?? []) as Array<{ uid: string; protocols?: string[]; workflows?: string[] }>;
+        const snapshot = await safeIpcCall<RegistrySnapshot>(
+          'registry.getSnapshot',
+          () => window.api.registry.getSnapshot(),
+          (value) => typeof value === 'object' && value !== null,
+        );
+        const agentsArray = snapshot.agents ?? [];
         const bindings = agentsArray.reduce<Record<string, { protocols: string[]; workflows: string[] }>>(
           (acc, agent) => {
             acc[agent.uid] = {

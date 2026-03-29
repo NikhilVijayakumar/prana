@@ -49,11 +49,25 @@ export const registerIpcHandlers = (options?: { registryRuntime?: Partial<Regist
   void memoryIndexService.initialize();
 
   ipcMain.handle('app:get-runtime-config', async () => {
-    return getPublicRuntimeConfig();
+    try {
+      return getPublicRuntimeConfig();
+    } catch (error) {
+      return {
+        errors: [error instanceof Error ? error.message : 'Runtime config unavailable.'],
+      };
+    }
   });
 
   ipcMain.handle('app:get-integration-status', async () => {
-    return getRuntimeIntegrationStatus();
+    const status = getRuntimeIntegrationStatus();
+    if (!status.ready) {
+      return {
+        ...status,
+        ready: false,
+      };
+    }
+
+    return status;
   });
 
   ipcMain.handle('app:get-startup-status', async () => {

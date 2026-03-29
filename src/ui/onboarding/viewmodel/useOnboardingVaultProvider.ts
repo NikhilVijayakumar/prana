@@ -4,6 +4,7 @@ import {
   LEGACY_ONBOARDING_LEDGER_STORAGE_KEY,
   readStorageWithLegacy,
 } from 'prana/ui/constants/storageKeys';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface ScreenDraftRecord {
   stepId: string;
@@ -127,46 +128,57 @@ export const useOnboardingVaultProvider = () => {
         return { committed: false, reason: 'No draft found.' };
       }
 
-      const committedAt = new Date().toISOString();
-      const committedHash = computeHash({
-        stepId,
-        ownerAgentId: record.ownerAgentId,
-        draft: record.draft,
-        draftRevision: record.draftRevision,
-        committedAt,
-        dependencySnapshot,
-      });
+      try {
+        const committedAt = new Date().toISOString();
+        const committedHash = computeHash({
+          stepId,
+          ownerAgentId: record.ownerAgentId,
+          draft: record.draft,
+          draftRevision: record.draftRevision,
+          committedAt,
+          dependencySnapshot,
+        });
 
-      // Security path: renderer requests main-process vault operation.
-      await window.api.vault.createSnapshot(`onboarding-${stepId}-${record.draftRevision}`);
+        // Security path: renderer requests main-process vault operation.
+        await safeIpcCall(
+          'vault.createSnapshot',
+          () => window.api.vault.createSnapshot(`onboarding-${stepId}-${record.draftRevision}`),
+          () => true,
+        );
 
-      const ledger = readLedger();
-      ledger[stepId] = {
-        stepId,
-        committedRevision: record.draftRevision,
-        committedHash,
-        committedAt,
-      };
-      writeLedger(ledger);
-
-      setRecords((prev) => {
-        const current = prev[stepId];
-        if (!current) {
-          return prev;
-        }
-
-        return {
-          ...prev,
-          [stepId]: {
-            ...current,
-            committedRevision: current.draftRevision,
-            committedHash,
-            committedAt,
-          },
+        const ledger = readLedger();
+        ledger[stepId] = {
+          stepId,
+          committedRevision: record.draftRevision,
+          committedHash,
+          committedAt,
         };
-      });
+        writeLedger(ledger);
 
-      return { committed: true };
+        setRecords((prev) => {
+          const current = prev[stepId];
+          if (!current) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            [stepId]: {
+              ...current,
+              committedRevision: current.draftRevision,
+              committedHash,
+              committedAt,
+            },
+          };
+        });
+
+        return { committed: true };
+      } catch (error) {
+        return {
+          committed: false,
+          reason: error instanceof Error ? error.message : 'Commit failed.',
+        };
+      }
     },
     [records],
   );

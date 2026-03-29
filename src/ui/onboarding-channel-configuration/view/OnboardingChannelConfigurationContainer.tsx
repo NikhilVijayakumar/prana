@@ -15,6 +15,17 @@ import { spacing } from 'astra';
 import { useNavigate } from 'react-router-dom';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
+
+interface RuntimeChannelConfigurationPayload {
+  provider: string;
+  allowedChannels: string[];
+  approvedAgentsForChannels: Record<string, string[]>;
+  channelAccessRules: string;
+  telegramChannelId: string;
+  webhookSubscriptionUri: string;
+  providerCredentials: string;
+}
 
 interface RuntimeChannelConfigurationForm {
   provider: string;
@@ -64,7 +75,11 @@ export const OnboardingChannelConfigurationContainer: FC = () => {
     const loadConfiguration = async () => {
       setIsLoading(true);
       try {
-        const payload = await window.api.operations.getRuntimeChannelConfiguration();
+        const payload = await safeIpcCall<RuntimeChannelConfigurationPayload>(
+          'operations.getRuntimeChannelConfiguration',
+          () => window.api.operations.getRuntimeChannelConfiguration(),
+          (value) => typeof value === 'object' && value !== null,
+        );
         if (!active) {
           return;
         }
@@ -145,15 +160,20 @@ export const OnboardingChannelConfigurationContainer: FC = () => {
         ? {}
         : Object.fromEntries(parseCsv(form.approvedTelegramAgentsCsv).map((agentId) => [agentId, ['telegram']]));
 
-      const updated = await window.api.operations.updateRuntimeChannelConfiguration({
-        provider: form.provider.trim() || 'telegram',
-        allowedChannels: ['internal-chat', 'telegram'],
-        approvedAgentsForChannels,
-        channelAccessRules: form.channelAccessRules.trim(),
-        telegramChannelId: form.telegramChannelId.trim(),
-        webhookSubscriptionUri: form.webhookSubscriptionUri.trim(),
-        providerCredentials: form.providerCredentials.trim(),
-      });
+      const updated = await safeIpcCall<RuntimeChannelConfigurationPayload>(
+        'operations.updateRuntimeChannelConfiguration',
+        () =>
+          window.api.operations.updateRuntimeChannelConfiguration({
+            provider: form.provider.trim() || 'telegram',
+            allowedChannels: ['internal-chat', 'telegram'],
+            approvedAgentsForChannels,
+            channelAccessRules: form.channelAccessRules.trim(),
+            telegramChannelId: form.telegramChannelId.trim(),
+            webhookSubscriptionUri: form.webhookSubscriptionUri.trim(),
+            providerCredentials: form.providerCredentials.trim(),
+          }),
+        (value) => typeof value === 'object' && value !== null,
+      );
 
       const approvedTelegramAgents = Object.entries(updated.approvedAgentsForChannels)
         .filter(([, channels]) => (channels as string[]).map((channel) => channel.toLowerCase()).includes('telegram'))

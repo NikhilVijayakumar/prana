@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { AuthRepo } from '../../authentication/repo/AuthRepo';
+import { useFailFastAsync } from 'prana/ui/common/errors/useFailFastAsync';
 
 type SSHStatus = 'idle' | 'verifying' | 'verified' | 'failed';
 
@@ -7,6 +8,7 @@ export const useForgotPasswordViewModel = (
   onTempPassword: (tempPass: string) => void
 ) => {
   const repo = new AuthRepo();
+  const { fatalError, clearFatalError, runSafely } = useFailFastAsync('viewmodel');
 
   const [email, setEmail] = useState('');
   const [sshStatus, setSshStatus] = useState<SSHStatus>('idle');
@@ -17,7 +19,15 @@ export const useForgotPasswordViewModel = (
     setErrorKey(null);
     setSshStatus('verifying');
 
-    const resp = await repo.verifySSH(email);
+    const resp = await runSafely(() => repo.verifySSH(email), {
+      category: 'ipc',
+      title: 'Password Recovery Error',
+      userMessage: 'Password recovery could not be verified.',
+      swallow: true,
+    });
+    if (!resp) {
+      return 'ssh_failed';
+    }
 
     if (resp.isSuccess && resp.data?.verified && resp.data.tempPassword) {
       setSshStatus('verified');
@@ -50,5 +60,7 @@ export const useForgotPasswordViewModel = (
     errorKey,
     handleVerify,
     handleRetry,
+    moduleError: fatalError,
+    clearModuleError: clearFatalError,
   };
 };

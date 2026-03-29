@@ -21,7 +21,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, useTheme, ThemeToggle } from 'astra';
 import { spacing } from 'astra';
 import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionBar';
-import { APP_BRAND_NAME, APP_TITLEBAR_TAGLINE } from 'prana/ui/constants/appBranding';
+import { getAppBrandName, getAppTitlebarTagline } from 'prana/ui/constants/appBranding';
 import { getInteractionContextForPath } from 'prana/ui/constants/employeeDirectory';
 import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
@@ -40,6 +40,8 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
   const session = useVolatileSessionStore();
   const routeStackRef = useRef<string[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const appBrandName = getAppBrandName();
+  const appTitlebarTagline = getAppTitlebarTagline();
 
   const primaryNavItems = useMemo(() => getEnabledPrimaryNavItems(), []);
   const defaultHomePath = useMemo(() => getFirstEnabledMainRoute(), []);
@@ -144,7 +146,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
         zIndex: muiTheme.zIndex.appBar,
       }}>
         <Typography variant="caption" sx={{ color: muiTheme.palette.text.secondary }}>
-          {`${APP_BRAND_NAME} | ${APP_TITLEBAR_TAGLINE}`}
+          {`${appBrandName} | ${appTitlebarTagline}`}
         </Typography>
       </Box>
 

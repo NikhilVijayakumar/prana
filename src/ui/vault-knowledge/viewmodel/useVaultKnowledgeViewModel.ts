@@ -7,9 +7,11 @@ import {
   MemorySearchPayload,
   MemoryHealthPayload,
 } from '../repo/VaultKnowledgeRepo';
+import { useFailFastAsync } from 'prana/ui/common/errors/useFailFastAsync';
 
 export const useVaultKnowledgeViewModel = () => {
   const repo = new VaultKnowledgeRepo();
+  const { fatalError, clearFatalError, runSafely } = useFailFastAsync('viewmodel');
   const [vaultState, executeLoad] = useDataState<VaultPayload>();
   const [previewState, executePreviewLoad] = useDataState<VaultFileContent>();
   const [memoryState, executeMemorySearch] = useDataState<MemorySearchPayload>();
@@ -20,8 +22,18 @@ export const useVaultKnowledgeViewModel = () => {
   const [isReindexingMemory, setIsReindexingMemory] = useState(false);
 
   const loadSnapshot = async () => {
-    await executeLoad(() => repo.getVaultData());
-    await executeMemoryHealthLoad(() => repo.getMemoryHealth());
+    await runSafely(() => executeLoad(() => repo.getVaultData()), {
+      category: 'ipc',
+      title: 'Vault Knowledge Load Error',
+      userMessage: 'Vault knowledge data could not be loaded.',
+      swallow: true,
+    });
+    await runSafely(() => executeMemoryHealthLoad(() => repo.getMemoryHealth()), {
+      category: 'ipc',
+      title: 'Memory Health Load Error',
+      userMessage: 'Memory health data could not be loaded.',
+      swallow: true,
+    });
   };
 
   useEffect(() => {
@@ -30,7 +42,12 @@ export const useVaultKnowledgeViewModel = () => {
 
   const previewFile = async (relativePath: string) => {
     setSelectedPath(relativePath);
-    await executePreviewLoad(() => repo.readFile(relativePath));
+    await runSafely(() => executePreviewLoad(() => repo.readFile(relativePath)), {
+      category: 'ipc',
+      title: 'File Preview Error',
+      userMessage: 'The selected file could not be previewed.',
+      swallow: true,
+    });
   };
 
   const approvePending = async (relativePath: string) => {
@@ -39,6 +56,18 @@ export const useVaultKnowledgeViewModel = () => {
     try {
       await repo.approve(relativePath);
       await loadSnapshot();
+    } catch (error) {
+      await runSafely(
+        async () => {
+          throw error;
+        },
+        {
+          category: 'ipc',
+          title: 'Approve Pending Error',
+          userMessage: 'Pending file approval failed.',
+          swallow: true,
+        },
+      );
     } finally {
       setIsApplyingAction(false);
     }
@@ -50,6 +79,18 @@ export const useVaultKnowledgeViewModel = () => {
     try {
       await repo.reject(relativePath);
       await loadSnapshot();
+    } catch (error) {
+      await runSafely(
+        async () => {
+          throw error;
+        },
+        {
+          category: 'ipc',
+          title: 'Reject Pending Error',
+          userMessage: 'Pending file rejection failed.',
+          swallow: true,
+        },
+      );
     } finally {
       setIsApplyingAction(false);
     }
@@ -60,7 +101,12 @@ export const useVaultKnowledgeViewModel = () => {
     if (!query.trim()) {
       return;
     }
-    await executeMemorySearch(() => repo.searchMemory(query));
+    await runSafely(() => executeMemorySearch(() => repo.searchMemory(query)), {
+      category: 'ipc',
+      title: 'Memory Search Error',
+      userMessage: 'Memory search could not be completed.',
+      swallow: true,
+    });
   };
 
   const reindexMemory = async () => {
@@ -70,10 +116,32 @@ export const useVaultKnowledgeViewModel = () => {
     setIsReindexingMemory(true);
     try {
       await repo.reindexMemory();
-      await executeMemoryHealthLoad(() => repo.getMemoryHealth());
+      await runSafely(() => executeMemoryHealthLoad(() => repo.getMemoryHealth()), {
+        category: 'ipc',
+        title: 'Memory Health Refresh Error',
+        userMessage: 'Memory health refresh failed after reindex.',
+        swallow: true,
+      });
       if (memoryQuery.trim()) {
-        await executeMemorySearch(() => repo.searchMemory(memoryQuery));
+        await runSafely(() => executeMemorySearch(() => repo.searchMemory(memoryQuery)), {
+          category: 'ipc',
+          title: 'Memory Search Refresh Error',
+          userMessage: 'Memory search refresh failed after reindex.',
+          swallow: true,
+        });
       }
+    } catch (error) {
+      await runSafely(
+        async () => {
+          throw error;
+        },
+        {
+          category: 'ipc',
+          title: 'Memory Reindex Error',
+          userMessage: 'Memory reindex failed.',
+          swallow: true,
+        },
+      );
     } finally {
       setIsReindexingMemory(false);
     }
@@ -95,5 +163,7 @@ export const useVaultKnowledgeViewModel = () => {
     searchMemory,
     reindexMemory,
     setMemoryQuery,
+    moduleError: fatalError,
+    clearModuleError: clearFatalError,
   };
 };

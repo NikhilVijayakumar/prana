@@ -1,4 +1,5 @@
 import { HttpStatusCode, ServerResponse } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface SkillManifest {
   name: string;
@@ -27,7 +28,7 @@ export interface SkillExecutionResult {
 
 export class SkillRepo {
   async listSkills(): Promise<ServerResponse<SkillEntry[]>> {
-    const data = await window.api.skills.list();
+    const data = await safeIpcCall('skills.list', () => window.api.skills.list(), Array.isArray);
 
     return {
       isSuccess: true,
@@ -39,7 +40,11 @@ export class SkillRepo {
   }
 
   async executeSkill(skillId: string): Promise<ServerResponse<SkillExecutionResult>> {
-    const data = await window.api.skills.execute(skillId);
+    const data = await safeIpcCall<SkillExecutionResult>(
+      'skills.execute',
+      () => window.api.skills.execute(skillId),
+      (value) => typeof (value as { ok?: unknown }).ok === 'boolean',
+    );
 
     return {
       isSuccess: data.ok,

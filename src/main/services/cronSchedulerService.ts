@@ -4,12 +4,12 @@ import { join } from 'node:path';
 import { getAppDataRoot } from './governanceRepoService';
 import { hookSystemService } from './hookSystemService';
 import { governanceLifecycleQueueStoreService } from './governanceLifecycleQueueStoreService';
-import { readMainEnvAlias } from './envService';
 import {
   SYNC_PULL_CRON_JOB_ID,
   SYNC_PUSH_CRON_JOB_ID,
   syncProviderService,
 } from './syncProviderService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 
 export type CronRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED_OVERLAP';
 
@@ -64,12 +64,10 @@ const cloneJob = (job: CronJob): CronJob => ({ ...job });
 
 const defaultJobs = (): CronJob[] => {
   const now = new Date();
-  const syncCronEnabledRaw = readMainEnvAlias('PRANA_SYNC_CRON_ENABLED', 'DHI_SYNC_CRON_ENABLED');
-  const syncCronEnabled = syncCronEnabledRaw ? syncCronEnabledRaw !== 'false' : DEFAULT_SYNC_CRON_ENABLED;
-  const syncPushCronExpression =
-    readMainEnvAlias('PRANA_SYNC_PUSH_CRON_EXPRESSION', 'DHI_SYNC_PUSH_CRON_EXPRESSION') ?? DEFAULT_SYNC_PUSH_CRON_EXPRESSION;
-  const syncPullCronExpression =
-    readMainEnvAlias('PRANA_SYNC_PULL_CRON_EXPRESSION', 'DHI_SYNC_PULL_CRON_EXPRESSION') ?? DEFAULT_SYNC_PULL_CRON_EXPRESSION;
+  const syncConfig = getPranaRuntimeConfig()?.sync;
+  const syncCronEnabled = syncConfig?.cronEnabled ?? DEFAULT_SYNC_CRON_ENABLED;
+  const syncPushCronExpression = syncConfig?.pushCronExpression ?? DEFAULT_SYNC_PUSH_CRON_EXPRESSION;
+  const syncPullCronExpression = syncConfig?.pullCronExpression ?? DEFAULT_SYNC_PULL_CRON_EXPRESSION;
   return [
     {
       id: 'job-daily-brief',

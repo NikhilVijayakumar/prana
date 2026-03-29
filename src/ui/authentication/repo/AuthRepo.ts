@@ -1,4 +1,5 @@
 import { ServerResponse, HttpStatusCode } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 import {
   SESSION_STORAGE_KEY,
   ONBOARDING_COMPLETE_STORAGE_KEY,
@@ -28,12 +29,44 @@ export interface SSHStatusPayload {
   message: string;
 }
 
+interface RawAuthLoginResponse {
+  success: boolean;
+  email?: string;
+  sessionToken?: string;
+  directorName?: string;
+  reason?: string;
+}
+
+interface RawAuthForgotPasswordResponse {
+  success: boolean;
+  tempPassword: string | null;
+  reason: string;
+}
+
+interface RawAuthResetPasswordResponse {
+  success: boolean;
+  reason: string;
+}
+
+interface RawAuthStatusResponse {
+  sshVerified: boolean;
+  sshMessage: string;
+}
+
 export class AuthRepo {
   async login(email: string, password: string): Promise<ServerResponse<LoginPayload>> {
-    const result = await window.api.auth.login(email, password);
+    const result = await safeIpcCall<RawAuthLoginResponse>(
+      'auth.login',
+      () => window.api.auth.login(email, password),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
 
     if (result.success && result.email && result.sessionToken) {
-      const onboardingComplete = await window.api.operations.getOnboardingCommitStatus();
+      const onboardingComplete = await safeIpcCall(
+        'operations.getOnboardingCommitStatus',
+        () => window.api.operations.getOnboardingCommitStatus(),
+        (value) => typeof value === 'boolean',
+      );
       return {
         isSuccess: true,
         isError: false,
@@ -53,18 +86,23 @@ export class AuthRepo {
       email_mismatch: 'email_mismatch',
       invalid_credentials: 'invalid_credentials',
     };
+    const reason = result.reason ?? '';
 
     return {
       isSuccess: false,
       isError: true,
       status: HttpStatusCode.SUCCESS,
-      statusMessage: reasonToMessage[result.reason] ?? 'invalid_credentials',
+      statusMessage: reasonToMessage[reason] ?? 'invalid_credentials',
       data: null as unknown as LoginPayload,
     } as ServerResponse<LoginPayload>;
   }
 
   async verifySSH(email: string): Promise<ServerResponse<SSHVerifyPayload>> {
-    const result = await window.api.auth.forgotPassword(email);
+    const result = await safeIpcCall<RawAuthForgotPasswordResponse>(
+      'auth.forgotPassword',
+      () => window.api.auth.forgotPassword(email),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
     return {
       isSuccess: result.success,
       isError: !result.success,
@@ -78,7 +116,11 @@ export class AuthRepo {
   }
 
   async resetPassword(newPassword: string): Promise<ServerResponse<boolean>> {
-    const result = await window.api.auth.resetPassword(newPassword);
+    const result = await safeIpcCall<RawAuthResetPasswordResponse>(
+      'auth.resetPassword',
+      () => window.api.auth.resetPassword(newPassword),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
     return {
       isSuccess: result.success,
       isError: !result.success,
@@ -89,7 +131,11 @@ export class AuthRepo {
   }
 
   async checkSSHStatus(): Promise<ServerResponse<SSHStatusPayload>> {
-    const status = await window.api.auth.getStatus();
+    const status = await safeIpcCall<RawAuthStatusResponse>(
+      'auth.getStatus',
+      () => window.api.auth.getStatus(),
+      (value) => typeof (value as { sshVerified?: unknown }).sshVerified === 'boolean',
+    );
 
     return {
       isSuccess: status.sshVerified,

@@ -16,8 +16,9 @@ import {
   getEmployeeAvatarPath,
   type EmployeeDirectoryEntry,
 } from '../constants/employeeDirectory';
-import { DIRECTOR_SENDER_EMAIL, DIRECTOR_SENDER_NAME } from '../constants/appBranding';
+import { getDirectorSenderEmail, getDirectorSenderName } from '../constants/appBranding';
 import { spacing } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 interface DirectorInteractionBarProps {
   moduleRoute: string;
@@ -98,6 +99,8 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   const [channelMode, setChannelMode] = useState<'internal' | 'telegram'>('internal');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const directorSenderEmail = getDirectorSenderEmail();
+  const directorSenderName = getDirectorSenderName();
 
   const owner = EMPLOYEE_DIRECTORY[ownerId] ?? EMPLOYEE_DIRECTORY.mira;
   const secretary = EMPLOYEE_DIRECTORY[secretaryId] ?? EMPLOYEE_DIRECTORY.mira;
@@ -115,38 +118,52 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
       let message: LocalMessage;
 
       if (channelMode === 'telegram') {
-        const telegramResult = await window.api.channels.routeTelegramMessage({
-          message: trimmed,
-          senderId: DIRECTOR_SENDER_EMAIL,
-          senderName: DIRECTOR_SENDER_NAME,
-          isDirector: true,
-          explicitTargetPersonaId: targetEmployeeId,
-          timestampIso: new Date().toISOString(),
-          metadata: { moduleRoute },
-        });
+        const telegramResult = await safeIpcCall(
+          'channels.routeTelegramMessage',
+          () =>
+            window.api.channels.routeTelegramMessage({
+              message: trimmed,
+              senderId: directorSenderEmail,
+              senderName: directorSenderName,
+              isDirector: true,
+              explicitTargetPersonaId: targetEmployeeId,
+              timestampIso: new Date().toISOString(),
+              metadata: { moduleRoute },
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
 
         message = {
-          id: telegramResult.workOrderId ?? `${Date.now()}`,
+          id: (telegramResult as { workOrderId?: string }).workOrderId ?? `${Date.now()}`,
           targetEmployeeId,
           text: trimmed,
-          responseText: telegramResult.message,
-          queueAccepted: telegramResult.accepted,
-          queueReason: telegramResult.status,
+          responseText: (telegramResult as { message?: string }).message,
+          queueAccepted: Boolean((telegramResult as { accepted?: boolean }).accepted),
+          queueReason:
+            ((telegramResult as { status?: LocalMessage['queueReason'] }).status as LocalMessage['queueReason']) ??
+            'unknown',
         };
       } else {
-        const result = await window.api.workOrders.submitDirectorRequest({
-          moduleRoute,
-          targetEmployeeId,
-          message: trimmed,
-          timestampIso: new Date().toISOString(),
-        });
+        const result = await safeIpcCall(
+          'workOrders.submitDirectorRequest',
+          () =>
+            window.api.workOrders.submitDirectorRequest({
+              moduleRoute,
+              targetEmployeeId,
+              message: trimmed,
+              timestampIso: new Date().toISOString(),
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
 
         message = {
-          id: result.workOrder.id,
+          id: (result as { workOrder?: { id?: string } }).workOrder?.id ?? `${Date.now()}`,
           targetEmployeeId,
           text: trimmed,
-          queueAccepted: result.queueAccepted,
-          queueReason: result.queueReason,
+          queueAccepted: Boolean((result as { queueAccepted?: boolean }).queueAccepted),
+          queueReason:
+            ((result as { queueReason?: LocalMessage['queueReason'] }).queueReason as LocalMessage['queueReason']) ??
+            'unknown',
         };
       }
 

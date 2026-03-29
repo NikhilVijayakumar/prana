@@ -129,13 +129,37 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
   const startedAt = nowIso();
 
   markStage(stages, 'integration', 'PENDING', 'Running required key checks...');
-  const integration = getRuntimeIntegrationStatus();
-  if (!integration.ready) {
+  try {
+    const integration = getRuntimeIntegrationStatus();
+    if (!integration.ready) {
+      markStage(
+        stages,
+        'integration',
+        'FAILED',
+        `Integration contract failed. Missing=${integration.summary.missing}, Invalid=${integration.summary.invalid}`,
+      );
+      skipStage(stages, 'governance', 'Skipped due to integration failure.');
+      skipStage(stages, 'vault', 'Skipped due to integration failure.');
+      skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
+      skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
+
+      latestStartupReport = {
+        startedAt,
+        finishedAt: nowIso(),
+        overallStatus: determineOverallStatus(stages),
+        stages,
+      };
+
+      return latestStartupReport;
+    }
+
+    markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
+  } catch (error) {
     markStage(
       stages,
       'integration',
       'FAILED',
-      `Integration contract failed. Missing=${integration.summary.missing}, Invalid=${integration.summary.invalid}`,
+      error instanceof Error ? error.message : 'Integration contract check failed.',
     );
     skipStage(stages, 'governance', 'Skipped due to integration failure.');
     skipStage(stages, 'vault', 'Skipped due to integration failure.');
@@ -151,7 +175,6 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
 
     return latestStartupReport;
   }
-  markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
 
   markStage(stages, 'governance', 'PENDING', 'Verifying SSH and governance repository...');
   const governanceStatus = await ensureGovernanceRepoReady();

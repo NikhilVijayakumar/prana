@@ -1,4 +1,5 @@
 import { HttpStatusCode, ServerResponse } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface VaultFile {
   id: string;
@@ -21,7 +22,7 @@ export interface VaultPublishResult {
 
 export class VaultRepo {
   async fetchVaultContents(): Promise<ServerResponse<VaultFile[]>> {
-    const files = await window.api.vault.listFiles();
+    const files = await safeIpcCall('vault.listFiles', () => window.api.vault.listFiles(), Array.isArray);
 
     return {
       isSuccess: true,
@@ -33,7 +34,7 @@ export class VaultRepo {
   }
 
   async selectAndIngestFiles(): Promise<ServerResponse<VaultFile[]>> {
-    const files = await window.api.vault.selectAndIngest();
+    const files = await safeIpcCall('vault.selectAndIngest', () => window.api.vault.selectAndIngest(), Array.isArray);
 
     return {
       isSuccess: true,
@@ -45,6 +46,10 @@ export class VaultRepo {
   }
 
   async publishVaultChanges(approvedByUser: boolean, message?: string): Promise<VaultPublishResult> {
-    return window.api.vault.publish(message, approvedByUser);
+    return safeIpcCall(
+      'vault.publish',
+      () => window.api.vault.publish(message, approvedByUser),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
   }
 }

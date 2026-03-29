@@ -8,6 +8,7 @@ import {
   LEGACY_LOCKOUT_COUNT_STORAGE_KEY,
   readStorageWithLegacy,
 } from 'prana/ui/constants/storageKeys';
+import { useFailFastAsync } from 'prana/ui/common/errors/useFailFastAsync';
 
 const MAX_ATTEMPTS_SOFT = 3;
 const MAX_ATTEMPTS_HARD = 10;
@@ -16,6 +17,7 @@ const LOCKOUT_HARD_MS = 300_000;
 
 export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) => {
   const repo = new AuthRepo();
+  const { fatalError, clearFatalError, runSafely } = useFailFastAsync('viewmodel');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,7 +50,15 @@ export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) 
     setIsLoading(true);
 
     try {
-      const resp = await repo.login(email, password);
+      const resp = await runSafely(() => repo.login(email, password), {
+        category: 'ipc',
+        title: 'Login Service Error',
+        userMessage: 'Login request could not be completed.',
+        swallow: true,
+      });
+      if (!resp) {
+        return;
+      }
 
       if (resp.isSuccess && resp.data) {
         volatileSessionStore.setSessionToken(resp.data.sessionToken);
@@ -105,5 +115,7 @@ export const useLoginViewModel = (onSuccess: (isFirstInstall: boolean) => void) 
     isLocked,
     lockRemainingSeconds,
     handleLogin,
+    moduleError: fatalError,
+    clearModuleError: clearFatalError,
   };
 };

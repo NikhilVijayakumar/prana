@@ -5,6 +5,8 @@ import { registerIpcHandlers } from './services/ipcService'
 import { vaultService } from './services/vaultService'
 import { syncProviderService } from './services/syncProviderService'
 import { startupOrchestratorService } from './services/startupOrchestratorService'
+import { getPranaRuntimeConfig } from './services/pranaRuntimeConfig'
+import { getPranaPlatformRuntime } from './services/pranaPlatformRuntime'
 
 function createWindow(): void {
   // Create the browser window.
@@ -30,8 +32,9 @@ function createWindow(): void {
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  const rendererUrl = getPranaPlatformRuntime().rendererUrl
+  if (is.dev && rendererUrl) {
+    mainWindow.loadURL(rendererUrl)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -58,7 +61,7 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers({
     registryRuntime: {
-      registryRoot: process.env.PRANA_REGISTRY_ROOT ?? join(process.cwd(), '.prana', 'registry')
+      registryRoot: getPranaRuntimeConfig()?.registryRoot ?? join(process.cwd(), '.prana', 'registry')
     }
   })
 

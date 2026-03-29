@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLanguage } from 'astra';
 import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface OnboardingActionGate {
   isBlocked: boolean;
@@ -46,9 +47,13 @@ export const useOnboardingActionGate = (requiredPhaseIds: string[]): OnboardingA
 
     const loadSnapshot = async (): Promise<void> => {
       try {
-        const staged = await window.api.operations.getOnboardingStageSnapshot();
+        const staged = await safeIpcCall<OnboardingStageSnapshotResponse>(
+          'operations.getOnboardingStageSnapshot',
+          () => window.api.operations.getOnboardingStageSnapshot(),
+          (value) => typeof value === 'object' && value !== null,
+        );
         if (isMounted) {
-          setSnapshot((staged as OnboardingStageSnapshotResponse) ?? { phases: {} });
+          setSnapshot(staged ?? { phases: {} });
         }
       } catch {
         if (isMounted) {

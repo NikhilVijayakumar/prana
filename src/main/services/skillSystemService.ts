@@ -2,9 +2,10 @@ import { app } from 'electron';
 import { constants } from 'node:fs';
 import { access, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readMainEnvAlias } from './envService';
 import { modelGatewayService } from './modelGatewayService';
 import { vaultService } from './vaultService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 
 export interface SkillManifest {
   name: string;
@@ -34,7 +35,7 @@ export interface SkillExecutionResult {
 const FRONTMATTER_START = '---';
 
 const getSkillRootPath = (): string => {
-  const override = readMainEnvAlias('PRANA_SKILLS_PATH', 'DHI_SKILLS_PATH');
+  const override = getPranaRuntimeConfig()?.skills?.path;
   if (override) {
     return override;
   }
@@ -162,7 +163,8 @@ const parseFrontmatter = (content: string): SkillManifest | null => {
 };
 
 const canExecuteBinary = async (binaryName: string): Promise<boolean> => {
-  const pathValue = process.env.PATH ?? '';
+  const platformRuntime = getPranaPlatformRuntime();
+  const pathValue = platformRuntime.path ?? platformRuntime.inheritedEnv?.PATH ?? '';
   const delimiter = process.platform === 'win32' ? ';' : ':';
   const parts = pathValue.split(delimiter).filter((part) => part.length > 0);
 
@@ -198,7 +200,7 @@ const evaluateEligibility = async (manifest: SkillManifest): Promise<string[]> =
   }
 
   for (const envVar of manifest.requires?.env ?? []) {
-    if (!readMainEnvAlias(envVar, envVar)) {
+    if (!getPranaPlatformRuntime().runtimeVariables?.[envVar]) {
       reasons.push(`Missing env: ${envVar}`);
     }
   }

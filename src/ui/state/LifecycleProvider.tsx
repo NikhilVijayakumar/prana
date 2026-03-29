@@ -1,4 +1,5 @@
 import { createContext, FC, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface LifecycleProfileDraft {
   agentId: string;
@@ -52,6 +53,20 @@ export interface LifecycleDraftRecord {
   reviewedAt: string | null;
   reviewer: string | null;
   reviewNote: string | null;
+}
+
+interface LifecycleSnapshotPayload {
+  profiles: LifecycleProfileDraft[];
+  globalSkills: LifecycleGlobalSkill[];
+  kpis: LifecycleKpiDefinition[];
+  dataInputs: LifecycleDataInputDefinition[];
+  committedAt: string | null;
+}
+
+interface LifecycleMutationResult {
+  success: boolean;
+  updatedAt?: string;
+  validationErrors?: string[];
 }
 
 interface LifecycleContextValue {
@@ -121,7 +136,11 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
     setError(null);
 
     try {
-      const snapshot = await window.api.operations.getLifecycleSnapshot();
+      const snapshot = await safeIpcCall<LifecycleSnapshotPayload>(
+        'operations.getLifecycleSnapshot',
+        () => window.api.operations.getLifecycleSnapshot(),
+        (value) => typeof value === 'object' && value !== null,
+      );
       setProfiles(snapshot.profiles);
       setGlobalSkills(snapshot.globalSkills);
       setKpis(snapshot.kpis);
@@ -131,7 +150,11 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
       setDirtyKpis({});
       setDirtyDataInputs({});
       setLastSavedAt(snapshot.committedAt);
-      const drafts = await window.api.operations.listLifecycleDrafts('PENDING');
+      const drafts = await safeIpcCall<LifecycleDraftRecord[]>(
+        'operations.listLifecycleDrafts',
+        () => window.api.operations.listLifecycleDrafts('PENDING'),
+        Array.isArray,
+      );
       setLifecycleDrafts(drafts);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to load lifecycle snapshot');
@@ -144,7 +167,11 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
   const refreshLifecycleDrafts = useCallback(async () => {
     setIsLoadingDrafts(true);
     try {
-      const drafts = await window.api.operations.listLifecycleDrafts('PENDING');
+      const drafts = await safeIpcCall<LifecycleDraftRecord[]>(
+        'operations.listLifecycleDrafts',
+        () => window.api.operations.listLifecycleDrafts('PENDING'),
+        Array.isArray,
+      );
       setLifecycleDrafts(drafts);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to load lifecycle draft queue');
@@ -242,13 +269,26 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
         return { success: false, error: 'Profile not found' };
       }
 
-      const result = await window.api.operations.updateLifecycleProfile({
-        agentId,
-        goal: target.goal,
-        backstory: target.backstory,
-        skills: target.skills,
-        kpis: target.kpis,
-      });
+      let result;
+      try {
+        result = await safeIpcCall<LifecycleMutationResult>(
+          'operations.updateLifecycleProfile',
+          () =>
+            window.api.operations.updateLifecycleProfile({
+              agentId,
+              goal: target.goal,
+              backstory: target.backstory,
+              skills: target.skills,
+              kpis: target.kpis,
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to save profile',
+        };
+      }
 
       if (!result.success) {
         return {
@@ -275,10 +315,23 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
         return { success: false, error: 'Skill not found' };
       }
 
-      const result = await window.api.operations.updateLifecycleSkill({
-        skillId,
-        markdown: target.markdown,
-      });
+      let result;
+      try {
+        result = await safeIpcCall<LifecycleMutationResult>(
+          'operations.updateLifecycleSkill',
+          () =>
+            window.api.operations.updateLifecycleSkill({
+              skillId,
+              markdown: target.markdown,
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to save skill',
+        };
+      }
 
       if (!result.success) {
         return {
@@ -305,11 +358,24 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
         return { success: false, error: 'KPI not found' };
       }
 
-      const result = await window.api.operations.updateLifecycleKpi({
-        kpiId,
-        target: target.target,
-        value: target.value,
-      });
+      let result;
+      try {
+        result = await safeIpcCall<LifecycleMutationResult>(
+          'operations.updateLifecycleKpi',
+          () =>
+            window.api.operations.updateLifecycleKpi({
+              kpiId,
+              target: target.target,
+              value: target.value,
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to save KPI',
+        };
+      }
 
       if (!result.success) {
         return {
@@ -336,11 +402,24 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
         return { success: false, error: 'Data input not found' };
       }
 
-      const result = await window.api.operations.updateLifecycleDataInput({
-        dataInputId,
-        fileName: target.uploadedFileName ?? `${dataInputId}.txt`,
-        content: target.uploadedContent ?? '',
-      });
+      let result;
+      try {
+        result = await safeIpcCall<LifecycleMutationResult>(
+          'operations.updateLifecycleDataInput',
+          () =>
+            window.api.operations.updateLifecycleDataInput({
+              dataInputId,
+              fileName: target.uploadedFileName ?? `${dataInputId}.txt`,
+              content: target.uploadedContent ?? '',
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to save data input',
+        };
+      }
 
       if (!result.success) {
         return {
@@ -371,7 +450,19 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
       fileName?: string;
       content?: string;
     }): Promise<{ success: boolean; error?: string }> => {
-      const result = await window.api.operations.createLifecycleDataInput(payload);
+      let result;
+      try {
+        result = await safeIpcCall<LifecycleMutationResult>(
+          'operations.createLifecycleDataInput',
+          () => window.api.operations.createLifecycleDataInput(payload),
+          (value) => typeof value === 'object' && value !== null,
+        );
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to create data input',
+        };
+      }
       if (!result.success) {
         return {
           success: false,
@@ -393,12 +484,25 @@ export const LifecycleProvider: FC<PropsWithChildren> = ({ children }) => {
       status: 'APPROVED' | 'REJECTED' | 'OVERRIDDEN',
       reviewNote?: string,
     ): Promise<{ success: boolean; error?: string }> => {
-      const result = await window.api.operations.reviewLifecycleDraft({
-        draftId,
-        status,
-        reviewer: 'DIRECTOR',
-        reviewNote,
-      });
+      let result;
+      try {
+        result = await safeIpcCall<LifecycleMutationResult>(
+          'operations.reviewLifecycleDraft',
+          () =>
+            window.api.operations.reviewLifecycleDraft({
+              draftId,
+              status,
+              reviewer: 'DIRECTOR',
+              reviewNote,
+            }),
+          (value) => typeof value === 'object' && value !== null,
+        );
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to review lifecycle draft',
+        };
+      }
 
       if (!result.success) {
         return {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDataState, StateType } from 'astra';
 import { AuthRepo } from '../../authentication/repo/AuthRepo';
 import { ModelGatewayRepo } from 'prana/ui/repo/modelGateway';
+import { useFailFastAsync } from 'prana/ui/common/errors/useFailFastAsync';
 
 const REQUIRED_STARTUP_STAGE_IDS = new Set(['integration', 'governance', 'vault']);
 
@@ -18,6 +19,7 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
   const [statusMessage, setStatusMessage] = useState<string>('');
   const authRepo = new AuthRepo();
   const modelGatewayRepo = new ModelGatewayRepo();
+  const { fatalError, clearFatalError, runSafely } = useFailFastAsync('viewmodel');
 
   useEffect(() => {
     let isMounted = true;
@@ -25,9 +27,25 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
     const runBootSequence = async () => {
       setBootState(prev => ({ ...prev, state: StateType.LOADING }));
 
-      const startupStatus = window.api?.app?.getStartupStatus
-        ? await window.api.app.getStartupStatus()
-        : null;
+      const startupStatus = await runSafely(
+        async () => {
+          if (!window.api?.app?.getStartupStatus) {
+            throw new Error('Missing preload bridge: app.getStartupStatus');
+          }
+          return window.api.app.getStartupStatus();
+        },
+        {
+          category: 'ipc',
+          title: 'Startup Status Error',
+          userMessage: 'Startup status could not be verified.',
+          swallow: true,
+        },
+      );
+
+      if (!startupStatus) {
+        setBootState(prev => ({ ...prev, state: StateType.COMPLETED, isSuccess: false }));
+        return;
+      }
 
       if (!isMounted) return;
 
@@ -40,7 +58,16 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
         return;
       }
 
-      const sshStatus = await authRepo.checkSSHStatus();
+      const sshStatus = await runSafely(() => authRepo.checkSSHStatus(), {
+        category: 'ipc',
+        title: 'Authentication Status Error',
+        userMessage: 'Authentication status could not be verified.',
+        swallow: true,
+      });
+      if (!sshStatus) {
+        setBootState(prev => ({ ...prev, state: StateType.COMPLETED, isSuccess: false }));
+        return;
+      }
       if (!isMounted) return;
 
       if (!sshStatus.data?.verified) {
@@ -56,7 +83,16 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
       await new Promise(r => setTimeout(r, 800));
       if (!isMounted) return;
 
-      const gatewayStatus = await modelGatewayRepo.probeGateway();
+      const gatewayStatus = await runSafely(() => modelGatewayRepo.probeGateway(), {
+        category: 'ipc',
+        title: 'Model Gateway Status Error',
+        userMessage: 'Model gateway status could not be verified.',
+        swallow: true,
+      });
+      if (!gatewayStatus) {
+        setBootState(prev => ({ ...prev, state: StateType.COMPLETED, isSuccess: false }));
+        return;
+      }
       if (!isMounted) return;
 
       if (!gatewayStatus.data?.activeProvider) {
@@ -77,7 +113,7 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
       }, 400); // Brief pause on success before navigating away
     };
 
-    runBootSequence();
+    void runBootSequence();
 
     return () => {
       isMounted = false;
@@ -87,5 +123,7 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
   return {
     state: bootState,
     statusMessage,
+    moduleError: fatalError,
+    clearModuleError: clearFatalError,
   };
 };

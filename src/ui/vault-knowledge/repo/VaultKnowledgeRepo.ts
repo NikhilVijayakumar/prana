@@ -1,4 +1,5 @@
 import { HttpStatusCode, ServerResponse } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface PendingFile {
   id: string;
@@ -65,9 +66,18 @@ export interface MemoryHealthPayload {
   message: string;
 }
 
+interface MemoryReindexPayload {
+  documentCount: number;
+  chunkCount: number;
+}
+
 export class VaultKnowledgeRepo {
   async getVaultData(): Promise<ServerResponse<VaultPayload>> {
-    const payload = await window.api.vaultKnowledge.getSnapshot();
+    const payload = await safeIpcCall(
+      'vaultKnowledge.getSnapshot',
+      () => window.api.vaultKnowledge.getSnapshot(),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,
@@ -79,7 +89,11 @@ export class VaultKnowledgeRepo {
   }
 
   async readFile(relativePath: string): Promise<ServerResponse<VaultFileContent>> {
-    const payload = await window.api.vaultKnowledge.readFile(relativePath);
+    const payload = await safeIpcCall(
+      'vaultKnowledge.readFile',
+      () => window.api.vaultKnowledge.readFile(relativePath),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,
@@ -91,7 +105,11 @@ export class VaultKnowledgeRepo {
   }
 
   async approve(relativePath: string): Promise<ServerResponse<VaultPayload>> {
-    const payload = await window.api.vaultKnowledge.approve(relativePath);
+    const payload = await safeIpcCall(
+      'vaultKnowledge.approve',
+      () => window.api.vaultKnowledge.approve(relativePath),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,
@@ -103,7 +121,11 @@ export class VaultKnowledgeRepo {
   }
 
   async reject(relativePath: string): Promise<ServerResponse<VaultPayload>> {
-    const payload = await window.api.vaultKnowledge.reject(relativePath);
+    const payload = await safeIpcCall(
+      'vaultKnowledge.reject',
+      () => window.api.vaultKnowledge.reject(relativePath),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,
@@ -115,12 +137,12 @@ export class VaultKnowledgeRepo {
   }
 
   async searchMemory(query: string, limit = 8): Promise<ServerResponse<MemorySearchPayload>> {
-    const payload = await window.api.memory.query({
+    const payload = await safeIpcCall('memory.query', () => window.api.memory.query({
       query,
       limit,
       pathPrefixes: ['data/', 'agent-temp/'],
       allowedClassifications: ['PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 'RESTRICTED'],
-    });
+    }), (value) => typeof value === 'object' && value !== null);
 
     return {
       isSuccess: true,
@@ -132,7 +154,11 @@ export class VaultKnowledgeRepo {
   }
 
   async getMemoryHealth(): Promise<ServerResponse<MemoryHealthPayload>> {
-    const payload = await window.api.memory.health();
+    const payload = await safeIpcCall(
+      'memory.health',
+      () => window.api.memory.health(),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,
@@ -144,7 +170,11 @@ export class VaultKnowledgeRepo {
   }
 
   async reindexMemory(): Promise<ServerResponse<{ documentCount: number; chunkCount: number }>> {
-    const payload = await window.api.memory.reindexDirectory();
+    const payload = await safeIpcCall<MemoryReindexPayload>(
+      'memory.reindexDirectory',
+      () => window.api.memory.reindexDirectory(),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,

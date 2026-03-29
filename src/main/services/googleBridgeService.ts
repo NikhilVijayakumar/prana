@@ -9,6 +9,7 @@ import type {
   GoogleFormFeedbackResponse,
 } from './administrationIntegrationService';
 import type { DocumentConversionService } from './documentConversionService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 
 const DHI_VAULT_ROOT = 'dhi-vault';
 
@@ -61,10 +62,11 @@ const getVaultRootPath = (): string => {
 };
 
 const resolveCredentials = (): GoogleBridgeCredentials | null => {
-  const clientId = process.env.GOOGLE_WORKSPACE_CLIENT_ID ?? '';
-  const clientSecret = process.env.GOOGLE_WORKSPACE_CLIENT_SECRET ?? '';
-  const refreshToken = process.env.GOOGLE_WORKSPACE_REFRESH_TOKEN ?? '';
-  const adminEmail = process.env.GOOGLE_ADMIN_EMAIL ?? '';
+  const googleConfig = getPranaRuntimeConfig()?.google;
+  const clientId = googleConfig?.clientId ?? '';
+  const clientSecret = googleConfig?.clientSecret ?? '';
+  const refreshToken = googleConfig?.refreshToken ?? '';
+  const adminEmail = googleConfig?.adminEmail ?? '';
 
   if (!clientId || !clientSecret || !refreshToken || !adminEmail) {
     return null;

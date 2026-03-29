@@ -1,4 +1,4 @@
-import { readMainEnvAlias } from './envService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 
 type ProviderId = 'lmstudio' | 'openrouter' | 'gemini';
 
@@ -72,7 +72,7 @@ const normalizeUrl = (url: string): string => {
 };
 
 const parseFallbackOrder = (): ProviderId[] => {
-  const rawOrder = readMainEnvAlias('PRANA_MODEL_GATEWAY_FALLBACK_ORDER', 'DHI_MODEL_GATEWAY_FALLBACK_ORDER') ?? 'lmstudio,openrouter,gemini';
+  const rawOrder = getPranaRuntimeConfig()?.modelGateway?.fallbackOrder ?? 'lmstudio,openrouter,gemini';
   const entries = rawOrder
     .split(',')
     .map((value) => value.trim())
@@ -102,26 +102,25 @@ const parseFallbackOrder = (): ProviderId[] => {
 
 const getProviderSpecs = (): ProviderSpec[] => {
   const order = parseFallbackOrder();
+  const modelGatewayConfig = getPranaRuntimeConfig()?.modelGateway;
 
   const specs: Record<ProviderId, ProviderSpec> = {
     lmstudio: {
       provider: 'lmstudio',
-      baseUrl: normalizeUrl(readMainEnvAlias('PRANA_LM_STUDIO_BASE_URL', 'DHI_LM_STUDIO_BASE_URL') ?? 'http://127.0.0.1:1234'),
-      model: readMainEnvAlias('PRANA_LM_STUDIO_MODEL', 'DHI_LM_STUDIO_MODEL') ?? 'local-model',
+      baseUrl: normalizeUrl(modelGatewayConfig?.lmStudio?.baseUrl ?? 'http://127.0.0.1:1234'),
+      model: modelGatewayConfig?.lmStudio?.model ?? 'local-model',
     },
     openrouter: {
       provider: 'openrouter',
-      baseUrl: normalizeUrl(readMainEnvAlias('PRANA_OPENROUTER_BASE_URL', 'DHI_OPENROUTER_BASE_URL') ?? 'https://openrouter.ai/api/v1'),
-      model: readMainEnvAlias('PRANA_OPENROUTER_MODEL', 'DHI_OPENROUTER_MODEL') ?? 'openai/gpt-4o-mini',
-      apiKey: readMainEnvAlias('PRANA_OPENROUTER_API_KEY', 'DHI_OPENROUTER_API_KEY'),
+      baseUrl: normalizeUrl(modelGatewayConfig?.openRouter?.baseUrl ?? 'https://openrouter.ai/api/v1'),
+      model: modelGatewayConfig?.openRouter?.model ?? 'openai/gpt-4o-mini',
+      apiKey: modelGatewayConfig?.openRouter?.apiKey,
     },
     gemini: {
       provider: 'gemini',
-      baseUrl: normalizeUrl(
-        readMainEnvAlias('PRANA_GEMINI_BASE_URL', 'DHI_GEMINI_BASE_URL') ?? 'https://generativelanguage.googleapis.com/v1beta',
-      ),
-      model: readMainEnvAlias('PRANA_GEMINI_MODEL', 'DHI_GEMINI_MODEL') ?? 'gemini-1.5-flash',
-      apiKey: readMainEnvAlias('PRANA_GEMINI_API_KEY', 'DHI_GEMINI_API_KEY'),
+      baseUrl: normalizeUrl(modelGatewayConfig?.gemini?.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta'),
+      model: modelGatewayConfig?.gemini?.model ?? 'gemini-1.5-flash',
+      apiKey: modelGatewayConfig?.gemini?.apiKey,
     },
   };
 

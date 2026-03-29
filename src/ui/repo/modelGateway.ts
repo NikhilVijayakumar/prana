@@ -1,4 +1,5 @@
 import { HttpStatusCode, ServerResponse } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export type ModelProviderId = 'lmstudio' | 'openrouter' | 'gemini';
 
@@ -35,7 +36,11 @@ export interface ModelGatewayProbePayload {
 
 export class ModelGatewayRepo {
   async probeGateway(): Promise<ServerResponse<ModelGatewayProbePayload>> {
-    const result = await window.api.modelGateway.probe();
+    const result = await safeIpcCall(
+      'modelGateway.probe',
+      () => window.api.modelGateway.probe(),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,

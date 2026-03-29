@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 
 export interface CommandResult {
   ok: boolean;
@@ -17,13 +18,15 @@ export const executeCommand = (
   cwd?: string,
 ): Promise<CommandResult> => {
   return new Promise((resolve) => {
+    const platformRuntime = getPranaPlatformRuntime();
     const home = homedir();
 
     // Build SSH command that works non-interactively (no TTY for prompts).
     // - StrictHostKeyChecking=accept-new: auto-accept new host keys
     // - BatchMode=yes: never prompt for passphrase (use agent only)
     const defaultSshCmd = 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes';
-    const gitSshCommand = process.env['GIT_SSH_COMMAND'] || defaultSshCmd;
+    const gitSshCommand = platformRuntime.gitSshCommand || defaultSshCmd;
+    const baseEnv = platformRuntime.inheritedEnv ?? {};
 
     const child = spawn(command, args, {
       cwd,
@@ -32,10 +35,10 @@ export const executeCommand = (
       shell: process.platform === 'win32',
       windowsHide: true,
       env: {
-        ...process.env,
+        ...baseEnv,
         // Ensure HOME is set – SSH looks for keys under ~/.ssh
-        HOME: process.env['HOME'] || home,
-        USERPROFILE: process.env['USERPROFILE'] || home,
+        HOME: platformRuntime.homeDir || home,
+        USERPROFILE: platformRuntime.userProfileDir || home,
         // Force non-interactive SSH for git operations
         GIT_SSH_COMMAND: gitSshCommand,
       },

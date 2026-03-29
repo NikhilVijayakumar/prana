@@ -43,7 +43,12 @@ export const SessionTokenGuard: FC<SessionTokenGuardProps> = ({
   loginPath,
   validateFn,
 }) => {
-  const isValid = validateSessionToken(session.sessionToken, validateFn);
+  let isValid = false;
+  try {
+    isValid = validateSessionToken(session.sessionToken, validateFn);
+  } catch {
+    isValid = false;
+  }
   if (!isValid) {
     return <Navigate to={loginPath} replace />;
   }
@@ -76,7 +81,13 @@ export const OnboardingStateGuard: FC<OnboardingStateGuardProps> = ({
   condition,
   redirectPath,
 }) => {
-  if (condition(session)) {
+  let shouldRedirect = false;
+  try {
+    shouldRedirect = condition(session);
+  } catch {
+    shouldRedirect = true;
+  }
+  if (shouldRedirect) {
     return <Navigate to={redirectPath} replace />;
   }
   return <>{children}</>;
@@ -134,7 +145,13 @@ export const PublicAccessGuard: FC<PublicAccessGuardProps> = ({
   isAuthenticated,
   redirectPath,
 }) => {
-  if (isAuthenticated(session)) {
+  let authenticated = false;
+  try {
+    authenticated = isAuthenticated(session);
+  } catch {
+    authenticated = false;
+  }
+  if (authenticated) {
     return <Navigate to={redirectPath} replace />;
   }
   return <>{children}</>;

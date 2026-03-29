@@ -5,6 +5,8 @@ import { SplashView } from './SplashView';
 import { StateType } from 'astra';
 import { volatileSessionStore } from 'prana/ui/authentication/state/volatileSessionStore';
 import { getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
+import { PranaModuleErrorBoundary } from 'prana/ui/common/PranaModuleErrorBoundary';
+import { throwPranaUiError } from 'prana/ui/common/errors/pranaFailFast';
 
 export const SplashContainer: FC = () => {
   const navigate = useNavigate();
@@ -24,13 +26,19 @@ export const SplashContainer: FC = () => {
     navigate('/access-denied');
   };
 
-  const { state, statusMessage } = useSplashViewModel(handleComplete, handleSshFailure);
+  const { state, statusMessage, moduleError } = useSplashViewModel(handleComplete, handleSshFailure);
+
+  if (moduleError) {
+    throwPranaUiError(moduleError);
+  }
 
   return (
-    <SplashView 
-      isLoading={state.state === StateType.LOADING} 
-      isSuccess={state.isSuccess} 
-      statusMessage={statusMessage}
-    />
+    <PranaModuleErrorBoundary>
+      <SplashView 
+        isLoading={state.state === StateType.LOADING} 
+        isSuccess={state.isSuccess} 
+        statusMessage={statusMessage}
+      />
+    </PranaModuleErrorBoundary>
   );
 };

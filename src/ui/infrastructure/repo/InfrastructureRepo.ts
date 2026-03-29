@@ -1,4 +1,5 @@
 import { HttpStatusCode, ServerResponse } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface SystemMetric {
   id: string;
@@ -16,7 +17,11 @@ export interface InfrastructurePayload {
 
 export class InfrastructureRepo {
   async getSystemHealth(): Promise<ServerResponse<InfrastructurePayload>> {
-    const payload = await window.api.operations.getInfrastructure();
+    const payload = await safeIpcCall(
+      'operations.getInfrastructure',
+      () => window.api.operations.getInfrastructure(),
+      (value) => typeof value === 'object' && value !== null,
+    );
 
     return {
       isSuccess: true,

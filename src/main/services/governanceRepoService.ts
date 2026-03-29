@@ -3,8 +3,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { readMainEnvAlias } from './envService';
 import { executeCommand } from './processService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 
 const APP_DATA_DIR = '.prana';
 const LEGACY_APP_DATA_DIR = '.dhi';
@@ -38,7 +39,7 @@ export const getAppDataRoot = (): string => {
 };
 
 export const getGovernanceRepoPath = (): string => {
-  const override = readMainEnvAlias('PRANA_GOV_REPO_PATH', 'DHI_GOV_REPO_PATH');
+  const override = getPranaRuntimeConfig()?.governance.repoPath;
   if (override) {
     return override;
   }
@@ -47,7 +48,7 @@ export const getGovernanceRepoPath = (): string => {
 };
 
 export const getGovernanceRepoUrl = (): string => {
-  return readMainEnvAlias('PRANA_GOV_REPO_URL', 'DHI_GOV_REPO_URL') ?? DEFAULT_GOVERNANCE_REPO_URL;
+  return getPranaRuntimeConfig()?.governance.repoUrl ?? DEFAULT_GOVERNANCE_REPO_URL;
 };
 
 const hasGitRepository = (repoPath: string): boolean => {
@@ -55,10 +56,11 @@ const hasGitRepository = (repoPath: string): boolean => {
 };
 
 const verifySshAccess = async (repoUrl: string): Promise<{ verified: boolean; message: string }> => {
+  const platformRuntime = getPranaPlatformRuntime();
   console.log('[PRANA] SSH verification for:', repoUrl);
-  console.log('[PRANA] HOME:', process.env['HOME'] || '(not set)');
-  console.log('[PRANA] USERPROFILE:', process.env['USERPROFILE'] || '(not set)');
-  console.log('[PRANA] GIT_SSH_COMMAND:', process.env['GIT_SSH_COMMAND'] || '(not set)');
+  console.log('[PRANA] HOME:', platformRuntime.homeDir || '(not set)');
+  console.log('[PRANA] USERPROFILE:', platformRuntime.userProfileDir || '(not set)');
+  console.log('[PRANA] GIT_SSH_COMMAND:', platformRuntime.gitSshCommand || '(not set)');
 
   const result = await executeCommand('git', ['ls-remote', repoUrl], 20_000);
 

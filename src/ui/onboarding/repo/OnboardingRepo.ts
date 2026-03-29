@@ -1,4 +1,5 @@
 import { HttpStatusCode, ServerResponse } from 'astra';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface OnboardingKpi {
   id: string;
@@ -49,6 +50,10 @@ export interface OnboardingCommitResult {
   alignmentIssues?: Array<{ field: string; reason: string }>;
 }
 
+interface RawOnboardingCommitResult extends OnboardingCommitResult {
+  success: boolean;
+}
+
 export interface OnboardingPhaseStage {
   stepId: string;
   status: 'PENDING' | 'DRAFT' | 'APPROVED';
@@ -75,7 +80,11 @@ export interface SaveOnboardingStagePayload {
 
 export class OnboardingRepo {
   async getKpis(): Promise<ServerResponse<OnboardingKpiPayload>> {
-    const payload = await window.api.operations.getOnboardingKpis();
+    const payload = await safeIpcCall(
+      'operations.getOnboardingKpis',
+      () => window.api.operations.getOnboardingKpis(),
+      (value) => typeof value === 'object' && value !== null,
+    );
     return {
       isSuccess: true,
       isError: false,
@@ -86,7 +95,11 @@ export class OnboardingRepo {
   }
 
   async generateKpis(): Promise<ServerResponse<OnboardingKpiPayload>> {
-    const payload = await window.api.operations.generateOnboardingKpis();
+    const payload = await safeIpcCall(
+      'operations.generateOnboardingKpis',
+      () => window.api.operations.generateOnboardingKpis(),
+      (value) => typeof value === 'object' && value !== null,
+    );
     return {
       isSuccess: true,
       isError: false,
@@ -97,7 +110,11 @@ export class OnboardingRepo {
   }
 
   async removeKpi(agentId: string, kpiId: string): Promise<ServerResponse<OnboardingKpiPayload>> {
-    const payload = await window.api.operations.removeOnboardingKpi(agentId, kpiId);
+    const payload = await safeIpcCall(
+      'operations.removeOnboardingKpi',
+      () => window.api.operations.removeOnboardingKpi(agentId, kpiId),
+      (value) => typeof value === 'object' && value !== null,
+    );
     return {
       isSuccess: true,
       isError: false,
@@ -108,7 +125,11 @@ export class OnboardingRepo {
   }
 
   async commitOnboarding(payload: OnboardingCommitPayload): Promise<ServerResponse<OnboardingCommitResult>> {
-    const result = await window.api.operations.commitOnboarding(payload);
+    const result = await safeIpcCall<RawOnboardingCommitResult>(
+      'operations.commitOnboarding',
+      () => window.api.operations.commitOnboarding(payload),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
     return {
       isSuccess: result.success,
       isError: !result.success,
@@ -119,7 +140,11 @@ export class OnboardingRepo {
   }
 
   async getOnboardingStageSnapshot(): Promise<ServerResponse<OnboardingStageSnapshot>> {
-    const payload = await window.api.operations.getOnboardingStageSnapshot();
+    const payload = await safeIpcCall(
+      'operations.getOnboardingStageSnapshot',
+      () => window.api.operations.getOnboardingStageSnapshot(),
+      (value) => typeof value === 'object' && value !== null,
+    );
     return {
       isSuccess: true,
       isError: false,
@@ -130,7 +155,11 @@ export class OnboardingRepo {
   }
 
   async saveOnboardingStageSnapshot(payload: SaveOnboardingStagePayload): Promise<ServerResponse<boolean>> {
-    const result = await window.api.operations.saveOnboardingStageSnapshot(payload);
+    const result = await safeIpcCall(
+      'operations.saveOnboardingStageSnapshot',
+      () => window.api.operations.saveOnboardingStageSnapshot(payload),
+      (value) => typeof value === 'boolean',
+    );
     return {
       isSuccess: result,
       isError: !result,

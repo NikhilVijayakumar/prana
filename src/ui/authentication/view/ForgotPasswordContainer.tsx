@@ -2,6 +2,8 @@ import { FC, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForgotPasswordViewModel } from '../viewmodel/useForgotPasswordViewModel';
 import { ForgotPasswordView } from './ForgotPasswordView';
+import { PranaModuleErrorBoundary } from 'prana/ui/common/PranaModuleErrorBoundary';
+import { throwPranaUiError } from 'prana/ui/common/errors/pranaFailFast';
 
 export const ForgotPasswordContainer: FC = () => {
   const navigate = useNavigate();
@@ -10,6 +12,10 @@ export const ForgotPasswordContainer: FC = () => {
   const vm = useForgotPasswordViewModel((tempPass) => {
     setTempPassword(tempPass);
   });
+
+  if (vm.moduleError) {
+    throwPranaUiError(vm.moduleError);
+  }
 
   const handleProceedReset = () => {
     navigate('/reset-password');
@@ -23,15 +29,17 @@ export const ForgotPasswordContainer: FC = () => {
   };
 
   return (
-    <ForgotPasswordView
-      email={vm.email}
-      sshStatus={vm.sshStatus}
-      errorKey={vm.errorKey}
-      tempPassword={tempPassword}
-      onEmailChange={vm.setEmail}
-      onVerify={handleVerify}
-      onProceedReset={handleProceedReset}
-      onBackToLogin={() => navigate('/login')}
-    />
+    <PranaModuleErrorBoundary>
+      <ForgotPasswordView
+        email={vm.email}
+        sshStatus={vm.sshStatus}
+        errorKey={vm.errorKey}
+        tempPassword={tempPassword}
+        onEmailChange={vm.setEmail}
+        onVerify={handleVerify}
+        onProceedReset={handleProceedReset}
+        onBackToLogin={() => navigate('/login')}
+      />
+    </PranaModuleErrorBoundary>
   );
 };

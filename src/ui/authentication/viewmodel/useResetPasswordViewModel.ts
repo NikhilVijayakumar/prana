@@ -1,8 +1,10 @@
 import { useState, useCallback, useMemo } from 'react';
 import { AuthRepo } from '../../authentication/repo/AuthRepo';
+import { useFailFastAsync } from 'prana/ui/common/errors/useFailFastAsync';
 
 export const useResetPasswordViewModel = (onSuccess: () => void) => {
   const repo = new AuthRepo();
+  const { fatalError, clearFatalError, runSafely } = useFailFastAsync('viewmodel');
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -29,7 +31,15 @@ export const useResetPasswordViewModel = (onSuccess: () => void) => {
     setIsLoading(true);
 
     try {
-      const resp = await repo.resetPassword(newPassword);
+      const resp = await runSafely(() => repo.resetPassword(newPassword), {
+        category: 'ipc',
+        title: 'Reset Password Error',
+        userMessage: 'Password reset could not be completed.',
+        swallow: true,
+      });
+      if (!resp) {
+        return;
+      }
       if (resp.isSuccess) {
         onSuccess();
       } else {
@@ -54,5 +64,7 @@ export const useResetPasswordViewModel = (onSuccess: () => void) => {
     isValid,
     validation,
     handleReset,
+    moduleError: fatalError,
+    clearModuleError: clearFatalError,
   };
 };

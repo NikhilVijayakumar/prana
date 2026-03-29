@@ -4,6 +4,7 @@ import {
   LEGACY_ONBOARDING_LEDGER_STORAGE_KEY,
   readStorageWithLegacy,
 } from 'prana/ui/constants/storageKeys';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 export interface ScreenDraftRecord {
   stepId: string;
@@ -203,24 +204,30 @@ export const useOnboardingVaultProviderV2 = () => {
         return { committed: false, reason: 'No draft found.' };
       }
 
+      const activeRecord = currentRecord;
+
       try {
         const committedAt = new Date().toISOString();
         const committedHash = computeHash({
           stepId,
-          ownerAgentId: currentRecord.ownerAgentId,
-          draft: currentRecord.draft,
-          draftRevision: currentRecord.draftRevision,
+          ownerAgentId: activeRecord.ownerAgentId,
+          draft: activeRecord.draft,
+          draftRevision: activeRecord.draftRevision,
           committedAt,
           dependencySnapshot,
         });
 
         // Security path: renderer requests main-process vault operation
-        await window.api.vault.createSnapshot(`onboarding-${stepId}-${currentRecord.draftRevision}`);
+        await safeIpcCall(
+          'vault.createSnapshot',
+          () => window.api.vault.createSnapshot(`onboarding-${stepId}-${activeRecord.draftRevision}`),
+          () => true,
+        );
 
         const ledger = readLedger();
         ledger[stepId] = {
           stepId,
-          committedRevision: currentRecord.draftRevision,
+          committedRevision: activeRecord.draftRevision,
           committedHash,
           committedAt,
         };
