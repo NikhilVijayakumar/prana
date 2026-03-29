@@ -1,5 +1,3 @@
-import { getPranaBranding } from './pranaConfig';
-
 export interface EmployeeDirectoryEntry {
   id: string;
   name: string;
@@ -96,11 +94,11 @@ export const EMPLOYEE_LIST = Object.values(EMPLOYEE_DIRECTORY);
 
 const ensureTrailingSlash = (value: string): string => (value.endsWith('/') ? value : `${value}/`);
 
-export const getEmployeeAvatarPath = (employeeId: string): string => {
+export const getEmployeeAvatarPath = (employeeId: string, avatarBaseUrl?: string): string => {
   const employee = EMPLOYEE_DIRECTORY[employeeId];
   if (!employee) return '';
-  const avatarBaseUrl = getPranaBranding().avatarBaseUrl ?? '/resources/';
-  return `${ensureTrailingSlash(avatarBaseUrl)}${employee.avatarFileName}`;
+  const resolvedAvatarBaseUrl = avatarBaseUrl ?? '/resources/';
+  return `${ensureTrailingSlash(resolvedAvatarBaseUrl)}${employee.avatarFileName}`;
 };
 
 interface ModuleOwnership {

@@ -80,7 +80,8 @@ const parseFallbackOrder = (): ProviderId[] => {
     .map((value) => normalizeProviderId(value));
 
   const seen = new Set<ProviderId>();
-  const order: ProviderId[] = [];
+  const order: ProviderId[] = ['lmstudio'];
+  seen.add('lmstudio');
 
   for (const entry of entries) {
     if (seen.has(entry)) {

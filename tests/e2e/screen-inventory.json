@@ -1,0 +1,32 @@
+{
+  "screens": [
+    "app-shell",
+    "integration-verification",
+    "splash",
+    "login",
+    "access-denied",
+    "forgot-password",
+    "reset-password",
+    "main-layout",
+    "onboarding",
+    "onboarding-channel-configuration",
+    "onboarding-model-configuration",
+    "onboarding-registry-approval",
+    "triage",
+    "vault",
+    "suites",
+    "governance",
+    "compliance",
+    "daily-brief",
+    "design-audit",
+    "funding-digest",
+    "hiring-sim",
+    "infrastructure",
+    "notifications",
+    "queue-monitor",
+    "vault-knowledge",
+    "weekly-review",
+    "settings",
+    "profile"
+  ]
+}

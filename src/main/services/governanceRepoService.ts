@@ -55,6 +55,90 @@ const hasGitRepository = (repoPath: string): boolean => {
   return existsSync(join(repoPath, '.git'));
 };
 
+const getRequestedTestBranch = (): string | null => {
+  const configuredBranch = process.env.PRANA_TEST_BRANCH?.trim();
+  if (configuredBranch) {
+    return configuredBranch;
+  }
+
+  return process.env.NODE_ENV === 'test' ? 'test-sandbox' : null;
+};
+
+const doesRemoteBranchExist = async (repoUrl: string, branchName: string): Promise<boolean> => {
+  const result = await executeCommand('git', ['ls-remote', '--heads', repoUrl, branchName], 20_000);
+  if (!result.ok) {
+    return false;
+  }
+
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .some((line) => line.endsWith(`refs/heads/${branchName}`));
+};
+
+const checkoutExistingRemoteBranch = async (repoPath: string, branchName: string): Promise<boolean> => {
+  const fetchResult = await executeCommand('git', ['-C', repoPath, 'fetch', 'origin', branchName], 30_000);
+  if (!fetchResult.ok) {
+    return false;
+  }
+
+  const checkoutResult = await executeCommand(
+    'git',
+    ['-C', repoPath, 'checkout', '-B', branchName, `origin/${branchName}`],
+    20_000,
+  );
+
+  return checkoutResult.ok;
+};
+
+const createAndPushBranch = async (repoPath: string, branchName: string): Promise<{ ok: boolean; message: string }> => {
+  const checkoutResult = await executeCommand('git', ['-C', repoPath, 'checkout', '-B', branchName], 20_000);
+  if (!checkoutResult.ok) {
+    return {
+      ok: false,
+      message: checkoutResult.stderr.trim() || checkoutResult.stdout.trim() || 'Failed to create local test branch.',
+    };
+  }
+
+  const pushResult = await executeCommand('git', ['-C', repoPath, 'push', '-u', 'origin', branchName], 45_000);
+  if (!pushResult.ok) {
+    return {
+      ok: false,
+      message: pushResult.stderr.trim() || pushResult.stdout.trim() || 'Failed to push test branch to remote.',
+    };
+  }
+
+  return {
+    ok: true,
+    message: `Created and pushed test branch '${branchName}'.`,
+  };
+};
+
+const ensureTestBranchReady = async (
+  repoPath: string,
+  repoUrl: string,
+  branchName: string,
+): Promise<{ ok: boolean; message: string }> => {
+  const remoteBranchExists = await doesRemoteBranchExist(repoUrl, branchName);
+
+  if (remoteBranchExists) {
+    const checkedOut = await checkoutExistingRemoteBranch(repoPath, branchName);
+    if (!checkedOut) {
+      return {
+        ok: false,
+        message: `Remote branch '${branchName}' exists but checkout failed.`,
+      };
+    }
+
+    return {
+      ok: true,
+      message: `Using existing remote test branch '${branchName}'.`,
+    };
+  }
+
+  return createAndPushBranch(repoPath, branchName);
+};
+
 const verifySshAccess = async (repoUrl: string): Promise<{ verified: boolean; message: string }> => {
   const platformRuntime = getPranaPlatformRuntime();
   console.log('[PRANA] SSH verification for:', repoUrl);
@@ -93,6 +177,7 @@ const verifySshAccess = async (repoUrl: string): Promise<{ verified: boolean; me
 export const ensureGovernanceRepoReady = async (): Promise<GovernanceRepoStatus> => {
   const repoPath = getGovernanceRepoPath();
   const repoUrl = getGovernanceRepoUrl();
+  const requestedTestBranch = getRequestedTestBranch();
 
   const ssh = await verifySshAccess(repoUrl);
   if (!ssh.verified) {
@@ -107,6 +192,29 @@ export const ensureGovernanceRepoReady = async (): Promise<GovernanceRepoStatus>
   }
 
   if (hasGitRepository(repoPath)) {
+    if (requestedTestBranch) {
+      const branchResult = await ensureTestBranchReady(repoPath, repoUrl, requestedTestBranch);
+      if (!branchResult.ok) {
+        return {
+          sshVerified: true,
+          repoReady: false,
+          clonedNow: false,
+          sshMessage: branchResult.message,
+          repoPath,
+          repoUrl,
+        };
+      }
+
+      return {
+        sshVerified: true,
+        repoReady: true,
+        clonedNow: false,
+        sshMessage: branchResult.message,
+        repoPath,
+        repoUrl,
+      };
+    }
+
     return {
       sshVerified: true,
       repoReady: true,
@@ -133,13 +241,39 @@ export const ensureGovernanceRepoReady = async (): Promise<GovernanceRepoStatus>
     }
   }
 
-  const cloneResult = await executeCommand('git', ['clone', repoUrl, repoPath], 45_000);
+  const cloneArgs = requestedTestBranch
+    ? ['clone', repoUrl, repoPath]
+    : ['clone', repoUrl, repoPath];
+  const cloneResult = await executeCommand('git', cloneArgs, 45_000);
   if (!cloneResult.ok) {
     return {
       sshVerified: true,
       repoReady: false,
       clonedNow: false,
       sshMessage: cloneResult.stderr.trim() || cloneResult.stdout.trim() || 'Repository clone failed.',
+      repoPath,
+      repoUrl,
+    };
+  }
+
+  if (requestedTestBranch) {
+    const branchResult = await ensureTestBranchReady(repoPath, repoUrl, requestedTestBranch);
+    if (!branchResult.ok) {
+      return {
+        sshVerified: true,
+        repoReady: false,
+        clonedNow: true,
+        sshMessage: branchResult.message,
+        repoPath,
+        repoUrl,
+      };
+    }
+
+    return {
+      sshVerified: true,
+      repoReady: true,
+      clonedNow: true,
+      sshMessage: branchResult.message,
       repoPath,
       repoUrl,
     };

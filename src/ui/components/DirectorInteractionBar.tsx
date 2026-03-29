@@ -16,15 +16,16 @@ import {
   getEmployeeAvatarPath,
   type EmployeeDirectoryEntry,
 } from '../constants/employeeDirectory';
-import { getDirectorSenderEmail, getDirectorSenderName } from '../constants/appBranding';
 import { spacing } from 'astra';
 import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
+import type { PranaBrandingConfig } from '../constants/pranaConfig';
 
 interface DirectorInteractionBarProps {
   moduleRoute: string;
   moduleNameKey: string;
   ownerId: string;
   secretaryId: string;
+  branding: Partial<PranaBrandingConfig>;
   onOpenProfile: (employeeId: string) => void;
 }
 
@@ -40,8 +41,9 @@ interface LocalMessage {
 const EmployeeCard: FC<{
   title: string;
   employee: EmployeeDirectoryEntry;
+  avatarBaseUrl?: string;
   onOpenProfile: (employeeId: string) => void;
-}> = ({ title, employee, onOpenProfile }) => {
+}> = ({ title, employee, avatarBaseUrl, onOpenProfile }) => {
   const muiTheme = useMuiTheme();
 
   return (
@@ -59,7 +61,7 @@ const EmployeeCard: FC<{
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
         <Avatar
-          src={getEmployeeAvatarPath(employee.id)}
+          src={getEmployeeAvatarPath(employee.id, avatarBaseUrl)}
           alt={employee.name}
           sx={{ width: 32, height: 32, cursor: 'pointer' }}
           onClick={() => onOpenProfile(employee.id)}
@@ -88,6 +90,7 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   moduleNameKey,
   ownerId,
   secretaryId,
+  branding,
   onOpenProfile,
 }) => {
   const muiTheme = useMuiTheme();
@@ -99,8 +102,9 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   const [channelMode, setChannelMode] = useState<'internal' | 'telegram'>('internal');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const directorSenderEmail = getDirectorSenderEmail();
-  const directorSenderName = getDirectorSenderName();
+  const directorSenderEmail = branding.directorSenderEmail ?? '';
+  const directorSenderName = branding.directorSenderName ?? '';
+  const avatarBaseUrl = branding.avatarBaseUrl;
 
   const owner = EMPLOYEE_DIRECTORY[ownerId] ?? EMPLOYEE_DIRECTORY.mira;
   const secretary = EMPLOYEE_DIRECTORY[secretaryId] ?? EMPLOYEE_DIRECTORY.mira;
@@ -200,11 +204,13 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
           <EmployeeCard
             title={literal['interaction.owner']}
             employee={owner}
+            avatarBaseUrl={avatarBaseUrl}
             onOpenProfile={onOpenProfile}
           />
           <EmployeeCard
             title={literal['interaction.secretary']}
             employee={secretary}
+            avatarBaseUrl={avatarBaseUrl}
             onOpenProfile={onOpenProfile}
           />
         </Stack>

@@ -63,7 +63,7 @@ export interface SyncStatusSnapshot {
 let initialized = false;
 let intervalHandle: NodeJS.Timeout | null = null;
 let lastMachineLockWarning: string | null = null;
-let pushIntervalMs = getRuntimeBootstrapConfig().sync.pushIntervalMs;
+let pushIntervalMs = 120_000;
 let lastPullAt: string | null = null;
 let lastPullStatus: 'SUCCESS' | 'SKIPPED' | 'FAILED' | null = null;
 let lastPullMessage: string | null = null;
@@ -351,6 +351,7 @@ export const syncProviderService = {
 
     await vaultService.initializeVault();
     await recoveryOrchestratorService.recoverPendingSyncTasks();
+    pushIntervalMs = Math.max(30_000, getRuntimeBootstrapConfig().sync.pushIntervalMs);
     const persistedPushInterval = await loadPushIntervalFromSettings();
     if (persistedPushInterval) {
       pushIntervalMs = persistedPushInterval;

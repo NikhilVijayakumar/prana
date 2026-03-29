@@ -18,8 +18,13 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "test": "cross-env NODE_ENV=test vitest run",
-    "test:watch": "cross-env NODE_ENV=test vitest"
+    "test": "npm run test:unit",
+    "test:unit": "cross-env NODE_ENV=test vitest run",
+    "test:unit:watch": "cross-env NODE_ENV=test vitest",
+    "test:e2e": "cross-env NODE_ENV=test playwright test",
+    "test:e2e:headed": "cross-env NODE_ENV=test HEADLESS=false playwright test --headed",
+    "test:watch": "cross-env NODE_ENV=test HEADLESS=false playwright test --headed --ui",
+    "test:e2e:show-report": "playwright show-report"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
@@ -38,6 +43,7 @@
     "turndown": "^7.2.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",

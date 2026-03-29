@@ -7,8 +7,13 @@ import { volatileSessionStore } from 'prana/ui/authentication/state/volatileSess
 import { getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 import { PranaModuleErrorBoundary } from 'prana/ui/common/PranaModuleErrorBoundary';
 import { throwPranaUiError } from 'prana/ui/common/errors/pranaFailFast';
+import type { PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
 
-export const SplashContainer: FC = () => {
+interface SplashContainerProps {
+  branding: Partial<PranaBrandingConfig>;
+}
+
+export const SplashContainer: FC<SplashContainerProps> = ({ branding }) => {
   const navigate = useNavigate();
   
   const handleComplete = () => {
@@ -35,6 +40,7 @@ export const SplashContainer: FC = () => {
   return (
     <PranaModuleErrorBoundary>
       <SplashView 
+        branding={branding}
         isLoading={state.state === StateType.LOADING} 
         isSuccess={state.isSuccess} 
         statusMessage={statusMessage}

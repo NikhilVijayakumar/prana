@@ -152,3 +152,4 @@ out/
 /package-lock.json
 /test-output.txt
 /test-results.txt
+/config/

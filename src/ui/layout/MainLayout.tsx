@@ -21,16 +21,17 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage, useTheme, ThemeToggle } from 'astra';
 import { spacing } from 'astra';
 import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionBar';
-import { getAppBrandName, getAppTitlebarTagline } from 'prana/ui/constants/appBranding';
 import { getInteractionContextForPath } from 'prana/ui/constants/employeeDirectory';
 import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
+import type { PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
 
 interface MainLayoutProps {
+  branding: Partial<PranaBrandingConfig>;
   children?: ReactNode;
 }
 
-export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
+export const MainLayout: FC<MainLayoutProps> = ({ branding, children }) => {
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
   const themeContext = useTheme();
@@ -40,8 +41,8 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
   const session = useVolatileSessionStore();
   const routeStackRef = useRef<string[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const appBrandName = getAppBrandName();
-  const appTitlebarTagline = getAppTitlebarTagline();
+  const appBrandName = branding.appBrandName ?? '';
+  const appTitlebarTagline = branding.appTitlebarTagline ?? '';
 
   const primaryNavItems = useMemo(() => getEnabledPrimaryNavItems(), []);
   const defaultHomePath = useMemo(() => getFirstEnabledMainRoute(), []);
@@ -228,6 +229,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
               moduleNameKey={interactionContext.moduleNameKey}
               ownerId={interactionContext.ownerId}
               secretaryId={interactionContext.secretaryId}
+              branding={branding}
               onOpenProfile={(employeeId) => navigate(`/profile/${employeeId}`)}
             />
           )}

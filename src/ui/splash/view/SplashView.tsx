@@ -2,19 +2,20 @@ import { FC } from 'react';
 import { Box, Typography, CircularProgress, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
 import { spacing } from 'astra';
-import { getAppBrandName, getAppSplashSubtitle } from 'prana/ui/constants/appBranding';
+import type { PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
 
 interface SplashViewProps {
+  branding: Partial<PranaBrandingConfig>;
   isLoading: boolean;
   isSuccess: boolean;
   statusMessage: string;
 }
 
-export const SplashView: FC<SplashViewProps> = ({ isLoading, isSuccess, statusMessage }) => {
+export const SplashView: FC<SplashViewProps> = ({ branding, isLoading, isSuccess, statusMessage }) => {
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
-  const appBrandName = getAppBrandName();
-  const appSplashSubtitle = getAppSplashSubtitle();
+  const appBrandName = branding.appBrandName ?? '';
+  const appSplashSubtitle = branding.appSplashSubtitle ?? '';
 
   return (
     <Box sx={{ 

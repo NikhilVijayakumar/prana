@@ -14,7 +14,7 @@ import {
   Typography,
   useTheme as useMuiTheme,
 } from '@mui/material';
-import { getPranaBranding, validatePranaBranding } from '../../constants/pranaConfig';
+import type { PranaBrandingConfig } from '../../constants/pranaConfig';
 import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 const REQUIRED_RENDERER_FIELDS = [
@@ -79,11 +79,11 @@ interface IntegrationSnapshot {
 }
 
 interface IntegrationVerificationPageProps {
+  branding: Partial<PranaBrandingConfig>;
   onProceed?: () => void;
 }
 
-const collectRendererStatus = (): RendererKeyStatus[] => {
-  const branding = getPranaBranding();
+const collectRendererStatus = (branding: Partial<PranaBrandingConfig>): RendererKeyStatus[] => {
   return REQUIRED_RENDERER_FIELDS.map((key) => ({
     key,
     present: Boolean(branding[key]?.trim()),
@@ -148,7 +148,7 @@ const summarizeAvailability = (rendererKeys: RendererKeyStatus[]) => {
   };
 };
 
-export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> = ({ onProceed }) => {
+export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> = ({ branding, onProceed }) => {
   const muiTheme = useMuiTheme();
   const [loading, setLoading] = useState(true);
   const [snapshot, setSnapshot] = useState<IntegrationSnapshot | null>(null);
@@ -158,8 +158,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
 
     const run = async () => {
       setLoading(true);
-      const rendererKeys = collectRendererStatus();
-      const rendererValidation = validatePranaBranding();
+      const rendererKeys = collectRendererStatus(branding);
       const runtimeResult = await collectRuntimeStatus();
 
       if (!mounted) {
@@ -172,7 +171,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
         runtime: runtimeResult.runtime,
         startup: runtimeResult.startup,
         rendererKeys,
-        errors: [...rendererValidation.errors, ...runtimeResult.errors],
+        errors: runtimeResult.errors,
       });
       setLoading(false);
     };
@@ -182,7 +181,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [branding]);
 
   const rendererSummary = useMemo(() => summarizeAvailability(snapshot?.rendererKeys ?? []), [snapshot]);
 
