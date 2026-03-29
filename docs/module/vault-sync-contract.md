@@ -9,6 +9,7 @@
 - Startup diagnostics expose sync outcomes through startup and integration surfaces.
 - Startup sync returns explicit install mode, pull status, merge status, and integrity status.
 - SQLite lineage and transactional sync scaffolding now exist for approved runtime persistence.
+- Vault storage may be mounted through a dedicated encrypted virtual drive separate from DB storage.
 
 ## Target State
 - Deterministic conflict and freshness handling across all startup and runtime sync paths.
@@ -40,6 +41,7 @@ Define first-install and returning-install synchronization semantics between vau
 - Vault archive workspace
 - Local SQLite sync store
 - Runtime registry state store
+- Separate DB and Vault encrypted virtual-drive surfaces when enabled
 
 ## Modes
 
@@ -75,6 +77,7 @@ Required flow:
 1. Pull direction at startup: Vault -> SQLite projection.
 2. Push direction by approved events: SQLite approved runtime -> Vault archive.
 3. Push operations require explicit policy approval when configured.
+4. Local auth/recovery SQLite state is excluded from this sync contract and never syncs to Vault.
 
 ## Conflict and Freshness Rules
 1. If local source version is newer/equal than remote snapshot, skip merge.

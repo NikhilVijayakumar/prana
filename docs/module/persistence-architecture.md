@@ -8,12 +8,15 @@
 - SQLite already stores runtime-approved onboarding state, sync queue state, cron queue state, and several operational caches.
 - Vault remains the durable encrypted archive and startup pull source for sync snapshots.
 - Runtime model metadata, sync lineage, staged delete/update state, and active/raw context persistence now live in SQLite.
+- Auth and password-recovery state now live in local SQLite only.
+- Separate encrypted virtual-drive orchestration exists for DB storage and Vault storage.
 - Multiple runtime surfaces still read directly from runtime props or vault-backed files, so locked-by-default cold-vault posture is not yet fully enforced.
 
 ## Target State
 - SQLite is the exclusive runtime read layer for application state and local-only configuration.
 - Vault is cold storage by default: opened only for startup sync or explicit write-back events, then relocked.
 - Runtime configuration props seed SQLite only during bootstrap/first-run; downstream features must not read raw props directly.
+- When enabled, DB and Vault backing folders are mounted through separate encrypted virtual drives.
 
 ## Gap Notes
 - The write-through cache model is implemented for approved runtime state and key runtime metadata, but not yet for every domain entity.
@@ -30,6 +33,7 @@
 3. Local-only configuration never syncs to Vault payloads.
 4. SQLite sync-pending flags remain durable when Vault write-back or git push fails.
 5. Runtime chat/context state persists raw and optimized buffers separately in SQLite.
+6. Auth and recovery state remain local-only and do not require Vault.
 
 ## Immediate Roadmap
 1. Seed local runtime config snapshot into SQLite during startup bootstrap.
@@ -42,17 +46,19 @@
 
 ### Boot: Sync-and-Lock
 1. Validate runtime props.
-2. Seed local-only runtime config into SQLite if empty.
-3. Open Vault for startup sync.
-4. Pull and validate remote registry snapshot.
-5. Merge into SQLite only when remote snapshot is newer and valid.
-6. Publish sync decision to startup diagnostics.
-7. Return Vault lifecycle to locked state when feature parity allows.
+2. Mount or resolve the encrypted DB storage surface for SQLite runtime state.
+3. Seed local-only runtime config into SQLite if empty.
+4. Open Vault for startup sync.
+5. Pull and validate remote registry snapshot.
+6. Merge into SQLite only when remote snapshot is newer and valid.
+7. Publish sync decision to startup diagnostics.
+8. Return Vault lifecycle to locked state when feature parity allows.
 
 ### Runtime
 1. UI and agents read from SQLite-backed provider services.
 2. Mutations write to SQLite first.
 3. Records awaiting durable archive commit must remain marked pending until Vault write-back succeeds.
+4. Auth/login/recovery read only from local SQLite state and do not require Vault.
 
 ### Write-Back
 1. Explicit save flow unlocks Vault.
@@ -80,9 +86,14 @@
   - `src/main/services/runtimeModelAccessService.ts`
   - `src/main/services/contextDigestStoreService.ts`
   - `src/main/services/contextEngineService.ts`
+- Virtual-drive and local auth persistence:
+  - `src/main/services/driveControllerService.ts`
+  - `src/main/services/mountRegistryService.ts`
+  - `src/main/services/authStoreService.ts`
 
 ## Security Posture
 1. Vault is the encrypted durable source of truth.
 2. SQLite is the hot read cache and local operational state layer.
-3. Secrets and local endpoints are allowed in local SQLite config, but must not be included in Vault sync payloads.
-4. Any future failure to relock Vault after an explicit lifecycle close must be treated as critical.
+3. DB and Vault backing folders can be independently encrypted via separate virtual-drive mounts.
+4. Secrets and local endpoints are allowed in local SQLite config, but must not be included in Vault sync payloads.
+5. Any future failure to relock Vault after an explicit lifecycle close must be treated as critical.

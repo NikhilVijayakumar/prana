@@ -26,10 +26,11 @@ Reference documents are historical intent anchors. Module documents are implemen
 1. Single responsibility per module contract.
 2. Deterministic startup and recovery before protected navigation.
 3. Vault for durable approved state, SQLite for operational high-frequency state.
-4. Policy and auditability before automation side effects.
-5. Human approval at key governance boundaries.
-6. Secrets never exposed via diagnostics.
-7. Backward compatibility is explicit, time-boxed, and removable.
+4. Separate encrypted virtual-drive layers may back DB and Vault storage when configured.
+5. Policy and auditability before automation side effects.
+6. Human approval at key governance boundaries.
+7. Secrets never exposed via diagnostics.
+8. Backward compatibility is explicit, time-boxed, and removable.
 
 ## Status Taxonomy
 Use these labels in all module docs.
@@ -81,17 +82,20 @@ Use SQLite for:
 - Read cursors and high-frequency workflow progression.
 - Local transient diagnostics and projection caches.
 - Runtime model metadata, sync lineage, and active/raw context persistence.
+- Local-only authentication and password-recovery state.
 
 ### Vault
 Use Vault for:
 - Approved durable artifacts.
 - Compliance records and immutable historical states.
 - Shared governance snapshots and authoritative archives.
+- User-facing vault storage on the dedicated Vault virtual drive when enabled.
 
 ### Synchronization Rule
 Startup and approved transitions must preserve pull-before-push safety where configured, and must never leak secrets in diagnostics.
 
 Approved runtime state is mirrored into SQLite first. Vault synchronization and archival flows must treat SQLite as the mandatory runtime read layer even while full cold-vault enforcement is still being migrated.
+Authentication and password recovery remain local-only SQLite concerns and never sync to Vault or governance repo state.
 
 ## Security and Compliance Rules
 1. Diagnostics expose status, not credential values.

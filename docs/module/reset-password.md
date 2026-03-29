@@ -7,6 +7,7 @@
 ## Current State
 - Credential-rotation contract is documented with strict token dependency and session invalidation behavior.
 - Security validation and audit expectations are explicitly captured.
+- Password rotation now updates local SQLite auth state directly and does not commit credentials to Vault.
 
 ## Target State
 - Preserve deterministic secure rotation flow with strong entropy and compromised-secret rejection controls.
@@ -24,6 +25,7 @@
 1. Rotation requires a valid, unexpired recovery artifact.
 2. Successful reset invalidates prior sessions deterministically.
 3. Rotation events are durable, auditable, and policy-safe.
+4. Credential rotation is local-only and does not sync to Vault or governance repo state.
 
 ## Immediate Roadmap
 1. Align runtime abuse-protection counters with documented recovery-bombing safeguards.
@@ -36,6 +38,7 @@ The Reset Password (or Change Password) feature executes credential rotation str
 - **Token Dependency:** The system outright rejects any attempt to reset a credential without a valid, unexpired token stored in SQLite.
 - **No Token Generation:** It strictly rotates credentials; it cannot *generate* new recovery factors.
 - **Session Termination:** Successfully rotating a credential absolutely terminates all other active SQLite sessions for that identifier, forcing a fresh Login.
+- **No Vault Credential Commit:** Reset modifies only local SQLite auth state.
 
 ## B. Registry Integration
 Rotations are high-security events mapped tightly to the governance lab:
@@ -55,7 +58,7 @@ This feature entirely relies on the following engine mechanics:
 
 ### 2. Goose (Extraction & Sequencing)
 - **Extraction:** Extracts the token from the URI/input payload and extracts the new password hash securely.
-- **Sequencing:** Executes sequence: `validate_token -> evaluate_entropy -> revoke_token -> commit_new_vault_credential -> invalidate_old_sessions`.
+- **Sequencing:** Executes sequence: `validate_token -> evaluate_entropy -> revoke_token -> commit_new_local_credential -> invalidate_old_sessions`.
 
 ### 3. NemoClaw (UI Automation & Navigation)
 - **Anchoring:** Binds to the New Password field, the Confirm Password field, the Rotate CTA, and success/failure banners.
@@ -68,7 +71,7 @@ This feature entirely relies on the following engine mechanics:
 4. **Validation:** OpenCLAW validates the token and the entropy.
    - If invalid token: Fail immediately, clear the field, redirect to `Forgot Password` indicating token expiry.
    - If valid token but weak entropy: Reject with specific OpenCLAW hygiene feedback.
-5. **Vault Commit:** New password hash is committed to the Vault database tier.
+5. **Local Commit:** New password hash is committed to local SQLite auth storage.
 6. **Session Sweep:** Previous active sessions in SQLite are killed. SQLite token is immediately burned.
 7. **Redirection:** Navigate back to `Login`.
 
@@ -83,5 +86,5 @@ This feature entirely relies on the following engine mechanics:
 - Executes the sweep script to purge old authenticated session tokens for the affected user.
 
 ### Vault (Secure Commit State/Durable)
-- Commits the new cryptographic password hash into durable memory.
-- Writes a non-repudiable transaction audit log linking the token ID, rotation timestamp, and success flag.
+- Vault does not store or rotate login credentials in the current implementation.
+- Any future durable audit export must exclude plaintext recovery secrets and remain separate from the local auth store.

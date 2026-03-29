@@ -7,6 +7,7 @@
 ## Current State
 - Recovery-initiation contract, guardrails, and escalation pathways are fully documented.
 - Strict separation from credential mutation flow is clearly defined.
+- Recovery artifacts are now local SQLite state only and do not require Vault.
 
 ## Target State
 - Preserve deterministic challenge and token issuance behavior with strong anti-enumeration posture.
@@ -24,6 +25,7 @@
 1. Forgot-password flow never mutates credentials directly.
 2. Recovery initiation protects against account enumeration leakage.
 3. High-risk attempts trigger policy-aligned escalation and audit events.
+4. Recovery initiation is local-only and does not depend on Vault availability.
 
 ## Immediate Roadmap
 1. Align recovery telemetry and escalation diagnostics with observability contract.
@@ -35,6 +37,7 @@ The Forgot Password feature executes a mathematically strict identity verificati
 ### Explicit Constraints
 - **Separation of Concerns:** This unit strictly handles *intent to recover* and *factor challenge*. It never touches the actual credential modification (which belongs to `reset-password.md`).
 - **No Direct Execution:** Issuing a token requires human-in-the-loop (via email/SMS/Telegram) or verified autonomous alignment.
+- **Local-Only Storage:** Temporary recovery state is stored only in local SQLite auth storage and never synced to Vault.
 
 ## B. Registry Integration
 The feature natively calls upon registry policies to govern recovery risks:
@@ -63,7 +66,7 @@ This feature entirely relies on the following engine mechanics:
 ## D. Possible Flows
 1. **Initiation:** User clicks "Forgot Password" on the Login screen and submits their registered identifier.
 2. **Internal Audit Check:** 
-   - The system checks if the user exists in the Vault. 
+   - The system checks if the user exists in local SQLite auth state. 
    - To prevent enumeration attacks, the UI always proceeds to the "Token Issued" confirmation state **regardless of whether the account exists or not**.
 3. **Challenge Distribution:** If the account exists, a time-bound cryptographic token is generated and sent via their registered out-of-band channel (e.g., Telegram, Email).
 4. **Transition:** The flow ends gracefully here, directing the user to check their external channel. The user will return to the application via the `reset-password` flow.
@@ -80,5 +83,5 @@ This feature entirely relies on the following engine mechanics:
 - Stores fraud scoring telemetry temporarily for cross-request evaluation.
 
 ### Vault (Secure Commit State/Durable)
-- Commits manual operator overrides.
-- Logs high-risk recovery attempts and completed compliance evidence dossiers permanently.
+- Recovery token issuance itself does not require Vault.
+- Manual operator overrides and long-term compliance evidence can still be archived separately when those audit pathways are implemented.
