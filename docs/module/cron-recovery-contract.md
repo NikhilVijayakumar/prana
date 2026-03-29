@@ -7,13 +7,14 @@
 ## Current State
 - Recovery lifecycle and missed-job handling are defined with startup-first ordering.
 - Diagnostics contract is documented and connected to startup reporting surfaces.
+- Queue-level duplicate prevention and deterministic startup replay ordering are implemented.
 
 ## Target State
 - Full deterministic replay behavior across repeated restarts and overlapping due windows.
 - Strong parity between documented ordering rules and all runtime branches.
 
 ## Gap Notes
-- Dependency-sensitive ordering and replay counters need complete parity verification and standardized reporting depth.
+- Startup recovery counters are implemented, but deeper parity testing across all future cron job classes is still pending.
 
 ## Dependencies
 - docs/module/startup-orchestrator.md
@@ -24,10 +25,11 @@
 1. Missed and interrupted jobs recover once per due occurrence.
 2. Recovery runs before normal scheduler loop every startup cycle.
 3. Overlap and failure summaries are consistently reported in diagnostics.
+4. Duplicate enqueue attempts for the same due occurrence are prevented durably at the queue store.
 
 ## Immediate Roadmap
-1. Add parity verification for recovery ordering and idempotent replay.
-2. Align startup summaries with full cron recovery counters.
+1. Add broader parity verification for additional cron job families beyond sync pull/push.
+2. Keep startup diagnostics aligned with recovery counters as new recovery classes are added.
 
 ## Purpose
 Define restart-safe cron behavior when app downtime causes missed schedules or interrupted runs.
@@ -56,7 +58,7 @@ Define restart-safe cron behavior when app downtime causes missed schedules or i
 
 ## Ordering Rules
 1. Recovery runs before normal periodic timer loop.
-2. Sync pull before sync push when both due at startup (recommended policy).
+2. Sync pull before sync push when both due at startup.
 3. Dependency-sensitive jobs can declare priority ordering in future extension.
 
 ## Missed Job Policy
@@ -74,7 +76,11 @@ Pre-auth diagnostics or startup report should include:
 - total jobs
 - enabled jobs
 - recovered interrupted task count
+- missed jobs detected count
 - missed jobs enqueued count
+- duplicate prevented count
+- processed recovery task count
+- failed recovery task count
 - failed/skipped overlap summaries
 
 No secret values or sensitive payload content exposed.
@@ -85,3 +91,4 @@ Current implementation alignment (2026-03-29):
 	- `src/main/preload.ts`
 	- `src/ui/splash/viewmodel/useSplashViewModel.ts`
 	- `src/ui/integration/view/IntegrationVerificationPage.tsx`
+- Due-occurrence idempotency is enforced in `src/main/services/governanceLifecycleQueueStoreService.ts`.

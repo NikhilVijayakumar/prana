@@ -26,7 +26,10 @@ interface ModelProviderFormProps {
   config: ModelProviderConfig;
   isPrimary: boolean;
   onEnabledChange: (enabled: boolean) => void;
-  onFieldChange: (field: 'endpoint' | 'model' | 'api_key', value: string) => void;
+  onFieldChange: (
+    field: 'endpoint' | 'model' | 'api_key' | 'contextWindow' | 'reservedOutputTokens',
+    value: string | number,
+  ) => void;
   onTestConnection?: (provider: 'lmstudio' | 'openrouter' | 'gemini') => Promise<boolean>;
   validationErrors: string[];
 }
@@ -65,6 +68,10 @@ export const ModelProviderForm: FC<ModelProviderFormProps> = ({
   };
 
   const providerTitle = literal[`onboarding.phase3.provider.${provider}`];
+  const literalMap = literal as Record<string, string>;
+  const withFallback = (key: string, fallback: string): string => (
+    typeof literalMap[key] === 'string' && literalMap[key].trim().length > 0 ? literalMap[key] : fallback
+  );
 
   return (
     <Card
@@ -171,6 +178,33 @@ export const ModelProviderForm: FC<ModelProviderFormProps> = ({
               helperText={literal['onboarding.phase3.apiKeyHelper']}
             />
           )}
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.md }}>
+            <TextField
+              fullWidth
+              type="number"
+              label={withFallback('onboarding.phase3.contextWindowLabel', 'Context Window')}
+              value={config.contextWindow ?? ''}
+              onChange={(e) => onFieldChange('contextWindow', e.target.value === '' ? '' : Number(e.target.value))}
+              size="small"
+              helperText={withFallback(
+                'onboarding.phase3.contextWindowHelp',
+                'Optional token window override. Leave empty to use model defaults.',
+              )}
+            />
+            <TextField
+              fullWidth
+              type="number"
+              label={withFallback('onboarding.phase3.reservedOutputTokensLabel', 'Reserved Output Tokens')}
+              value={config.reservedOutputTokens ?? ''}
+              onChange={(e) => onFieldChange('reservedOutputTokens', e.target.value === '' ? '' : Number(e.target.value))}
+              size="small"
+              helperText={withFallback(
+                'onboarding.phase3.reservedOutputTokensHelp',
+                'Optional reserve used by token budgeting.',
+              )}
+            />
+          </Box>
 
           {/* Fallback Provider */}
           {config.fallback_to && (

@@ -6,14 +6,15 @@
 
 ## Current State
 - Model provider approval rules are documented in onboarding infrastructure stage.
-- Baseline validation and storage constraints are present.
+- Runtime model access is normalized and persisted into approved SQLite runtime state during onboarding commit.
+- Context-window and reserved-output metadata are resolved against provider/model defaults for runtime token budgeting.
 
 ## Target State
-- Runtime model metadata capture and context-window alignment must be fully enforced through onboarding and settings parity.
+- Runtime model metadata capture and context-window alignment must stay enforced through onboarding and settings parity.
 - Provider-level approvals must be auditable with deterministic gating behavior.
 
 ## Gap Notes
-- Runtime context-window capture and full configuration parity remain under roadmap tracking.
+- Backend/runtime propagation is implemented, but onboarding/settings UI parity for explicit context-window editing is still incomplete.
 
 ## Dependencies
 - docs/module/onboarding-registry-approval.md
@@ -24,10 +25,11 @@
 1. Provider configuration approvals are dependency-gated and auditable.
 2. Required model fields block final commit if invalid.
 3. Runtime model metadata needed by context budgeting is captured and persisted.
+4. Context bootstrap can resolve runtime provider defaults from persisted approved model access.
 
 ## Immediate Roadmap
-1. Complete FP-007 integration for context-window capture and runtime propagation.
-2. Align onboarding and settings model configuration behavior.
+1. Align onboarding and settings editing surfaces with the runtime-normalized model metadata contract.
+2. Add integration coverage for end-to-end custom model context-window behavior.
 
 ## 1. Single Reason to Change (SRP)
 This module governs model endpoint approval as part of Step 4 (Infrastructure & Access) in onboarding.
@@ -48,6 +50,8 @@ This module governs model endpoint approval as part of Step 4 (Infrastructure & 
 ## 5. Storage Rules
 - Model credentials remain runtime-local and are excluded from final Vault onboarding payload.
 - Approval status is persisted with onboarding state to satisfy dependency checks.
+- Approved runtime model access is normalized into SQLite runtime state with explicit `contextWindow` and `reservedOutputTokens` values per provider.
+- Token-budget consumers must resolve model limits from the persisted runtime model config before falling back to registry defaults.
 
 ## 6. Chat Scenarios
 - Internal chat can receive validation logs for failed provider checks.

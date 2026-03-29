@@ -44,8 +44,8 @@ Use these labels in all module docs.
 |:--|:--|:--|:--|
 | Startup Orchestration | Active | docs/module/startup-orchestrator.md | Stage gating and diagnostics are active. |
 | Vault and Hydration | Active | docs/module/vault-knowledge-repository.md | Durable knowledge pipeline and classification are present. |
-| Vault-SQLite Sync | Partial | docs/module/vault-sync-contract.md | Core sync active, parity and migration details still tightening. |
-| Cron Recovery | Partial | docs/module/cron-recovery-contract.md | Recovery semantics defined, deeper parity checks in roadmap. |
+| Vault-SQLite Sync | Partial | docs/module/vault-sync-contract.md | Startup sync, lineage, and reconciliation are active; full cold-vault parity is still migrating. |
+| Cron Recovery | Partial | docs/module/cron-recovery-contract.md | Idempotent startup replay is active; broader parity testing remains. |
 | Authentication | Active | docs/module/login.md | Login and reset flows available. |
 | Email Management | Pipeline | docs/module/email-management.md | Rich contract exists; runtime integration is pending. |
 | Email Orchestrator | Pipeline | docs/module/email-orchestrator-service.md | Multi-agent draft contract exists; service wiring pending. |
@@ -54,7 +54,7 @@ Use these labels in all module docs.
 | Hybrid Explorer Lifecycle | Partial | docs/module/onboarding-hybrid-explorer-governance-lifecycle.md | Navigation model exists; parity tracking ongoing. |
 | Infrastructure Layers | Active | docs/module/infrastructure-layers.md | Runtime health and orchestration surfaces present. |
 | Google Ecosystem Integration | Partial | docs/module/google-ecosystem-integration.md | Core services present; expansion in roadmap. |
-| Context Compaction and Budgeting | Partial | docs/bugs/resolved/GAP-018-context-compaction-and-token-budgeting.md | Baseline exists; provider parity and UX hardening continue. |
+| Context Compaction and Budgeting | Partial | docs/module/context-optimization.md | Warning, compaction, hard-reset, raw/active SQLite persistence, and archive carryover are active; UI/Playwright parity remains. |
 | Collaboration Handshake | Partial | docs/bugs/resolved/GAP-020-global-collaboration-handshake-and-agent-directory.md | Contract clarified; persistence and UI parity pending. |
 
 ## Cross-Repo Dependency Contracts
@@ -80,6 +80,7 @@ Use SQLite for:
 - Queue and orchestration runtime state.
 - Read cursors and high-frequency workflow progression.
 - Local transient diagnostics and projection caches.
+- Runtime model metadata, sync lineage, and active/raw context persistence.
 
 ### Vault
 Use Vault for:
@@ -89,6 +90,8 @@ Use Vault for:
 
 ### Synchronization Rule
 Startup and approved transitions must preserve pull-before-push safety where configured, and must never leak secrets in diagnostics.
+
+Approved runtime state is mirrored into SQLite first. Vault synchronization and archival flows must treat SQLite as the mandatory runtime read layer even while full cold-vault enforcement is still being migrated.
 
 ## Security and Compliance Rules
 1. Diagnostics expose status, not credential values.
@@ -129,7 +132,7 @@ Every module specification in docs/module must include:
 
 ## Prana Integrity Report Snapshot (2026-03-29)
 - Active: startup gating, vault core, core auth, major runtime service surfaces.
-- Partial: sync parity, onboarding enforcement depth, collaboration persistence.
+- Partial: sync parity, onboarding/settings parity, collaboration persistence, UI parity for context optimization.
 - Pipeline: end-to-end email desk workflow and heartbeat operations.
 
 This snapshot is the executive summary baseline for implementation planning waves.

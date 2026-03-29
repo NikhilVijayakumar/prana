@@ -65,6 +65,14 @@ export interface PranaRuntimeConfig {
   skills?: {
     path?: string;
   };
+  virtualDrives?: {
+    enabled?: boolean;
+    rcloneBinaryPath?: string;
+    systemDriveLetter?: string;
+    vaultDriveLetter?: string;
+    systemCryptPassword?: string;
+    obscuredFileNames?: boolean;
+  };
   registryRoot?: string;
 }
 

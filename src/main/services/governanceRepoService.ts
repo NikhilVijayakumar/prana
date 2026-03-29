@@ -9,6 +9,7 @@ import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 
 const APP_DATA_DIR = '.prana';
 const LEGACY_APP_DATA_DIR = '.dhi';
+let appDataRootOverride: string | null = null;
 export interface GovernanceRepoStatus {
   sshVerified: boolean;
   repoReady: boolean;
@@ -29,11 +30,19 @@ const resolveAppDataDir = (home: string): string => {
 };
 
 export const getAppDataRoot = (): string => {
+  if (appDataRootOverride) {
+    return appDataRootOverride;
+  }
+
   try {
     return resolveAppDataDir(app.getPath('home'));
   } catch {
     return resolveAppDataDir(homedir());
   }
+};
+
+export const setAppDataRootOverride = (nextPath: string | null): void => {
+  appDataRootOverride = nextPath;
 };
 
 export const getGovernanceRepoPath = (): string => {

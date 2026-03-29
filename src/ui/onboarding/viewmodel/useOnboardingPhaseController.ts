@@ -235,6 +235,12 @@ export function useOnboardingPhaseController({
         if (providerId !== 'lmstudio' && (!config.api_key || config.api_key.trim() === '')) {
           errors[`providers.${providerId}.apiKey`] = ['API Key is required'];
         }
+        if (typeof config.contextWindow === 'number' && config.contextWindow <= 0) {
+          errors[`providers.${providerId}.contextWindow`] = ['Context window must be greater than 0'];
+        }
+        if (typeof config.reservedOutputTokens === 'number' && config.reservedOutputTokens <= 0) {
+          errors[`providers.${providerId}.reservedOutputTokens`] = ['Reserved output tokens must be greater than 0'];
+        }
       }
     });
 

@@ -1,25 +1,13 @@
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { ensureGovernanceRepoReady, getAppDataRoot } from './governanceRepoService';
+import { ensureGovernanceRepoReady } from './governanceRepoService';
+import { driveControllerService } from './driveControllerService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
-import { vaultService } from './vaultService';
+import { authStoreService, type AuthStoreRecord } from './authStoreService';
 
-const AUTH_FILE_NAME = 'auth.json';
 const DEFAULT_PASSWORD = 'Director1';
 const TEMP_PASSWORD_TTL_MS = 10 * 60 * 1000;
 const SESSION_TOKEN_PREFIX = 'prana_session_';
-
-interface AuthRecord {
-  directorName: string;
-  email: string;
-  passwordHash: string;
-  tempPasswordHash: string | null;
-  tempPasswordExpiresAt: number | null;
-  lastPasswordResetAt: string;
-}
 
 export interface AuthStatus {
   sshVerified: boolean;
@@ -37,6 +25,8 @@ export interface LoginResult {
   email: string | null;
   isFirstInstall: boolean;
   sessionToken: string | null;
+  vaultDriveMounted?: boolean;
+  vaultDriveMessage?: string;
 }
 
 export interface ForgotPasswordResult {
@@ -50,10 +40,6 @@ export interface ResetPasswordResult {
   reason: 'no_temp_password' | 'temp_password_expired' | 'invalid_password';
 }
 
-const getAuthFilePath = (): string => {
-  return join(getAppDataRoot(), AUTH_FILE_NAME);
-};
-
 const resolveSeedPasswordHash = async (): Promise<string> => {
   const runtimeConfig = getRuntimeBootstrapConfig();
 
@@ -65,15 +51,11 @@ const resolveSeedPasswordHash = async (): Promise<string> => {
   return bcrypt.hash(plainSeed, 10);
 };
 
-const ensureAuthStore = async (): Promise<AuthRecord> => {
+const ensureAuthStore = async (): Promise<AuthStoreRecord> => {
   const runtimeConfig = getRuntimeBootstrapConfig();
-  const dataRoot = getAppDataRoot();
-  const authPath = getAuthFilePath();
-
-  await mkdir(dataRoot, { recursive: true });
-
-  if (!existsSync(authPath)) {
-    const seededRecord: AuthRecord = {
+  const existing = await authStoreService.get();
+  if (!existing) {
+    const seededRecord: AuthStoreRecord = {
       directorName: runtimeConfig.director.name,
       email: runtimeConfig.director.email,
       passwordHash: await resolveSeedPasswordHash(),
@@ -81,39 +63,33 @@ const ensureAuthStore = async (): Promise<AuthRecord> => {
       tempPasswordExpiresAt: null,
       lastPasswordResetAt: new Date().toISOString(),
     };
-    await writeFile(authPath, JSON.stringify(seededRecord, null, 2), 'utf8');
+    await authStoreService.save(seededRecord);
     return seededRecord;
   }
 
-  const raw = await readFile(authPath, 'utf8');
-  const parsedRecord = JSON.parse(raw) as Partial<AuthRecord>;
-  const migratedRecord: AuthRecord = {
-    directorName: parsedRecord.directorName ?? runtimeConfig.director.name,
-    email: parsedRecord.email ?? runtimeConfig.director.email,
-    passwordHash: parsedRecord.passwordHash ?? (await resolveSeedPasswordHash()),
-    tempPasswordHash: parsedRecord.tempPasswordHash ?? null,
-    tempPasswordExpiresAt: parsedRecord.tempPasswordExpiresAt ?? null,
-    lastPasswordResetAt: parsedRecord.lastPasswordResetAt ?? new Date().toISOString(),
+  const migratedRecord: AuthStoreRecord = {
+    directorName: existing.directorName || runtimeConfig.director.name,
+    email: existing.email || runtimeConfig.director.email,
+    passwordHash: existing.passwordHash || (await resolveSeedPasswordHash()),
+    tempPasswordHash: existing.tempPasswordHash ?? null,
+    tempPasswordExpiresAt: existing.tempPasswordExpiresAt ?? null,
+    lastPasswordResetAt: existing.lastPasswordResetAt ?? new Date().toISOString(),
   };
 
-  // Persist once to backfill older auth stores that predate directorName support.
-  if (!parsedRecord.directorName) {
-    await persistAuthStore(migratedRecord);
+  if (
+    migratedRecord.directorName !== existing.directorName
+    || migratedRecord.email !== existing.email
+    || migratedRecord.passwordHash !== existing.passwordHash
+    || migratedRecord.lastPasswordResetAt !== existing.lastPasswordResetAt
+  ) {
+    await authStoreService.save(migratedRecord);
   }
 
   return migratedRecord;
 };
 
-const persistAuthStore = async (record: AuthRecord): Promise<void> => {
-  await writeFile(getAuthFilePath(), JSON.stringify(record, null, 2), 'utf8');
-};
-
 const ensureBootstrapReady = async (): Promise<AuthStatus> => {
   const repoStatus = await ensureGovernanceRepoReady();
-
-  if (repoStatus.repoReady) {
-    await vaultService.initializeVault();
-  }
 
   return {
     sshVerified: repoStatus.sshVerified,
@@ -136,18 +112,6 @@ export const authService = {
   },
 
   async login(email: string, password: string): Promise<LoginResult> {
-    const bootstrap = await ensureBootstrapReady();
-    if (!bootstrap.sshVerified || !bootstrap.repoReady) {
-      return {
-        success: false,
-        reason: 'ssh_unavailable',
-        directorName: null,
-        email: null,
-        isFirstInstall: false,
-        sessionToken: null,
-      };
-    }
-
     const record = await ensureAuthStore();
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -175,6 +139,7 @@ export const authService = {
     }
 
     const sessionToken = `${SESSION_TOKEN_PREFIX}${randomUUID()}`;
+    const vaultMount = await driveControllerService.mountVaultDrive(password);
     return {
       success: true,
       reason: 'invalid_credentials',
@@ -182,19 +147,12 @@ export const authService = {
       email: record.email,
       isFirstInstall: true,
       sessionToken,
+      vaultDriveMounted: vaultMount.success,
+      vaultDriveMessage: vaultMount.message,
     };
   },
 
   async forgotPassword(email: string): Promise<ForgotPasswordResult> {
-    const bootstrap = await ensureBootstrapReady();
-    if (!bootstrap.sshVerified || !bootstrap.repoReady) {
-      return {
-        success: false,
-        reason: 'ssh_unavailable',
-        tempPassword: null,
-      };
-    }
-
     const record = await ensureAuthStore();
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -209,7 +167,7 @@ export const authService = {
     const tempPassword = generateTempPassword();
     record.tempPasswordHash = await bcrypt.hash(tempPassword, 10);
     record.tempPasswordExpiresAt = Date.now() + TEMP_PASSWORD_TTL_MS;
-    await persistAuthStore(record);
+    await authStoreService.save(record);
 
     return {
       success: true,
@@ -242,7 +200,7 @@ export const authService = {
     if (Date.now() > record.tempPasswordExpiresAt) {
       record.tempPasswordHash = null;
       record.tempPasswordExpiresAt = null;
-      await persistAuthStore(record);
+      await authStoreService.save(record);
       return {
         success: false,
         reason: 'temp_password_expired',
@@ -253,7 +211,7 @@ export const authService = {
     record.tempPasswordHash = null;
     record.tempPasswordExpiresAt = null;
     record.lastPasswordResetAt = new Date().toISOString();
-    await persistAuthStore(record);
+    await authStoreService.save(record);
 
     return {
       success: true,

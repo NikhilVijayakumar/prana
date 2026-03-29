@@ -6,14 +6,14 @@
 
 ## Current State
 - Dependency-chain approval contract is documented and serves as strict sequencing baseline.
-- Runtime persistence exists with partial parity for full staged-enforcement behavior.
+- Runtime persistence exists for stage snapshots, approved runtime projection, and backend-only business-context storage support.
 
 ## Target State
 - Enforce complete dependency sequencing with deterministic validation and approval gating.
 - Ensure all approval transitions are durable, auditable, and consistently applied.
 
 ## Gap Notes
-- Some staged persistence and enforcement depth remains in migration roadmap.
+- Core staged persistence exists, but enforcement depth is still partial for entity-by-entity approval storage and review surfaces.
 
 ## Dependencies
 - docs/module/onboarding-hybrid-explorer-governance-lifecycle.md
@@ -23,11 +23,12 @@
 1. Company core and global assets gate downstream approvals deterministically.
 2. Approval transitions are durable and auditable.
 3. Master commit only occurs after dependency-complete approval states.
+4. Approved onboarding state is projected into runtime SQLite services before Vault sync publication.
 
 ## Immediate Roadmap
 1. Complete staged persistence parity across all approval entities.
 2. Align validation diagnostics with schema-driven feedback.
-3. Integrate roadmap tracking with FP-004 and FP-005.
+3. Extend backend approval persistence for FP-004 and FP-005 consumers without bypassing review flow.
 
 ## 1. Single Reason to Change (SRP)
 This module defines the dependency-based approval pipeline for onboarding. No agent can be finalized until Company Core and Global Asset approvals are completed.
@@ -67,10 +68,11 @@ This module defines the dependency-based approval pipeline for onboarding. No ag
 - Step-level statuses and drafts persist as durable onboarding state.
 - Individual entity approvals are stored before final master commit.
 - Final master commit packages approved state and projects to Vault.
+- Approved runtime state is also projected into SQLite runtime services for downstream no-props/no-direct-vault consumers.
 
 ## 6. Open Implementation Note
-- Current runtime persists through durable app state and vault projections.
-- Full SQLite table-backed onboarding staging is tracked as a remaining migration task.
+- Current runtime persists through onboarding stage SQLite, approved runtime SQLite projection, and vault projections.
+- Full entity-level SQLite staging/review tables are still a remaining migration task.
 
 ## 7. Hybrid Explorer Extension
 - This specification is the strict approval baseline and remains authoritative for dependency unlock rules.

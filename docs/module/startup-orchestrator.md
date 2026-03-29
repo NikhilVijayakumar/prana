@@ -13,7 +13,7 @@
 - Expand recovery diagnostics for deeper cron and sync replay transparency.
 
 ## Gap Notes
-- Startup diagnostics are present, but recovery telemetry depth is still being standardized across all recovery branches.
+- Startup diagnostics are present and include sync/cron recovery summaries; remaining work is mainly parity expansion as new recovery branches are added.
 
 ## Dependencies
 - docs/module/vault-sync-contract.md
@@ -24,10 +24,11 @@
 1. Integration, governance, and vault stages are always evaluated before login handoff.
 2. BLOCKED versus DEGRADED state decisions are deterministic and policy-aligned.
 3. Stage-level startup status is available through app:get-startup-status.
+4. Cron recovery and sync decision summaries are included in startup reporting.
 
 ## Immediate Roadmap
-1. Align cron recovery counters with startup summary contract.
-2. Align sync recovery decisions with deterministic merge reporting.
+1. Maintain startup summary parity as additional recovery classes are introduced.
+2. Keep stage messages aligned with sync lineage and transactional sync evolution.
 
 ## Purpose
 Define deterministic app-start sequencing before pre-auth navigation, including integration validation, governance repo readiness, vault hydration, SQLite recovery, and cron catch-up.
@@ -127,7 +128,7 @@ Input:
 
 Output:
 - interrupted tasks recovered
-- missed runs enqueued and processed by policy
+- missed runs detected, enqueued, deduplicated, and processed by policy
 
 Failure behavior:
 - Startup report marks degraded mode.
@@ -146,6 +147,7 @@ Current implementation alignment (2026-03-29):
 	- `src/ui/splash/viewmodel/useSplashViewModel.ts` checks required startup stages (`integration`, `governance`, `vault`) and blocks completion on failure.
 	- `src/ui/integration/view/IntegrationVerificationPage.tsx` displays integration/runtime startup snapshot for verification and diagnostics.
 - Failure handling routes through splash/access-denied flow instead of exposing secrets.
+- Startup summary text includes sync install/pull/merge/integrity decisions and cron recovery counters.
 
 ## Security Rules
 1. Do not expose secret values in startup diagnostics.

@@ -7,6 +7,7 @@
 ## Current State
 - SQLite already stores runtime-approved onboarding state, sync queue state, cron queue state, and several operational caches.
 - Vault remains the durable encrypted archive and startup pull source for sync snapshots.
+- Runtime model metadata, sync lineage, staged delete/update state, and active/raw context persistence now live in SQLite.
 - Multiple runtime surfaces still read directly from runtime props or vault-backed files, so locked-by-default cold-vault posture is not yet fully enforced.
 
 ## Target State
@@ -15,7 +16,7 @@
 - Runtime configuration props seed SQLite only during bootstrap/first-run; downstream features must not read raw props directly.
 
 ## Gap Notes
-- The write-through cache model is only partially implemented today.
+- The write-through cache model is implemented for approved runtime state and key runtime metadata, but not yet for every domain entity.
 - A compatibility period is still required because some Dhi/Vidhan-era services still depend on direct runtime props or vault working-root reads.
 
 ## Dependencies
@@ -28,12 +29,14 @@
 2. Vault open/sync/close lifecycle is tracked globally and defaults to locked state outside explicit sync windows.
 3. Local-only configuration never syncs to Vault payloads.
 4. SQLite sync-pending flags remain durable when Vault write-back or git push fails.
+5. Runtime chat/context state persists raw and optimized buffers separately in SQLite.
 
 ## Immediate Roadmap
 1. Seed local runtime config snapshot into SQLite during startup bootstrap.
 2. Route more runtime consumers through `SqliteDataProvider`.
 3. Replace remaining hot-vault read paths with SQLite-backed projections.
 4. Enforce actual relock after startup sync once hot-vault gaps are closed.
+5. Expand transactional sync/write-through handling from approved runtime state to more domain tables.
 
 ## Lifecycle Contract
 
@@ -68,6 +71,15 @@
 - Startup sync decision reporting:
   - `src/main/services/syncProviderService.ts`
   - `src/main/services/startupOrchestratorService.ts`
+- Transactional sync and lineage scaffolding:
+  - `src/main/services/syncStoreService.ts`
+  - `src/main/services/syncEngineService.ts`
+  - `src/main/services/transactionCoordinator.ts`
+  - `src/main/services/conflictResolver.ts`
+- Runtime model metadata and context persistence:
+  - `src/main/services/runtimeModelAccessService.ts`
+  - `src/main/services/contextDigestStoreService.ts`
+  - `src/main/services/contextEngineService.ts`
 
 ## Security Posture
 1. Vault is the encrypted durable source of truth.

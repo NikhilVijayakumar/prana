@@ -6,14 +6,14 @@
 
 ## Current State
 - Startup responsibilities are documented and implementation sync notes identify distributed ownership.
-- Pre-auth diagnostics and recovery initialization exist with partial consolidation.
+- Pre-auth diagnostics and recovery initialization are orchestrator-led and expose startup, sync, and cron recovery summaries.
 
 ## Target State
-- Fully unified startup orchestration ownership with deterministic stage boundaries and replay reporting.
-- Consistent startup diagnostics across integration, vault hydration, sync recovery, and cron catch-up.
+- Keep startup orchestration ownership unified under deterministic stage boundaries and replay reporting.
+- Keep startup diagnostics consistent across integration, vault hydration, sync recovery, and cron catch-up.
 
 ## Gap Notes
-- Startup ownership is still spread across bootstrap and service layers while consolidation progresses under orchestrator contracts.
+- Core startup orchestration is unified, but some lower-level implementation remains distributed across specialized services by design.
 
 ## Dependencies
 - docs/module/startup-orchestrator.md
@@ -24,10 +24,11 @@
 1. Startup stage ownership is explicit and deterministic.
 2. Recovery summaries are visible and policy-safe in pre-auth diagnostics.
 3. Startup transition to protected flows respects required gates.
+4. Startup status reflects sync merge decisions and cron recovery counters without exposing secrets.
 
 ## Immediate Roadmap
-1. Complete startup consolidation to orchestrator-led stage control.
-2. Align splash diagnostics with full sync and cron recovery counters.
+1. Keep splash diagnostics aligned as deeper sync/cron telemetry is added.
+2. Reduce legacy wording in implementation notes that predates orchestrator ownership.
 
 ## Implementation Sync (2026-03-28)
 
@@ -44,10 +45,10 @@ Current implemented services relevant to splash startup:
 - `src/ui/integration/view/IntegrationVerificationPage.tsx`
 
 Current reality:
-1. Startup concerns are distributed across main bootstrap, IPC init side effects, sync provider splash init, and splash/auth checks.
-2. Pre-auth integration diagnostics exist, but full startup stage reporting is still being consolidated.
-3. Cron missed-run recovery exists in scheduler initialization, but startup diagnostics do not yet expose complete cron recovery summaries.
-4. Vault pull/hydration and SQLite sync recovery exist, but deterministic stage ownership is being moved to a unified orchestrator.
+1. Startup stage ownership is coordinated through `startupOrchestratorService` with stage-by-stage status publication.
+2. Pre-auth integration diagnostics and startup reporting are available through splash and integration verification surfaces.
+3. Cron recovery summaries now include recovered, detected, enqueued, duplicate-prevented, processed, and failed counts.
+4. Vault pull/hydration and SQLite sync recovery publish explicit install mode, pull, merge, and integrity outcomes.
 
 Planned alignment docs:
 - `docs/module/startup-orchestrator.md`
@@ -86,6 +87,7 @@ This document handles updates **exclusively** related to the background loading 
 
 ## 7. Cron & Queue Management
 - **Failover / Catch-up Mechanic:** The Initialization logic is the *executor* of all catch-ups. During the final hydration millisecond, it checks all SQLite `last_run` timestamps against `Date.now()`. If gaps exist for crons or queue items, it dispatches the failover routines immediately to the execution engines.
+- The catch-up path is idempotent per due occurrence and runs before normal scheduler looping resumes.
 
 ## 8. Constraint
 - Do not expose any env values, credentials, or secret payloads in pre-auth diagnostics.

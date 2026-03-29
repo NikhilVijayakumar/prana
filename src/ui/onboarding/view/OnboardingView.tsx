@@ -38,6 +38,10 @@ interface SummarySection {
   fields: DynamicFieldRecord[];
 }
 
+const getLiteralWithFallback = (literal: Record<string, string>, key: string, fallback: string): string => (
+  typeof literal[key] === 'string' && literal[key].trim().length > 0 ? literal[key] : fallback
+);
+
 interface OnboardingViewProps {
   steps: OnboardingStepConfig[];
   stepStatusById: Record<string, 'PENDING' | 'DRAFT' | 'APPROVED'>;
@@ -75,7 +79,7 @@ interface OnboardingViewProps {
   onUpdateModelProvider: (
     provider: keyof ModelAccessDraft,
     field: keyof ModelProviderDraft,
-    value: string | boolean,
+    value: string | boolean | number | '',
   ) => void;
   onApproveStep: () => void;
   onJumpToStep: (targetIndex: number) => void;
@@ -385,6 +389,42 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
                       value={providerDraft.apiKey}
                       onChange={(event) => onUpdateModelProvider(providerId, 'apiKey', event.target.value)}
                     />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label={getLiteralWithFallback(literal as Record<string, string>, 'onboarding.modelAccess.contextWindow', 'Context Window')}
+                      value={providerDraft.contextWindow ?? ''}
+                      onChange={(event) => onUpdateModelProvider(
+                        providerId,
+                        'contextWindow',
+                        event.target.value === '' ? '' : Number(event.target.value),
+                      )}
+                      helperText={getLiteralWithFallback(
+                        literal as Record<string, string>,
+                        'onboarding.modelAccess.contextWindowHelp',
+                        'Optional override in tokens. Leave empty to use runtime defaults.',
+                      )}
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label={getLiteralWithFallback(
+                        literal as Record<string, string>,
+                        'onboarding.modelAccess.reservedOutputTokens',
+                        'Reserved Output Tokens',
+                      )}
+                      value={providerDraft.reservedOutputTokens ?? ''}
+                      onChange={(event) => onUpdateModelProvider(
+                        providerId,
+                        'reservedOutputTokens',
+                        event.target.value === '' ? '' : Number(event.target.value),
+                      )}
+                      helperText={getLiteralWithFallback(
+                        literal as Record<string, string>,
+                        'onboarding.modelAccess.reservedOutputTokensHelp',
+                        'Optional output reserve used by context budgeting.',
+                      )}
+                    />
                   </Box>
                 </Card>
               );
@@ -442,11 +482,22 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
                 {literal['onboarding.final.modelAccessTitle']}
               </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing.xs }}>
-                {providerOrder.map((providerId) => (
-                  <Typography key={`summary-${providerId}`} variant="body2">
-                    {literal[`onboarding.modelAccess.${providerId}.title`]}: {summary.modelAccess[providerId].enabled ? literal['status.success'] : literal['status.idle']}
-                  </Typography>
-                ))}
+                {providerOrder.map((providerId) => {
+                  const provider = summary.modelAccess[providerId];
+                  const detail = provider.enabled
+                    ? [
+                        provider.model || literal['global.na'],
+                        provider.contextWindow ? `${provider.contextWindow}t` : 'default window',
+                        provider.reservedOutputTokens ? `reserve ${provider.reservedOutputTokens}t` : 'default reserve',
+                      ].join(' · ')
+                    : literal['status.idle'];
+
+                  return (
+                    <Typography key={`summary-${providerId}`} variant="body2">
+                      {literal[`onboarding.modelAccess.${providerId}.title`]}: {provider.enabled ? `${literal['status.success']} · ${detail}` : detail}
+                    </Typography>
+                  );
+                })}
               </Box>
             </Card>
 

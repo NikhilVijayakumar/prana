@@ -66,14 +66,14 @@ export const Phase3ModelManager: FC<Phase3ModelManagerProps> = ({
 
   const handleProviderFieldChange = (
     provider: 'lmstudio' | 'openrouter' | 'gemini',
-    field: 'endpoint' | 'model' | 'api_key',
-    value: string
+    field: 'endpoint' | 'model' | 'api_key' | 'contextWindow' | 'reservedOutputTokens',
+    value: string | number
   ) => {
     const updatedProviders = {
       ...phase3Draft.providers,
       [provider]: {
         ...phase3Draft.providers[provider],
-        [field]: value,
+        [field]: value === '' ? undefined : value,
       },
     };
     onUpdateDraft({ providers: updatedProviders });

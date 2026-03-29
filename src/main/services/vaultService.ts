@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 
 import { basename, dirname, extname, join, normalize, relative, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, randomUUID } from 'node:crypto';
 import { getAppDataRoot, getGovernanceRepoPath, getGovernanceRepoUrl } from './governanceRepoService';
+import { driveControllerService } from './driveControllerService';
 import { executeCommand } from './processService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { hookSystemService } from './hookSystemService';
@@ -129,7 +130,7 @@ const getRuntimeVaultConfig = () => {
 const getTempRootDir = (): string => join(getAppDataRoot(), 'vault-temp');
 const getWorkingRootDir = (): string => join(getTempRootDir(), 'working');
 const getSnapshotDir = (): string => join(getTempRootDir(), 'snapshots');
-const getArchiveDir = (): string => join(getGovernanceRepoPath(), 'vault');
+const getArchiveDir = (): string => driveControllerService.getVaultArchiveRoot();
 const getArchivePath = (): string => {
   const vaultConfig = getRuntimeVaultConfig();
   const fileName = `${vaultConfig.outputPrefix}${vaultConfig.specVersion}${vaultConfig.tempZipExtension}`;

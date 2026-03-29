@@ -7,13 +7,15 @@
 ## Current State
 - First-install and returning-install flows are documented with pull and merge semantics.
 - Startup diagnostics expose sync outcomes through startup and integration surfaces.
+- Startup sync returns explicit install mode, pull status, merge status, and integrity status.
+- SQLite lineage and transactional sync scaffolding now exist for approved runtime persistence.
 
 ## Target State
 - Deterministic conflict and freshness handling across all startup and runtime sync paths.
 - Clear merge decision visibility and integrity failure behavior in every branch.
 
 ## Gap Notes
-- Contract is strong, but parity between documented merge branches and all runtime code paths still needs explicit validation.
+- Startup merge decisions are explicit, but fully locked-by-default vault operation and full-entity transactional push adoption are still in migration.
 
 ## Dependencies
 - docs/module/startup-orchestrator.md
@@ -24,10 +26,11 @@
 1. Install mode detection drives correct startup sync branch.
 2. Integrity failures never merge invalid snapshots.
 3. Recovery transitions for interrupted tasks are idempotent.
+4. Remote-first deletion and mirror rebuild flows keep SQLite aligned with Vault state during splash reconciliation.
 
 ## Immediate Roadmap
-1. Add full merge branch parity checks to implementation plan wave gates.
-2. Add conflict decision reporting to diagnostics contract.
+1. Extend transactional sync from approved runtime state to remaining sync-eligible entities.
+2. Enforce cold-vault startup closeout once remaining hot-vault consumers are migrated.
 
 ## Purpose
 Define first-install and returning-install synchronization semantics between vault archive state and local SQLite projection layers.
@@ -64,6 +67,7 @@ Required flow:
 3. Hydrate local vault workspace from remote archive.
 4. Validate snapshot integrity.
 5. Merge approved runtime state into local SQLite stores if remote is newer.
+6. Purge or rebuild mirrored SQLite runtime state when Vault-side deletion/mirroring requires it.
 6. Recover interrupted queue/sync tasks.
 7. Publish startup status.
 
@@ -76,17 +80,20 @@ Required flow:
 1. If local source version is newer/equal than remote snapshot, skip merge.
 2. If remote snapshot is newer and valid, merge to SQLite stores.
 3. Integrity failure blocks merge and marks startup degraded/blocked based on policy.
+4. If the remote snapshot disappears or is missing mirrored files relative to local cache, splash reconciliation may purge and rebuild the mirrored SQLite state.
 
 ## Queue and Recovery Rules
 1. Pending and failed sync tasks are recoverable.
 2. RUNNING tasks on restart must transition to FAILED/INTERRUPTED before retry.
 3. Recovery runs once per startup cycle before normal scheduling resumes.
+4. Approved runtime lineage in SQLite is tracked with `SYNCED`, `PENDING_UPDATE`, `PENDING_DELETE`, and `LOCAL_ONLY` states.
 
 ## Observability
 Startup diagnostics must include:
 - pull status
 - merge status
 - integrity status and issue count
+- install mode
 - sync queue summary counts
 
 No secret values should be emitted.
@@ -98,6 +105,7 @@ Current implementation alignment (2026-03-29):
 	- `src/ui/splash/viewmodel/useSplashViewModel.ts`
 	- `src/ui/integration/view/IntegrationVerificationPage.tsx`
 - There is currently no dedicated standalone `SyncHealthWidget` surface in `src/ui`; observability is currently startup-report driven.
+- Transactional sync scaffolding currently centers on approved runtime state, sync lineage, transaction coordination, and mirror reconciliation in main-process services.
 
 ## Migration Compatibility
 1. Vault archive envelope magic for new writes: `PRANA_VAULT_V1`.

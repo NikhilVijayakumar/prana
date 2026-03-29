@@ -56,6 +56,8 @@ export interface ModelProviderDraft {
   endpoint: string;
   model: string;
   apiKey: string;
+  contextWindow?: number;
+  reservedOutputTokens?: number;
 }
 
 export interface ModelAccessDraft {
@@ -172,6 +174,23 @@ const toString = (value: unknown, fallback: string): string => {
   return fallback;
 };
 
+const toOptionalNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
+
 const coerceProviderDraft = (candidate: unknown, fallback: ModelProviderDraft): ModelProviderDraft => {
   if (!isRecord(candidate)) {
     return fallback;
@@ -182,6 +201,8 @@ const coerceProviderDraft = (candidate: unknown, fallback: ModelProviderDraft): 
     endpoint: toString(candidate.endpoint, fallback.endpoint),
     model: toString(candidate.model, fallback.model),
     apiKey: toString(candidate.apiKey, fallback.apiKey),
+    contextWindow: toOptionalNumber(candidate.contextWindow),
+    reservedOutputTokens: toOptionalNumber(candidate.reservedOutputTokens),
   };
 };
 
@@ -783,12 +804,12 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
   );
 
   const updateModelProvider = useCallback(
-    (provider: keyof ModelAccessDraft, field: keyof ModelProviderDraft, value: string | boolean) => {
+    (provider: keyof ModelAccessDraft, field: keyof ModelProviderDraft, value: string | boolean | number | '') => {
       setModelAccess((prev) => ({
         ...prev,
         [provider]: {
           ...prev[provider],
-          [field]: value,
+          [field]: value === '' ? undefined : value,
         },
       }));
       setApprovalByStep((prev) => {
@@ -984,10 +1005,22 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
       .map(([provider, values]) => `${provider}:${values.model}`)
       .join(', ');
 
+    const contextWindowMap = Object.entries(modelAccess)
+      .filter(([, provider]) => provider.enabled && typeof provider.contextWindow === 'number')
+      .map(([provider, values]) => `${provider}:${values.contextWindow}`)
+      .join(', ');
+
+    const reservedOutputMap = Object.entries(modelAccess)
+      .filter(([, provider]) => provider.enabled && typeof provider.reservedOutputTokens === 'number')
+      .map(([provider, values]) => `${provider}:${values.reservedOutputTokens}`)
+      .join(', ');
+
     return {
       model_enabled_providers: enabledProviders.join(', '),
       model_endpoints: endpointMap,
       model_catalog: modelMap,
+      model_context_windows: contextWindowMap,
+      model_reserved_output_tokens: reservedOutputMap,
     };
   }, [modelAccess]);
 

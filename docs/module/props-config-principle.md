@@ -7,13 +7,14 @@
 ## Current State
 - Props-based configuration migration intent and usage guidance are documented.
 - Runtime no-global-validation policy is captured with testing implications.
+- Critical bootstrap config is now validated fail-fast in the main-process startup path.
 
 ## Target State
 - Establish explicit configuration contract boundaries and fail-fast rules for critical runtime keys.
 - Preserve library reusability while preventing silent misconfiguration on critical paths.
 
 ## Gap Notes
-- Current migration doc is strong operational guidance but does not yet fully codify contract-level fail-fast governance for critical config surfaces.
+- UI branding remains props-driven and optional, but critical main-process sync/vault/governance config now follows strict fail-fast validation.
 
 ## Dependencies
 - docs/module/splash-system-initialization.md
@@ -24,10 +25,11 @@
 1. Non-critical branding remains optional and props-driven.
 2. Critical runtime configuration requirements are explicitly documented and enforceable.
 3. Diagnostics never expose secret values while still reporting missing critical keys.
+4. Startup services do not silently clamp or default critical sync/vault settings after validation.
 
 ## Immediate Roadmap
-1. Align config validation hardening with feature plan FP-001.
-2. Split migration guidance versus strict runtime contract rules into clear sections.
+1. Keep props-based UI guidance separate from main-process bootstrap validation rules.
+2. Extend runtime validation coverage as new critical startup keys are introduced.
 
 ## Overview
 
@@ -47,6 +49,7 @@ Prana has been refactored to use a props-based configuration approach instead of
 - Each screen accepts config as optional props via `getPranaBranding()`
 - Config stored in JSON file: `config/test_env.json`
 - Screens gracefully handle missing config with empty string defaults
+- Main-process bootstrap validates critical sync/vault/governance config and fails fast on missing or invalid required values
 
 ## Files Modified
 
@@ -82,6 +85,7 @@ Prana has been refactored to use a props-based configuration approach instead of
 ✅ **User Control** - Modify `config/test_env.json` to test different scenarios  
 ✅ **Zero Env Vars** - No environment variable pollution  
 ✅ **Fast Startup** - No validation delays at app initialization  
+✅ **Fail-Fast Runtime Safety** - Critical services do not start with silently repaired config
 
 ## Usage
 
@@ -140,6 +144,12 @@ setPranaBrandingConfig({
 ```
 
 Or omit config entirely - app will render with defaults.
+
+## Runtime Contract Boundary
+
+Props-based flexibility applies to renderer branding and screen-level configuration. It does not apply to critical bootstrap services.
+
+Critical runtime keys such as vault KDF settings, sync intervals, and governance bootstrap paths are validated in the main process before startup orchestration proceeds. These values must be valid as supplied; runtime services must not silently clamp or invent safe-looking defaults after validation.
 
 ## Test Results
 

@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './services/ipcService'
 import { vaultService } from './services/vaultService'
 import { syncProviderService } from './services/syncProviderService'
 import { startupOrchestratorService } from './services/startupOrchestratorService'
+import { driveControllerService } from './services/driveControllerService'
 import { getPranaRuntimeConfig } from './services/pranaRuntimeConfig'
 import { getPranaPlatformRuntime, setPranaPlatformRuntime } from './services/pranaPlatformRuntime'
 
@@ -55,6 +56,11 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  const systemDriveStatus = await driveControllerService.initializeSystemDrive()
+  if (!systemDriveStatus.success) {
+    console.warn('[PRANA] System virtual drive mount degraded:', systemDriveStatus.message)
+  }
+
   const startupStatus = await startupOrchestratorService.runStartupSequence()
   if (startupStatus.overallStatus !== 'READY') {
     console.warn('[PRANA] Startup orchestration completed with non-ready status:', startupStatus.overallStatus)
@@ -91,6 +97,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   void syncProviderService.syncOnClose()
   void vaultService.cleanupTemporaryWorkspace()
+  void driveControllerService.dispose()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -100,6 +107,7 @@ app.on('before-quit', () => {
   void syncProviderService.syncOnClose()
   void syncProviderService.dispose()
   void vaultService.cleanupTemporaryWorkspace()
+  void driveControllerService.dispose()
 })
 
 // In this file you can include the rest of your app's specific main process
