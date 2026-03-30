@@ -73,6 +73,7 @@ export interface EmbeddingRecord {
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
+let cachedDatabase: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
@@ -224,6 +225,7 @@ const initializeDatabase = async (): Promise<Database> => {
   `);
 
   await persistDatabase(database);
+  cachedDatabase = database;
   return database;
 };
 
@@ -290,6 +292,15 @@ const mapQueueRow = (row: Record<string, unknown>): SyncQueueTask => ({
 const createTaskId = (): string => `sync-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 export const syncStoreService = {
+  async dispose(): Promise<void> {
+    await writeQueue;
+    if (cachedDatabase) {
+      cachedDatabase.close();
+      cachedDatabase = null;
+    }
+    dbPromise = null;
+  },
+
   async saveEncryptedRegistrySnapshot(snapshot: RegistrySyncSnapshot, sourceVersion: string): Promise<void> {
     const encryptedEnvelope = JSON.stringify(encryptForStore(snapshot));
     await writeSyncState({

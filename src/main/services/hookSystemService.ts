@@ -9,7 +9,8 @@ export type HookEventType =
   | 'schedule.tick'
   | 'vault.ingested'
   | 'vault.pending.approved'
-  | 'vault.pending.rejected';
+  | 'vault.pending.rejected'
+  | 'system.status';
 
 export type HookSeverity = 'CRITICAL' | 'WARNING' | 'INFO';
 
@@ -76,6 +77,7 @@ const EVENTS = new Set<HookEventType>([
   'vault.ingested',
   'vault.pending.approved',
   'vault.pending.rejected',
+  'system.status',
 ]);
 
 const MAX_EXECUTIONS = 500;

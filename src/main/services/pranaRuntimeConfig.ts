@@ -76,16 +76,6 @@ export interface PranaRuntimeConfig {
   registryRoot?: string;
 }
 
-let runtimeConfig: PranaRuntimeConfig | null = null;
-
-export const setPranaRuntimeConfig = (config: PranaRuntimeConfig): void => {
-  runtimeConfig = config;
-};
-
-export const getPranaRuntimeConfig = (): PranaRuntimeConfig | null => {
-  return runtimeConfig;
-};
-
 const hasText = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
 
 const hasPositiveInteger = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value) && value > 0;
@@ -100,8 +90,7 @@ const pushIssue = (
   errors.push(message);
 };
 
-export const validatePranaRuntimeConfig = (): PranaConfigValidationResult => {
-  const config = getPranaRuntimeConfig();
+export const validatePranaRuntimeConfig = (config: PranaRuntimeConfig | null): PranaConfigValidationResult => {
   if (!config) {
     return {
       valid: false,

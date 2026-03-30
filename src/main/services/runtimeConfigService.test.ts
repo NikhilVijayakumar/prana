@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   MIN_SYNC_PUSH_INTERVAL_MS,
   MIN_VAULT_KDF_ITERATIONS,
-  setPranaRuntimeConfig,
   validatePranaRuntimeConfig,
   type PranaRuntimeConfig,
 } from './pranaRuntimeConfig';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 import { getRuntimeBootstrapConfig, getRuntimeIntegrationStatus } from './runtimeConfigService';
 
 const createValidRuntimeConfig = (): PranaRuntimeConfig => ({
@@ -31,12 +31,13 @@ const createValidRuntimeConfig = (): PranaRuntimeConfig => ({
 });
 
 describe('runtimeConfigService validation hardening', () => {
-  beforeEach(() => {
-    setPranaRuntimeConfig(createValidRuntimeConfig());
+  beforeEach(async () => {
+    await sqliteConfigStoreService.__resetForTesting();
+    await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(createValidRuntimeConfig());
   });
 
-  it('fails validation when required runtime keys are missing or invalid', () => {
-    setPranaRuntimeConfig({
+  it('fails validation when required runtime keys are missing or invalid', async () => {
+    const overrideConfig: any = {
       ...createValidRuntimeConfig(),
       director: {
         name: '',
@@ -53,9 +54,11 @@ describe('runtimeConfigService validation hardening', () => {
         pushCronExpression: '',
         pullCronExpression: '*/15 * * * *',
       },
-    });
+    };
 
-    const result = validatePranaRuntimeConfig();
+    await sqliteConfigStoreService.__resetForTesting();
+    await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
+    const result = validatePranaRuntimeConfig(overrideConfig);
 
     expect(result.valid).toBe(false);
     expect(result.issues.map((issue) => issue.key)).toEqual(
@@ -70,8 +73,8 @@ describe('runtimeConfigService validation hardening', () => {
     expect(result.errors.join(' ')).not.toContain('top-secret-value');
   });
 
-  it('reports integration summary for required keys without exposing values', () => {
-    setPranaRuntimeConfig({
+  it('reports integration summary for required keys without exposing values', async () => {
+    const overrideConfig: any = {
       ...createValidRuntimeConfig(),
       governance: {
         repoUrl: '',
@@ -81,8 +84,10 @@ describe('runtimeConfigService validation hardening', () => {
         ...createValidRuntimeConfig().sync,
         cronEnabled: undefined,
       },
-    });
+    };
 
+    await sqliteConfigStoreService.__resetForTesting();
+    await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
     const status = getRuntimeIntegrationStatus();
 
     expect(status.ready).toBe(false);
@@ -92,21 +97,24 @@ describe('runtimeConfigService validation hardening', () => {
     expect(status.keys.find((key) => key.key === 'sync.cronEnabled')?.issue).toBe('missing');
   });
 
-  it('throws fail-fast runtime error when bootstrap config is requested with invalid required keys', () => {
-    setPranaRuntimeConfig({
+  it('throws fail-fast runtime error when bootstrap config is requested with invalid required keys', async () => {
+    const overrideConfig: any = {
       ...createValidRuntimeConfig(),
       vault: {
         archivePassword: '',
         archiveSalt: '',
         kdfIterations: 0,
       },
-    });
+    };
+
+    await sqliteConfigStoreService.__resetForTesting();
+    await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
 
     expect(() => getRuntimeBootstrapConfig()).toThrow('[PRANA_CONFIG_ERROR]');
   });
 
-  it('rejects critical numeric values that previously would have been silently clamped', () => {
-    setPranaRuntimeConfig({
+  it('rejects critical numeric values that previously would have been silently clamped', async () => {
+    const overrideConfig: any = {
       ...createValidRuntimeConfig(),
       vault: {
         ...createValidRuntimeConfig().vault,
@@ -116,9 +124,11 @@ describe('runtimeConfigService validation hardening', () => {
         ...createValidRuntimeConfig().sync,
         pushIntervalMs: MIN_SYNC_PUSH_INTERVAL_MS - 1,
       },
-    });
+    };
 
-    const result = validatePranaRuntimeConfig();
+    await sqliteConfigStoreService.__resetForTesting();
+    await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
+    const result = validatePranaRuntimeConfig(overrideConfig);
 
     expect(result.valid).toBe(false);
     expect(result.issues).toEqual(

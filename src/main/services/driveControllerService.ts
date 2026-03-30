@@ -3,10 +3,11 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
-import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 import { getGovernanceRepoPath, setAppDataRootOverride } from './governanceRepoService';
 import { mountRegistryService, VirtualDriveId, VirtualDriveRecord } from './mountRegistryService';
 import { executeCommand } from './processService';
+import { hookSystemService } from './hookSystemService';
 
 export interface VirtualDriveMountResult {
   success: boolean;
@@ -30,7 +31,7 @@ const childByDrive = new Map<VirtualDriveId, ChildProcess>();
 
 const nowIso = (): string => new Date().toISOString();
 
-const getRuntimeVirtualDriveConfig = () => getPranaRuntimeConfig()?.virtualDrives;
+const getRuntimeVirtualDriveConfig = () => sqliteConfigStoreService.readSnapshotSync()?.config?.virtualDrives;
 
 const isWindows = (): boolean => process.platform === 'win32';
 
@@ -326,7 +327,7 @@ export const driveControllerService = {
       // Falls back to existing vault archive password so disk-level crypt stays additive.
     const effectivePassword = password && password.length > 0
       ? password
-      : (getPranaRuntimeConfig()?.vault?.archivePassword ?? '');
+      : (sqliteConfigStoreService.readSnapshotSync()?.config?.vault?.archivePassword ?? '');
 
     if (!effectivePassword) {
       setAppDataRootOverride(fallbackPath);
@@ -351,6 +352,7 @@ export const driveControllerService = {
     }
 
     setAppDataRootOverride(fallbackPath);
+    void hookSystemService.emit('system.status', { component: 'drive', status: 'degraded', reason: result.message });
     return {
       ...result,
       usedFallbackPath: true,

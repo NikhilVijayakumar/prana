@@ -4,7 +4,6 @@ import { vaultService } from './vaultService';
 import { syncProviderService } from './syncProviderService';
 import { recoveryOrchestratorService } from './recoveryOrchestratorService';
 import { cronSchedulerService } from './cronSchedulerService';
-import { sqliteDataProvider } from './sqliteDataProvider';
 
 export type StartupStageId =
   | 'integration'
@@ -155,7 +154,6 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     }
 
     markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
-    await sqliteDataProvider.ensureLocalRuntimeSeeded();
   } catch (error) {
     markStage(
       stages,

@@ -9,7 +9,7 @@ import type {
   GoogleFormFeedbackResponse,
 } from './administrationIntegrationService';
 import type { DocumentConversionService } from './documentConversionService';
-import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 
 const DHI_VAULT_ROOT = 'dhi-vault';
 
@@ -62,7 +62,7 @@ const getVaultRootPath = (): string => {
 };
 
 const resolveCredentials = (): GoogleBridgeCredentials | null => {
-  const googleConfig = getPranaRuntimeConfig()?.google;
+  const googleConfig = sqliteConfigStoreService.readSnapshotSync()?.config?.google;
   const clientId = googleConfig?.clientId ?? '';
   const clientSecret = googleConfig?.clientSecret ?? '';
   const refreshToken = googleConfig?.refreshToken ?? '';

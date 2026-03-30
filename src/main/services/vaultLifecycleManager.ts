@@ -1,5 +1,4 @@
 import { syncProviderService, type SplashSyncResult } from './syncProviderService';
-import { sqliteDataProvider } from './sqliteDataProvider';
 
 export type VaultLifecycleStatus = 'LOCKED' | 'UNLOCKED' | 'SYNCING' | 'ERROR';
 
@@ -35,14 +34,13 @@ const markLifecycle = (
 
 export const vaultLifecycleManager = {
   async seedLocalConfig(): Promise<void> {
-    await sqliteDataProvider.ensureLocalRuntimeSeeded();
+    // Legacy stub. Seeding is now handled by bootstrap IPC.
   },
 
   async syncAndLockOnStartup(installMode: SplashSyncResult['installMode']): Promise<SplashSyncResult> {
     markLifecycle('SYNCING');
 
     try {
-      await sqliteDataProvider.ensureLocalRuntimeSeeded();
       const result = await syncProviderService.initializeOnSplash({ installMode });
       markLifecycle('LOCKED', { startupSync: result });
       return result;

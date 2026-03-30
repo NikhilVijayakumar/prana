@@ -4,10 +4,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './services/ipcService'
 import { vaultService } from './services/vaultService'
 import { syncProviderService } from './services/syncProviderService'
-import { startupOrchestratorService } from './services/startupOrchestratorService'
-import { driveControllerService } from './services/driveControllerService'
-import { getPranaRuntimeConfig } from './services/pranaRuntimeConfig'
+import { sqliteConfigStoreService } from './services/sqliteConfigStoreService'
+import { contextDigestStoreService } from './services/contextDigestStoreService'
 import { getPranaPlatformRuntime, setPranaPlatformRuntime } from './services/pranaPlatformRuntime'
+import { hookSystemService } from './services/hookSystemService'
 
 const initializePranaRuntime = (): void => {
   setPranaPlatformRuntime({
@@ -19,6 +19,16 @@ const initializePranaRuntime = (): void => {
 }
 
 initializePranaRuntime()
+
+process.on('uncaughtException', (error) => {
+  console.error('[PRANA_FATAL_ERROR] Uncaught exception:', error)
+  void hookSystemService.emit('system.status', { component: 'main_process', status: 'degraded', reason: error instanceof Error ? error.message : 'Unknown uncaught exception' })
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[PRANA_FATAL_ERROR] Unhandled rejection:', reason)
+  void hookSystemService.emit('system.status', { component: 'main_process', status: 'degraded', reason: reason instanceof Error ? reason.message : String(reason) })
+})
 
 function createWindow(): void {
   // Create the browser window.
@@ -56,16 +66,6 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
-  const systemDriveStatus = await driveControllerService.initializeSystemDrive()
-  if (!systemDriveStatus.success) {
-    console.warn('[PRANA] System virtual drive mount degraded:', systemDriveStatus.message)
-  }
-
-  const startupStatus = await startupOrchestratorService.runStartupSequence()
-  if (startupStatus.overallStatus !== 'READY') {
-    console.warn('[PRANA] Startup orchestration completed with non-ready status:', startupStatus.overallStatus)
-  }
-
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.prana.app')
 
@@ -78,7 +78,7 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers({
     registryRuntime: {
-      registryRoot: getPranaRuntimeConfig()?.registryRoot ?? join(process.cwd(), '.prana', 'registry')
+      registryRoot: sqliteConfigStoreService.readSnapshotSync()?.config?.registryRoot ?? join(process.cwd(), '.prana', 'registry')
     }
   })
 
@@ -97,7 +97,6 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   void syncProviderService.syncOnClose()
   void vaultService.cleanupTemporaryWorkspace()
-  void driveControllerService.dispose()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -106,8 +105,9 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   void syncProviderService.syncOnClose()
   void syncProviderService.dispose()
+  void sqliteConfigStoreService.dispose()
+  void contextDigestStoreService.dispose()
   void vaultService.cleanupTemporaryWorkspace()
-  void driveControllerService.dispose()
 })
 
 // In this file you can include the rest of your app's specific main process

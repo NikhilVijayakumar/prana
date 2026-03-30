@@ -46,7 +46,11 @@ export const setAppDataRootOverride = (nextPath: string | null): void => {
 };
 
 export const getGovernanceRepoPath = (): string => {
-  return getRuntimeBootstrapConfig().governance.repoPath;
+  const path = getRuntimeBootstrapConfig().governance.repoPath;
+  if (path && path.trim().length > 0) {
+    return path;
+  }
+  return join(getAppDataRoot(), 'governance-repo');
 };
 
 export const getGovernanceRepoUrl = (): string => {

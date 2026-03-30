@@ -52,7 +52,7 @@ export interface RuntimeChannelDetailsUpdatePayload {
   providerCredentials?: string;
 }
 
-interface ApprovedRuntimeState {
+export interface ApprovedRuntimeState {
   committedAt: string;
   contextByStep: Record<string, Record<string, string>>;
   approvalByStep: Record<string, 'PENDING' | 'DRAFT' | 'APPROVED'>;

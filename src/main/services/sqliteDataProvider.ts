@@ -3,9 +3,6 @@ import { runtimeModelAccessService } from './runtimeModelAccessService';
 import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 
 export const sqliteDataProvider = {
-  async ensureLocalRuntimeSeeded() {
-    return sqliteConfigStoreService.seedFromRuntimePropsIfEmpty();
-  },
 
   async getLocalRuntimeConfig() {
     return sqliteConfigStoreService.getRuntimeConfigSnapshot();

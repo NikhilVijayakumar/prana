@@ -1,4 +1,4 @@
-import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 
 type ProviderId = 'lmstudio' | 'openrouter' | 'gemini';
 
@@ -72,7 +72,7 @@ const normalizeUrl = (url: string): string => {
 };
 
 const parseFallbackOrder = (): ProviderId[] => {
-  const rawOrder = getPranaRuntimeConfig()?.modelGateway?.fallbackOrder ?? 'lmstudio,openrouter,gemini';
+  const rawOrder = sqliteConfigStoreService.readSnapshotSync()?.config?.modelGateway?.fallbackOrder ?? 'lmstudio,openrouter,gemini';
   const entries = rawOrder
     .split(',')
     .map((value) => value.trim())
@@ -103,7 +103,7 @@ const parseFallbackOrder = (): ProviderId[] => {
 
 const getProviderSpecs = (): ProviderSpec[] => {
   const order = parseFallbackOrder();
-  const modelGatewayConfig = getPranaRuntimeConfig()?.modelGateway;
+  const modelGatewayConfig = sqliteConfigStoreService.readSnapshotSync()?.config?.modelGateway;
 
   const specs: Record<ProviderId, ProviderSpec> = {
     lmstudio: {

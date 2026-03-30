@@ -1,9 +1,9 @@
 import {
-  getPranaRuntimeConfig,
   validatePranaRuntimeConfig,
   type PranaConfigValidationIssue,
   type PranaRuntimeConfig,
 } from './pranaRuntimeConfig';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 
 const DEFAULT_VAULT_SPEC_VERSION = 'v1';
 const DEFAULT_VAULT_TEMP_ZIP_EXT = '.zip';
@@ -162,7 +162,7 @@ const isPresentByType = (value: unknown, expectedType: RuntimeIntegrationKeyStat
 };
 
 const getRequiredKeys = (issues: PranaConfigValidationIssue[]): RuntimeIntegrationKeyStatus[] => {
-  const config = getPranaRuntimeConfig();
+  const config = sqliteConfigStoreService.readSnapshotSync()?.config ?? null;
   const issueByKey = new Map(issues.map((issue) => [issue.key, issue]));
 
   return REQUIRED_RUNTIME_KEYS.map((descriptor) => {
@@ -182,7 +182,8 @@ const getRequiredKeys = (issues: PranaConfigValidationIssue[]): RuntimeIntegrati
 };
 
 export const getRuntimeIntegrationStatus = (): RuntimeIntegrationStatus => {
-  const validation = validatePranaRuntimeConfig();
+  const config = sqliteConfigStoreService.readSnapshotSync()?.config ?? null;
+  const validation = validatePranaRuntimeConfig(config);
   const keys = getRequiredKeys(validation.issues);
   const missing = keys.filter((entry) => !entry.present).length;
   const invalid = keys.filter((entry) => entry.present && !entry.valid).length;
@@ -201,62 +202,48 @@ export const getRuntimeIntegrationStatus = (): RuntimeIntegrationStatus => {
   };
 };
 
-const assertRequiredRuntimeConfig = (): void => {
-  const validation = validatePranaRuntimeConfig();
-  if (!validation.valid) {
-    throw new Error(`[PRANA_CONFIG_ERROR] Runtime config validation failed (${validation.errors.join('; ')}).`);
-  }
-};
-
 export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
-  assertRequiredRuntimeConfig();
-  const config = getPranaRuntimeConfig()!;
-  const {
-    director,
-    governance,
-    vault,
-    sync,
-    channels,
-  } = config as PranaRuntimeConfig & {
-    vault: PranaRuntimeConfig['vault'] & { kdfIterations: number };
-    sync: {
-      pushIntervalMs: number;
-      cronEnabled: boolean;
-      pushCronExpression: string;
-      pullCronExpression: string;
-    };
-  };
+  const rawConfig = sqliteConfigStoreService.readSnapshotSync()?.config ?? null;
+  const validation = validatePranaRuntimeConfig(rawConfig);
+  if (!validation.valid) {
+    console.warn(`[PRANA_CONFIG_WARN] Runtime config validation failed (${validation.errors.join('; ')}). Continuing with defaults as the config is now props-based per screen.`);
+  }
+  const director = rawConfig?.director || {} as any;
+  const governance = rawConfig?.governance || {} as any;
+  const vault = rawConfig?.vault || {} as any;
+  const sync = rawConfig?.sync || {} as any;
+  const channels = rawConfig?.channels || {};
 
   return {
     director: {
-      name: director.name,
-      email: director.email,
+      name: director.name || 'Prana User',
+      email: director.email || 'user@prana.local',
       password: director.password,
       passwordHash: director.passwordHash,
     },
     governance: {
-      repoUrl: governance.repoUrl,
-      repoPath: governance.repoPath,
+      repoUrl: governance.repoUrl || '',
+      repoPath: governance.repoPath || '',
     },
     vault: {
       specVersion: vault.specVersion ?? DEFAULT_VAULT_SPEC_VERSION,
       tempZipExtension: normalizeExtension(vault.tempZipExtension ?? DEFAULT_VAULT_TEMP_ZIP_EXT),
       outputPrefix: vault.outputPrefix ?? DEFAULT_VAULT_OUTPUT_PREFIX,
-      archivePassword: vault.archivePassword,
-      archiveSalt: vault.archiveSalt,
-      kdfIterations: vault.kdfIterations,
+      archivePassword: vault.archivePassword || '',
+      archiveSalt: vault.archiveSalt || '',
+      kdfIterations: vault.kdfIterations || 100000,
       keepTempOnClose: vault.keepTempOnClose ?? false,
     },
     channels: {
-      telegramChannelId: channels?.telegramChannelId,
-      slackChannelId: channels?.slackChannelId,
-      teamsChannelId: channels?.teamsChannelId,
+      telegramChannelId: channels.telegramChannelId,
+      slackChannelId: channels.slackChannelId,
+      teamsChannelId: channels.teamsChannelId,
     },
     sync: {
-      pushIntervalMs: sync.pushIntervalMs,
-      cronEnabled: sync.cronEnabled,
-      pushCronExpression: sync.pushCronExpression,
-      pullCronExpression: sync.pullCronExpression,
+      pushIntervalMs: sync.pushIntervalMs || 60000,
+      cronEnabled: sync.cronEnabled ?? false,
+      pushCronExpression: sync.pushCronExpression || '*/5 * * * *',
+      pullCronExpression: sync.pullCronExpression || '*/5 * * * *',
     },
   };
 };

@@ -54,6 +54,7 @@ interface ReplaceActiveContextPayload {
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
+let cachedDatabase: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
@@ -152,6 +153,7 @@ const initializeDatabase = async (): Promise<Database> => {
   database.run('CREATE INDEX IF NOT EXISTS idx_chat_context_active_session ON chat_context_active(session_id, active_rank ASC);');
 
   await persistDatabase(database);
+  cachedDatabase = database;
   return database;
 };
 
@@ -169,6 +171,15 @@ const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
 };
 
 export const contextDigestStoreService = {
+  async dispose(): Promise<void> {
+    await writeQueue;
+    if (cachedDatabase) {
+      cachedDatabase.close();
+      cachedDatabase = null;
+    }
+    dbPromise = null;
+  },
+
   async ensureSessionActive(sessionId: string, summary?: string | null): Promise<void> {
     await queueWrite(async () => {
       const db = await getDatabase();

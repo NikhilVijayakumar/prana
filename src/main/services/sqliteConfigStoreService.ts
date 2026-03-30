@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { getAppDataRoot } from './governanceRepoService';
-import { getPranaRuntimeConfig, type PranaRuntimeConfig } from './pranaRuntimeConfig';
+import type { PranaRuntimeConfig } from './pranaRuntimeConfig';
 
 const DB_FILE_NAME = 'runtime-config.sqlite';
 const META_RUNTIME_CONFIG_KEY = 'runtime_config_snapshot';
@@ -16,6 +16,7 @@ export interface LocalRuntimeConfigSnapshot {
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
+let cachedDatabase: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
@@ -68,8 +69,11 @@ const initializeDatabase = async (): Promise<Database> => {
   `);
 
   await persistDatabase(database);
+  cachedDatabase = database;
   return database;
 };
+
+const getDatabaseSync = (): Database | null => cachedDatabase;
 
 const getDatabase = async (): Promise<Database> => {
   if (!dbPromise) {
@@ -112,6 +116,38 @@ const readSnapshot = async (): Promise<LocalRuntimeConfigSnapshot | null> => {
   }
 };
 
+const readSnapshotSync = (): LocalRuntimeConfigSnapshot | null => {
+  const database = getDatabaseSync();
+  if (!database) {
+    return null;
+  }
+
+  try {
+    const statement = database.prepare('SELECT payload_json FROM runtime_config_meta WHERE key = ?');
+    statement.bind([META_RUNTIME_CONFIG_KEY]);
+
+    if (!statement.step()) {
+      statement.free();
+      return null;
+    }
+
+    const row = statement.getAsObject() as { payload_json?: unknown };
+    statement.free();
+
+    if (typeof row.payload_json !== 'string') {
+      return null;
+    }
+
+    const parsed = JSON.parse(row.payload_json) as LocalRuntimeConfigSnapshot;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.seededAt !== 'string' || !parsed.config) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
 const writeSnapshot = async (snapshot: LocalRuntimeConfigSnapshot): Promise<void> => {
   await queueWrite(async () => {
     const database = await getDatabase();
@@ -130,17 +166,17 @@ const writeSnapshot = async (snapshot: LocalRuntimeConfigSnapshot): Promise<void
 };
 
 export const sqliteConfigStoreService = {
+  readSnapshotSync,
+
   async getRuntimeConfigSnapshot(): Promise<LocalRuntimeConfigSnapshot | null> {
     return readSnapshot();
   },
 
-  async seedFromRuntimePropsIfEmpty(): Promise<LocalRuntimeConfigSnapshot | null> {
+  async seedFromRuntimePropsIfEmpty(runtimeConfig: PranaRuntimeConfig): Promise<LocalRuntimeConfigSnapshot | null> {
     const existing = await readSnapshot();
     if (existing) {
       return existing;
     }
-
-    const runtimeConfig = getPranaRuntimeConfig();
     if (!runtimeConfig) {
       return null;
     }
@@ -155,8 +191,7 @@ export const sqliteConfigStoreService = {
     return snapshot;
   },
 
-  async overwriteFromRuntimeProps(): Promise<LocalRuntimeConfigSnapshot | null> {
-    const runtimeConfig = getPranaRuntimeConfig();
+  async overwriteFromRuntimeProps(runtimeConfig: PranaRuntimeConfig): Promise<LocalRuntimeConfigSnapshot | null> {
     if (!runtimeConfig) {
       return null;
     }
@@ -169,10 +204,23 @@ export const sqliteConfigStoreService = {
 
     await writeSnapshot(snapshot);
     return snapshot;
+  },
+
+  async dispose(): Promise<void> {
+    await writeQueue;
+    if (cachedDatabase) {
+      cachedDatabase.close();
+      cachedDatabase = null;
+    }
+    dbPromise = null;
   },
 
   async __resetForTesting(): Promise<void> {
     await writeQueue;
+    if (cachedDatabase) {
+      cachedDatabase.close();
+      cachedDatabase = null;
+    }
     dbPromise = null;
     sqlRuntimePromise = null;
     writeQueue = Promise.resolve();

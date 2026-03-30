@@ -4,7 +4,7 @@ import { access, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { modelGatewayService } from './modelGatewayService';
 import { vaultService } from './vaultService';
-import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 
 export interface SkillManifest {
@@ -35,7 +35,7 @@ export interface SkillExecutionResult {
 const FRONTMATTER_START = '---';
 
 const getSkillRootPath = (): string => {
-  const override = getPranaRuntimeConfig()?.skills?.path;
+  const override = sqliteConfigStoreService.readSnapshotSync()?.config?.skills?.path;
   if (override) {
     return override;
   }

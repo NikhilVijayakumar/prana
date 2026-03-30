@@ -2,9 +2,13 @@ import { dialog, ipcMain } from 'electron';
 import { authService } from './authService';
 import { modelGatewayService } from './modelGatewayService';
 import { getPublicRuntimeConfig, getRuntimeIntegrationStatus } from './runtimeConfigService';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
+import { driveControllerService } from './driveControllerService';
+import { PranaRuntimeConfig, validatePranaRuntimeConfig } from './pranaRuntimeConfig';
 import { skillSystemService } from './skillSystemService';
 import { vaultService } from './vaultService';
 import { operationsService } from './operationsService';
+import { startupOrchestratorService } from './startupOrchestratorService';
 import { contextEngineService, ContextMessageRole } from './contextEngineService';
 import { subagentService } from './subagentService';
 import { toolPolicyService } from './toolPolicyService';
@@ -22,7 +26,6 @@ import { channelRouterService } from './channelRouterService';
 import { syncProviderService } from './syncProviderService';
 import { runtimeModelAccessService } from './runtimeModelAccessService';
 import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRuntimeService';
-import { startupOrchestratorService } from './startupOrchestratorService';
 
 const enforceToolPolicy = (payload: {
   actor: string;
@@ -69,6 +72,46 @@ export const registerIpcHandlers = (options?: { registryRuntime?: Partial<Regist
     }
 
     return status;
+  });
+
+  ipcMain.handle('app:bootstrap-host', async (_event, payload: { config: PranaRuntimeConfig }) => {
+    try {
+      const validation = validatePranaRuntimeConfig(payload.config);
+      if (!validation.valid) {
+        throw new Error(`Invalid host configuration: ${validation.errors.join('; ')}`);
+      }
+
+      await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(payload.config);
+
+      const systemDriveStatus = await driveControllerService.initializeSystemDrive();
+      if (!systemDriveStatus.success) {
+        console.warn('[PRANA] System virtual drive mount degraded:', systemDriveStatus.message);
+      }
+
+      const startupStatus = await startupOrchestratorService.runStartupSequence();
+      if (startupStatus.overallStatus !== 'READY') {
+        console.warn('[PRANA] Startup orchestration completed with non-ready status:', startupStatus.overallStatus);
+      }
+
+      return startupStatus;
+    } catch (error) {
+      console.error('[PRANA_BOOTSTRAP_ERROR] Fatal error during splash bootstrap:', error);
+      return {
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        overallStatus: 'BLOCKED',
+        stages: [
+          {
+            id: 'integration',
+            label: 'Fatal Bootstrap Error',
+            status: 'FAILED',
+            message: error instanceof Error ? error.message : 'Unknown fatal error during bootstrap.',
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          }
+        ]
+      };
+    }
   });
 
   ipcMain.handle('app:get-startup-status', async () => {
