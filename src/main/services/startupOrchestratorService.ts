@@ -4,6 +4,8 @@ import { vaultService } from './vaultService';
 import { syncProviderService } from './syncProviderService';
 import { recoveryOrchestratorService } from './recoveryOrchestratorService';
 import { cronSchedulerService } from './cronSchedulerService';
+import { hookSystemService } from './hookSystemService';
+import { memoryIndexService } from './memoryIndexService';
 
 export type StartupStageId =
   | 'integration'
@@ -277,6 +279,18 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       'FAILED',
       error instanceof Error ? error.message : 'Cron recovery stage failed.',
     );
+  }
+
+  try {
+    await hookSystemService.initialize();
+  } catch (error) {
+    console.error('[PRANA_WARNING] Failed to initialize hookSystemService:', error);
+  }
+
+  try {
+    await memoryIndexService.initialize();
+  } catch (error) {
+    console.error('[PRANA_WARNING] Failed to initialize memoryIndexService:', error);
   }
 
   latestStartupReport = {

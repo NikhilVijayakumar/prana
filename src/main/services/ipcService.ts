@@ -48,10 +48,6 @@ export const registerIpcHandlers = (options?: { registryRuntime?: Partial<Regist
     configureRegistryRuntime(options.registryRuntime);
   }
 
-  void hookSystemService.initialize();
-  void cronSchedulerService.initialize();
-  void memoryIndexService.initialize();
-
   ipcMain.handle('app:get-runtime-config', async () => {
     try {
       return getPublicRuntimeConfig();
