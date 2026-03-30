@@ -64,6 +64,14 @@ export interface RuntimeBootstrapConfig {
     pushCronExpression: string;
     pullCronExpression: string;
   };
+  branding: {
+    appBrandName: string;
+    appTitlebarTagline: string;
+    appSplashSubtitle: string;
+    directorSenderEmail: string;
+    directorSenderName: string;
+    avatarBaseUrl: string;
+  };
 }
 
 export interface PublicRuntimeConfig {
@@ -86,6 +94,14 @@ export interface PublicRuntimeConfig {
     cronEnabled: boolean;
     pushCronExpression: string;
     pullCronExpression: string;
+  };
+  branding: {
+    appBrandName: string;
+    appTitlebarTagline: string;
+    appSplashSubtitle: string;
+    directorSenderEmail: string;
+    directorSenderName: string;
+    avatarBaseUrl: string;
   };
 }
 
@@ -245,6 +261,14 @@ export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
       pushCronExpression: sync.pushCronExpression || '*/5 * * * *',
       pullCronExpression: sync.pullCronExpression || '*/5 * * * *',
     },
+    branding: {
+      appBrandName: rawConfig?.branding?.appBrandName || '',
+      appTitlebarTagline: rawConfig?.branding?.appTitlebarTagline || '',
+      appSplashSubtitle: rawConfig?.branding?.appSplashSubtitle || '',
+      directorSenderEmail: rawConfig?.branding?.directorSenderEmail || '',
+      directorSenderName: rawConfig?.branding?.directorSenderName || '',
+      avatarBaseUrl: rawConfig?.branding?.avatarBaseUrl || '',
+    },
   };
 };
 
@@ -263,5 +287,6 @@ export const getPublicRuntimeConfig = (): PublicRuntimeConfig => {
     vaultKeepTempOnClose: config.vault.keepTempOnClose,
     channels: config.channels,
     sync: config.sync,
+    branding: config.branding,
   };
 };

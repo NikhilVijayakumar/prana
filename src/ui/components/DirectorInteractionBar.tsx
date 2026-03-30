@@ -18,14 +18,13 @@ import {
 } from '../constants/employeeDirectory';
 import { spacing } from 'astra';
 import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
-import { assertRequiredBrandingFields, type PranaBrandingConfig } from '../constants/pranaConfig';
+import { assertRequiredBrandingFields, useBranding } from '../constants/pranaConfig';
 
 interface DirectorInteractionBarProps {
   moduleRoute: string;
   moduleNameKey: string;
   ownerId: string;
   secretaryId: string;
-  branding: Partial<PranaBrandingConfig>;
   onOpenProfile: (employeeId: string) => void;
 }
 
@@ -90,9 +89,9 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   moduleNameKey,
   ownerId,
   secretaryId,
-  branding,
   onOpenProfile,
 }) => {
+  const branding = useBranding();
   assertRequiredBrandingFields('DirectorInteractionBar', branding, ['directorSenderEmail', 'directorSenderName']);
 
   const muiTheme = useMuiTheme();

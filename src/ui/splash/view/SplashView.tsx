@@ -2,16 +2,16 @@ import { FC } from 'react';
 import { Box, Typography, CircularProgress, useTheme as useMuiTheme } from '@mui/material';
 import { useLanguage } from 'astra';
 import { spacing } from 'astra';
-import { assertRequiredBrandingFields, type PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
+import { assertRequiredBrandingFields, useBranding } from 'prana/ui/constants/pranaConfig';
 
 interface SplashViewProps {
-  branding: Partial<PranaBrandingConfig>;
   isLoading: boolean;
   isSuccess: boolean;
   statusMessage: string;
 }
 
-export const SplashView: FC<SplashViewProps> = ({ branding, isLoading, isSuccess, statusMessage }) => {
+export const SplashView: FC<SplashViewProps> = ({ isLoading, isSuccess, statusMessage }) => {
+  const branding = useBranding();
   assertRequiredBrandingFields('SplashView', branding, ['appBrandName', 'appSplashSubtitle']);
 
   const muiTheme = useMuiTheme();

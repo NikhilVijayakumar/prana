@@ -24,14 +24,14 @@ import { DirectorInteractionBar } from 'prana/ui/components/DirectorInteractionB
 import { getInteractionContextForPath } from 'prana/ui/constants/employeeDirectory';
 import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
-import { assertRequiredBrandingFields, type PranaBrandingConfig } from 'prana/ui/constants/pranaConfig';
+import { assertRequiredBrandingFields, useBranding } from 'prana/ui/constants/pranaConfig';
 
 interface MainLayoutProps {
-  branding: Partial<PranaBrandingConfig>;
   children?: ReactNode;
 }
 
-export const MainLayout: FC<MainLayoutProps> = ({ branding, children }) => {
+export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
+  const branding = useBranding();
   assertRequiredBrandingFields('MainLayout', branding, ['appBrandName', 'appTitlebarTagline']);
 
   const muiTheme = useMuiTheme();
@@ -231,7 +231,6 @@ export const MainLayout: FC<MainLayoutProps> = ({ branding, children }) => {
               moduleNameKey={interactionContext.moduleNameKey}
               ownerId={interactionContext.ownerId}
               secretaryId={interactionContext.secretaryId}
-              branding={branding}
               onOpenProfile={(employeeId) => navigate(`/profile/${employeeId}`)}
             />
           )}

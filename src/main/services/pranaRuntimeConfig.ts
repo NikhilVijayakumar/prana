@@ -74,6 +74,14 @@ export interface PranaRuntimeConfig {
     obscuredFileNames?: boolean;
   };
   registryRoot?: string;
+  branding?: {
+    appBrandName?: string;
+    appTitlebarTagline?: string;
+    appSplashSubtitle?: string;
+    directorSenderEmail?: string;
+    directorSenderName?: string;
+    avatarBaseUrl?: string;
+  };
 }
 
 const hasText = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;

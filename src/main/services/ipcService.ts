@@ -70,6 +70,22 @@ export const registerIpcHandlers = (options?: { registryRuntime?: Partial<Regist
     return status;
   });
 
+  ipcMain.handle('app:get-branding-config', async () => {
+    try {
+      const publicConfig = getPublicRuntimeConfig();
+      return publicConfig.branding;
+    } catch {
+      return {
+        appBrandName: '',
+        appTitlebarTagline: '',
+        appSplashSubtitle: '',
+        directorSenderEmail: '',
+        directorSenderName: '',
+        avatarBaseUrl: '',
+      };
+    }
+  });
+
   ipcMain.handle('app:bootstrap-host', async (_event, payload: { config: PranaRuntimeConfig }) => {
     try {
       const validation = validatePranaRuntimeConfig(payload.config);

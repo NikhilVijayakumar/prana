@@ -14,7 +14,7 @@ import {
   Typography,
   useTheme as useMuiTheme,
 } from '@mui/material';
-import type { PranaBrandingConfig } from '../../constants/pranaConfig';
+import { useBranding, type PranaBrandingConfig } from '../../constants/pranaConfig';
 import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 const REQUIRED_RENDERER_FIELDS = [
@@ -79,7 +79,6 @@ interface IntegrationSnapshot {
 }
 
 interface IntegrationVerificationPageProps {
-  branding: Partial<PranaBrandingConfig>;
   onProceed?: () => void;
 }
 
@@ -148,7 +147,8 @@ const summarizeAvailability = (rendererKeys: RendererKeyStatus[]) => {
   };
 };
 
-export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> = ({ branding, onProceed }) => {
+export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> = ({ onProceed }) => {
+  const branding = useBranding();
   const muiTheme = useMuiTheme();
   const [loading, setLoading] = useState(true);
   const [snapshot, setSnapshot] = useState<IntegrationSnapshot | null>(null);
