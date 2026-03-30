@@ -1,6 +1,6 @@
 {
   "name": "prana",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Prana desktop application built with Electron and TypeScript",
   "main": "./out/main/index.js",
   "author": "Prana Team",

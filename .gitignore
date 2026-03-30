@@ -153,3 +153,9 @@ out/
 /test-output.txt
 /test-results.txt
 /config/
+/.codex
+/.prana/test-governance/
+/test-results/playwright/splash-config-injection-sp-2604e-injected-from-test-env-json/trace.zip
+/test-results/playwright/.last-run.json
+/test-results/playwright/e2e-quality-report.json
+/test-results/playwright/e2e-quality-report.md
