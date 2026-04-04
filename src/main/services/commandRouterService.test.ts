@@ -4,13 +4,13 @@ import { queueService } from './queueService';
 import { workOrderService } from './workOrderService';
 
 describe('commandRouterService', () => {
-  beforeEach(() => {
-    queueService.__resetForTesting();
+  beforeEach(async () => {
+    await queueService.__resetForTesting();
     workOrderService.__resetForTesting();
   });
 
-  it('routes compliance request to eva and enqueues it', () => {
-    const result = commandRouterService.submitDirectorRequest({
+  it('routes compliance request to eva and enqueues it', async () => {
+    const result = await commandRouterService.submitDirectorRequest({
       moduleRoute: 'compliance',
       message: 'urgent compliance audit review needed',
       timestampIso: new Date().toISOString(),
@@ -22,17 +22,17 @@ describe('commandRouterService', () => {
     expect(result.workOrder.state).toBe('QUEUED');
   });
 
-  it('starts next order and completes lifecycle', () => {
-    const submitted = commandRouterService.submitDirectorRequest({
+  it('starts next order and completes lifecycle', async () => {
+    const submitted = await commandRouterService.submitDirectorRequest({
       moduleRoute: 'infrastructure',
       message: 'critical outage in gateway path',
       timestampIso: new Date().toISOString(),
     });
 
-    const started = commandRouterService.startNext();
+    const started = await commandRouterService.startNext();
     expect(started?.workOrder.state).toBe('EXECUTING');
 
-    const completed = commandRouterService.complete(submitted.workOrder.id, 'Issue resolved');
+    const completed = await commandRouterService.complete(submitted.workOrder.id, 'Issue resolved');
     expect(completed?.state).toBe('COMPLETED');
     expect(completed?.summary).toBe('Issue resolved');
   });

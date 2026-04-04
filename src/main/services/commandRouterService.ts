@@ -72,7 +72,7 @@ const isBroadCommand = (request: DirectorFeedbackRequest): boolean => {
 const GLOBAL_COLLABORATION_REQUIRED_AGENTS = ['mira', 'dani', 'sofia', 'eva', 'nora', 'elina'];
 
 export const commandRouterService = {
-  submitDirectorRequest(request: DirectorFeedbackRequest): RoutedRequestResult {
+  async submitDirectorRequest(request: DirectorFeedbackRequest): Promise<RoutedRequestResult> {
     const priority = determinePriority(request.message);
     const broadCommand = isBroadCommand(request);
     const targetEmployeeId = broadCommand ? 'mira' : determineTargetEmployee(request);
@@ -129,7 +129,14 @@ export const commandRouterService = {
       workOrderService.setWaitingOnRole(planned.id, 'dani');
     }
 
-    const queue = queueService.enqueue(planned.id, planned.priority);
+    const queue = await queueService.enqueue(planned.id, planned.priority, {
+      laneType: 'MODEL',
+      taskType: 'work-order',
+      payloadMeta: {
+        targetEmployeeId,
+        moduleRoute: request.moduleRoute,
+      },
+    });
 
     if (queue.accepted && queue.entry) {
       const queued = workOrderService.updateState(planned.id, 'QUEUED') ?? planned;
@@ -150,8 +157,8 @@ export const commandRouterService = {
     };
   },
 
-  startNext(): RoutedRequestResult | null {
-    const running = queueService.startNext();
+  async startNext(): Promise<RoutedRequestResult | null> {
+    const running = await queueService.startNext(['MODEL']);
     if (!running) {
       return null;
     }
@@ -169,36 +176,36 @@ export const commandRouterService = {
     };
   },
 
-  complete(workOrderId: string, summary?: string): WorkOrderRecord | null {
+  async complete(workOrderId: string, summary?: string): Promise<WorkOrderRecord | null> {
     const workOrder = workOrderService.updateState(workOrderId, 'COMPLETED', { summary });
     if (!workOrder) {
       return null;
     }
 
-    const queueEntry = queueService.findByWorkOrderId(workOrderId);
+    const queueEntry = await queueService.findByWorkOrderId(workOrderId);
     if (queueEntry && queueEntry.status === 'RUNNING') {
-      queueService.complete(queueEntry.id);
+      await queueService.complete(queueEntry.id);
     }
 
     return workOrder;
   },
 
-  fail(workOrderId: string, error?: string): WorkOrderRecord | null {
+  async fail(workOrderId: string, error?: string): Promise<WorkOrderRecord | null> {
     const workOrder = workOrderService.updateState(workOrderId, 'FAILED', { error });
     if (!workOrder) {
       return null;
     }
 
-    const queueEntry = queueService.findByWorkOrderId(workOrderId);
+    const queueEntry = await queueService.findByWorkOrderId(workOrderId);
     if (queueEntry && queueEntry.status === 'RUNNING') {
-      queueService.fail(queueEntry.id);
+      await queueService.fail(queueEntry.id, error ?? 'Work order failed');
     }
 
     return workOrder;
   },
 
-  processNextToReview(): ProcessedWorkOrderResult | null {
-    const started = this.startNext();
+  async processNextToReview(): Promise<ProcessedWorkOrderResult | null> {
+    const started = await this.startNext();
     if (!started) {
       return null;
     }
@@ -251,7 +258,7 @@ export const commandRouterService = {
     progressedStates.push('REVIEW');
 
     if (started.queueEntryId) {
-      queueService.complete(started.queueEntryId);
+      await queueService.complete(started.queueEntryId);
     }
 
     return {

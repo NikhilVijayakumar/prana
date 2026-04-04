@@ -4,9 +4,9 @@ import { workOrderService } from './workOrderService';
 import { queueService } from './queueService';
 
 describe('operationsService Phase E Pack 4', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     workOrderService.__resetForTesting();
-    queueService.__resetForTesting();
+    await queueService.__resetForTesting();
   });
 
   it('daily brief top requests reflect live runtime work orders', async () => {

@@ -2104,7 +2104,7 @@ const getWeekEnding = (): string => {
 };
 
 const mapQueueEntryToTaskStatus = (status: string): QueueTask['status'] => {
-  if (status === 'QUEUED') {
+  if (status === 'QUEUED' || status === 'RETRY_PENDING') {
     return 'PENDING';
   }
   if (status === 'RUNNING') {
@@ -2449,7 +2449,8 @@ export const operationsService = {
     const toolPolicyAudits = toolPolicyService.listRecentAudits(6);
     const hooks = await hookSystemService.getTelemetry();
 
-    const runtimeTasks: QueueTask[] = queueService.list().map((entry) => {
+    const runtimeQueueEntries = await queueService.list();
+    const runtimeTasks: QueueTask[] = runtimeQueueEntries.map((entry) => {
       const workOrder = workOrderService.get(entry.workOrderId);
       return {
         id: entry.id,
@@ -2986,9 +2987,9 @@ export const operationsService = {
           workOrder.state === 'SYNTHESIS' ||
           workOrder.state === 'REVIEW',
       );
-    const queuedOrRunningEntries = queueService
-      .list()
-      .filter((entry) => entry.status === 'QUEUED' || entry.status === 'RUNNING');
+    const queuedOrRunningEntries = (await queueService.list()).filter(
+      (entry) => entry.status === 'QUEUED' || entry.status === 'RUNNING' || entry.status === 'RETRY_PENDING',
+    );
 
     const activeAgentIds = new Set<string>();
     activeRuntimeOrders.forEach((order) => {

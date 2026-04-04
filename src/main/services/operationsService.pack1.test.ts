@@ -4,9 +4,9 @@ import { workOrderService } from './workOrderService';
 import { queueService } from './queueService';
 
 describe('operationsService Phase E Pack 1', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     workOrderService.__resetForTesting();
-    queueService.__resetForTesting();
+    await queueService.__resetForTesting();
   });
 
   it('maps live work orders into triage payload', async () => {
@@ -87,7 +87,7 @@ describe('operationsService Phase E Pack 1', () => {
       priority: 'IMPORTANT',
     });
 
-    const queued = queueService.enqueue(workOrder.id, workOrder.priority);
+    const queued = await queueService.enqueue(workOrder.id, workOrder.priority);
     expect(queued.accepted).toBe(true);
 
     const payload = await operationsService.getQueueMonitorPayload();

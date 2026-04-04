@@ -4,9 +4,9 @@ import { workOrderService } from './workOrderService';
 import { queueService } from './queueService';
 
 describe('operationsService Phase E Pack 2', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     workOrderService.__resetForTesting();
-    queueService.__resetForTesting();
+    await queueService.__resetForTesting();
   });
 
   it('builds suite agents from live registry', async () => {

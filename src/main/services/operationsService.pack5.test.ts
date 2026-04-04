@@ -4,9 +4,9 @@ import { workOrderService } from './workOrderService';
 import { queueService } from './queueService';
 
 describe('operationsService Phase E Pack 5', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     workOrderService.__resetForTesting();
-    queueService.__resetForTesting();
+    await queueService.__resetForTesting();
   });
 
   it('creates onboarding KPI registry for runtime agents', async () => {

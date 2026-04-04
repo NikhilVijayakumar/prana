@@ -4,13 +4,13 @@ import { queueService } from './queueService';
 import { workOrderService } from './workOrderService';
 
 describe('work-order runtime flow', () => {
-  beforeEach(() => {
-    queueService.__resetForTesting();
+  beforeEach(async () => {
+    await queueService.__resetForTesting();
     workOrderService.__resetForTesting();
   });
 
-  it('executes submit -> processNext -> approve lifecycle', () => {
-    const submitted = commandRouterService.submitDirectorRequest({
+  it('executes submit -> processNext -> approve lifecycle', async () => {
+    const submitted = await commandRouterService.submitDirectorRequest({
       moduleRoute: 'governance',
       message: 'important review for governance summary',
       timestampIso: new Date().toISOString(),
@@ -19,7 +19,7 @@ describe('work-order runtime flow', () => {
     expect(submitted.queueAccepted).toBe(true);
     expect(submitted.workOrder.state).toBe('QUEUED');
 
-    const processed = commandRouterService.processNextToReview();
+    const processed = await commandRouterService.processNextToReview();
     expect(processed).not.toBeNull();
     expect(processed?.workOrder.state).toBe('REVIEW');
     expect(processed?.progressedStates).toEqual(['EXECUTING', 'SYNTHESIS', 'REVIEW']);
@@ -29,22 +29,22 @@ describe('work-order runtime flow', () => {
     expect(approved?.summary).toBe('Director approved');
   });
 
-  it('supports rejection after review', () => {
-    const submitted = commandRouterService.submitDirectorRequest({
+  it('supports rejection after review', async () => {
+    const submitted = await commandRouterService.submitDirectorRequest({
       moduleRoute: 'compliance',
       message: 'critical compliance breach review',
       timestampIso: new Date().toISOString(),
     });
 
-    commandRouterService.processNextToReview();
+    await commandRouterService.processNextToReview();
     const rejected = commandRouterService.reject(submitted.workOrder.id, 'Need additional evidence');
 
     expect(rejected?.state).toBe('REJECTED');
     expect(rejected?.error).toBe('Need additional evidence');
   });
 
-  it('routes broad commands to secretary global workflow with handshake initialization', () => {
-    const submitted = commandRouterService.submitDirectorRequest({
+  it('routes broad commands to secretary global workflow with handshake initialization', async () => {
+    const submitted = await commandRouterService.submitDirectorRequest({
       moduleRoute: 'growth',
       message: 'Launch a new product campaign with cross-functional execution',
       timestampIso: new Date().toISOString(),

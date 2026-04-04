@@ -202,7 +202,7 @@ describe('Wave 1 Agents', () => {
   describe('Full Workflow Integration', () => {
     it('should execute Wave 1 agent via command router workflow', async () => {
       // Submit director request for Nora
-      const submitted = commandRouterService.submitDirectorRequest({
+      const submitted = await commandRouterService.submitDirectorRequest({
         moduleRoute: '/vault',
         targetEmployeeId: 'nora',
         message: 'Financial status check',
@@ -213,7 +213,7 @@ describe('Wave 1 Agents', () => {
       expect(submitted.workOrder.state).toBe('QUEUED');
 
       // Process through workflow
-      const processed = commandRouterService.processNextToReview();
+      const processed = await commandRouterService.processNextToReview();
 
       expect(processed).toBeDefined();
       expect(processed!.workOrder.state).toBe('REVIEW');
@@ -227,14 +227,14 @@ describe('Wave 1 Agents', () => {
 
     it('should execute multiple agents in queue order', async () => {
       // Submit two requests
-      const req1 = commandRouterService.submitDirectorRequest({
+      const req1 = await commandRouterService.submitDirectorRequest({
         moduleRoute: '/vault',
         targetEmployeeId: 'nora',
         message: 'Finance check',
         timestampIso: new Date().toISOString(),
       });
 
-      const req2 = commandRouterService.submitDirectorRequest({
+      const req2 = await commandRouterService.submitDirectorRequest({
         moduleRoute: '/governance',
         targetEmployeeId: 'eva',
         message: 'Compliance check',
@@ -245,11 +245,11 @@ describe('Wave 1 Agents', () => {
       expect(req2.queueAccepted).toBe(true);
 
       // Process first
-      const proc1 = commandRouterService.processNextToReview();
+      const proc1 = await commandRouterService.processNextToReview();
       expect(proc1!.workOrder.id).toBe(req1.workOrder.id);
 
       // Process second
-      const proc2 = commandRouterService.processNextToReview();
+      const proc2 = await commandRouterService.processNextToReview();
       expect(proc2!.workOrder.id).toBe(req2.workOrder.id);
 
       // Both should be in REVIEW

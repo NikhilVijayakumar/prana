@@ -381,7 +381,7 @@ export class OrchestrationManager {
       });
 
       // Step 8: Enqueue work order via existing queue service
-      const queueResult = this.enqueueWorkOrder(workOrder);
+      const queueResult = await this.enqueueWorkOrder(workOrder);
 
       if (!queueResult.queueAccepted) {
         throw new Error(`Queue full: ${queueResult.queueReason}`);
@@ -562,10 +562,18 @@ export class OrchestrationManager {
    * Enqueue work order via queue service
    * Uses existing queueService infrastructure
    */
-  private enqueueWorkOrder(
+  private async enqueueWorkOrder(
     workOrder: FederatedWorkOrder
-  ): { queueAccepted: boolean; queueReason: 'ok' | 'queue_full' | 'crisis_reserve'; queueEntryId: string | null } {
-    const result = queueService.enqueue(workOrder.id, workOrder.priority);
+  ): Promise<{ queueAccepted: boolean; queueReason: 'ok' | 'queue_full' | 'crisis_reserve'; queueEntryId: string | null }> {
+    const result = await queueService.enqueue(workOrder.id, workOrder.priority, {
+      laneType: 'MODEL',
+      taskType: 'federated-work-order',
+      payloadMeta: {
+        targetPersonaId: workOrder.targetPersonaId,
+        workflowId: workOrder.targetWorkflowId ?? null,
+      },
+      dedupeKey: `federated:${workOrder.id}`,
+    });
 
     return {
       queueAccepted: result.accepted,

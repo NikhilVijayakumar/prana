@@ -4,9 +4,9 @@ import { workOrderService } from './workOrderService';
 import { queueService } from './queueService';
 
 describe('operationsService Phase E Pack 3', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     workOrderService.__resetForTesting();
-    queueService.__resetForTesting();
+    await queueService.__resetForTesting();
   });
 
   it('builds infrastructure activeAgents from live work orders and queue entries', async () => {
@@ -25,7 +25,7 @@ describe('operationsService Phase E Pack 3', () => {
       priority: 'URGENT',
     });
     workOrderService.updateState(workOrderArya.id, 'QUEUED');
-    queueService.enqueue(workOrderArya.id, workOrderArya.priority);
+    await queueService.enqueue(workOrderArya.id, workOrderArya.priority);
 
     const payload = await operationsService.getInfrastructurePayload();
 

@@ -1,15 +1,19 @@
+import { queueOrchestratorService } from './queueOrchestratorService';
+import { QueueLaneType, QueuePriority, TaskRegistryRecord } from './taskRegistryService';
 import { WorkOrderPriority } from './workOrderService';
 
-export type QueueEntryStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type QueueEntryStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'RETRY_PENDING' | 'EXPIRED';
 
 export interface QueueEntry {
   id: string;
   workOrderId: string;
   priority: WorkOrderPriority;
   status: QueueEntryStatus;
+  laneType: QueueLaneType;
   enqueuedAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  attempts: number;
 }
 
 export interface EnqueueResult {
@@ -18,151 +22,118 @@ export interface EnqueueResult {
   entry: QueueEntry | null;
 }
 
-const MAX_QUEUE_SIZE = 10;
-const CRISIS_RESERVED_SLOTS = 1;
-const PRIORITY_WEIGHT: Record<WorkOrderPriority, number> = {
-  CRITICAL: 4,
-  URGENT: 3,
-  IMPORTANT: 2,
-  ROUTINE: 1,
+const mapTaskStatus = (status: TaskRegistryRecord['status']): QueueEntryStatus => {
+  if (status === 'RUNNING') {
+    return 'RUNNING';
+  }
+  if (status === 'COMPLETED') {
+    return 'COMPLETED';
+  }
+  if (status === 'FAILED') {
+    return 'FAILED';
+  }
+  if (status === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+  if (status === 'EXPIRED') {
+    return 'EXPIRED';
+  }
+  if (status === 'RETRY_PENDING') {
+    return 'RETRY_PENDING';
+  }
+  return 'QUEUED';
 };
 
-let queueEntryCounter = 1;
-const queueEntries = new Map<string, QueueEntry>();
-
-const createQueueEntryId = (): string => {
-  const id = `Q-${String(queueEntryCounter).padStart(4, '0')}`;
-  queueEntryCounter += 1;
-  return id;
-};
-
-const listByStatus = (statuses: QueueEntryStatus[]): QueueEntry[] => {
-  return Array.from(queueEntries.values()).filter((entry) => statuses.includes(entry.status));
+const toQueueEntry = (record: TaskRegistryRecord): QueueEntry => {
+  return {
+    id: record.taskId,
+    workOrderId: record.payloadRef,
+    priority: record.priority,
+    status: mapTaskStatus(record.status),
+    laneType: record.laneType,
+    enqueuedAt: record.createdAt,
+    startedAt: record.executedAt,
+    endedAt: record.completedAt,
+    attempts: record.retryCount,
+  };
 };
 
 export const queueService = {
-  enqueue(workOrderId: string, priority: WorkOrderPriority): EnqueueResult {
-    const activeEntries = listByStatus(['QUEUED', 'RUNNING']);
+  async enqueue(
+    workOrderId: string,
+    priority: WorkOrderPriority,
+    options?: {
+      laneType?: QueueLaneType;
+      taskType?: string;
+      payloadMeta?: Record<string, unknown>;
+      maxRetries?: number;
+      scheduledAt?: string;
+      dedupeKey?: string | null;
+      timeoutMs?: number | null;
+      appId?: string;
+    },
+  ): Promise<EnqueueResult> {
+    const result = await queueOrchestratorService.enqueueTask({
+      payloadRef: workOrderId,
+      priority: priority as QueuePriority,
+      laneType: options?.laneType,
+      taskType: options?.taskType,
+      payloadMeta: options?.payloadMeta,
+      maxRetries: options?.maxRetries,
+      scheduledAt: options?.scheduledAt,
+      dedupeKey: options?.dedupeKey ?? `work-order:${workOrderId}`,
+      timeoutMs: options?.timeoutMs,
+      appId: options?.appId,
+    });
 
-    if (activeEntries.length >= MAX_QUEUE_SIZE) {
-      return { accepted: false, reason: 'queue_full', entry: null };
-    }
-
-    if (priority !== 'CRITICAL') {
-      const nonCriticalActive = activeEntries.filter((entry) => entry.priority !== 'CRITICAL').length;
-      const nonCriticalCapacity = MAX_QUEUE_SIZE - CRISIS_RESERVED_SLOTS;
-      if (nonCriticalActive >= nonCriticalCapacity) {
-        return { accepted: false, reason: 'crisis_reserve', entry: null };
-      }
-    }
-
-    const now = new Date().toISOString();
-    const entry: QueueEntry = {
-      id: createQueueEntryId(),
-      workOrderId,
-      priority,
-      status: 'QUEUED',
-      enqueuedAt: now,
-      startedAt: null,
-      endedAt: null,
+    return {
+      accepted: result.accepted,
+      reason: result.reason,
+      entry: result.record ? toQueueEntry(result.record) : null,
     };
-
-    queueEntries.set(entry.id, entry);
-    return { accepted: true, reason: 'ok', entry };
   },
 
-  startNext(): QueueEntry | null {
-    const queued = listByStatus(['QUEUED']);
-    if (queued.length === 0) {
-      return null;
-    }
-
-    const next = queued.sort((a, b) => {
-      const weightDelta = PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
-      if (weightDelta !== 0) {
-        return weightDelta;
-      }
-      return a.enqueuedAt < b.enqueuedAt ? -1 : 1;
-    })[0];
-
-    if (!next) {
-      return null;
-    }
-
-    const updated: QueueEntry = {
-      ...next,
-      status: 'RUNNING',
-      startedAt: new Date().toISOString(),
-    };
-
-    queueEntries.set(updated.id, updated);
-    return updated;
+  async startNext(lanes?: QueueLaneType[]): Promise<QueueEntry | null> {
+    const task = await queueOrchestratorService.claimNextTask(lanes);
+    return task ? toQueueEntry(task) : null;
   },
 
-  complete(entryId: string): QueueEntry | null {
-    const existing = queueEntries.get(entryId);
-    if (!existing) {
-      return null;
-    }
-
-    const updated: QueueEntry = {
-      ...existing,
-      status: 'COMPLETED',
-      endedAt: new Date().toISOString(),
-    };
-    queueEntries.set(entryId, updated);
-    return updated;
+  async complete(entryId: string): Promise<QueueEntry | null> {
+    const task = await queueOrchestratorService.completeTask(entryId);
+    return task ? toQueueEntry(task) : null;
   },
 
-  fail(entryId: string): QueueEntry | null {
-    const existing = queueEntries.get(entryId);
-    if (!existing) {
-      return null;
-    }
-
-    const updated: QueueEntry = {
-      ...existing,
-      status: 'FAILED',
-      endedAt: new Date().toISOString(),
-    };
-    queueEntries.set(entryId, updated);
-    return updated;
+  async fail(entryId: string, error = 'Queue task failed'): Promise<QueueEntry | null> {
+    const task = await queueOrchestratorService.failTask(entryId, error);
+    return task ? toQueueEntry(task) : null;
   },
 
-  cancel(entryId: string): QueueEntry | null {
-    const existing = queueEntries.get(entryId);
-    if (!existing) {
-      return null;
-    }
-
-    const updated: QueueEntry = {
-      ...existing,
-      status: 'CANCELLED',
-      endedAt: new Date().toISOString(),
-    };
-    queueEntries.set(entryId, updated);
-    return updated;
+  async cancel(entryId: string, reason?: string): Promise<QueueEntry | null> {
+    const task = await queueOrchestratorService.cancelTask(entryId, reason);
+    return task ? toQueueEntry(task) : null;
   },
 
-  list(): QueueEntry[] {
-    return Array.from(queueEntries.values()).sort((a, b) => (a.enqueuedAt < b.enqueuedAt ? 1 : -1));
+  async list(): Promise<QueueEntry[]> {
+    const tasks = await queueOrchestratorService.listTasks();
+    return tasks.map(toQueueEntry);
   },
 
-  get(entryId: string): QueueEntry | null {
-    return queueEntries.get(entryId) ?? null;
+  async get(entryId: string): Promise<QueueEntry | null> {
+    const tasks = await queueOrchestratorService.listTasks();
+    const task = tasks.find((entry) => entry.taskId === entryId) ?? null;
+    return task ? toQueueEntry(task) : null;
   },
 
-  findByWorkOrderId(workOrderId: string): QueueEntry | null {
-    for (const entry of queueEntries.values()) {
-      if (entry.workOrderId === workOrderId) {
-        return entry;
-      }
-    }
-    return null;
+  async findByWorkOrderId(workOrderId: string): Promise<QueueEntry | null> {
+    const task = await queueOrchestratorService.findByPayloadRef(workOrderId);
+    return task ? toQueueEntry(task) : null;
   },
 
-  __resetForTesting(): void {
-    queueEntryCounter = 1;
-    queueEntries.clear();
+  async getHealthSnapshot() {
+    return queueOrchestratorService.getHealthCheck();
+  },
+
+  async __resetForTesting(): Promise<void> {
+    await queueOrchestratorService.__resetForTesting();
   },
 };

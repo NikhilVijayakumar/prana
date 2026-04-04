@@ -564,7 +564,15 @@ export class ProtocolInterceptor {
     };
 
     // Enqueue it
-    const queueResult = queueService.enqueue(escalationWorkOrder.id, escalationWorkOrder.priority);
+    const queueResult = await queueService.enqueue(escalationWorkOrder.id, escalationWorkOrder.priority, {
+      laneType: 'SYSTEM',
+      taskType: 'protocol-escalation',
+      payloadMeta: {
+        escalationTargetPersona: 'eva',
+        sourceWorkOrderId: context.workOrderId,
+      },
+      dedupeKey: `protocol-escalation:${context.workOrderId}`,
+    });
 
     await auditLogService.appendTransaction(AUDIT_ACTIONS.ESCALATION_QUEUED, {
       workOrderId: context.workOrderId,
