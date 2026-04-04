@@ -43,6 +43,7 @@ export interface RuntimeBootstrapConfig {
   governance: {
     repoUrl: string;
     repoPath: string;
+    testBranch?: string;
   };
   vault: {
     specVersion: string;
@@ -197,6 +198,15 @@ const getRequiredKeys = (issues: PranaConfigValidationIssue[]): RuntimeIntegrati
   });
 };
 
+const assertValidBootstrapConfig = (config: PranaRuntimeConfig | null): PranaRuntimeConfig => {
+  const validation = validatePranaRuntimeConfig(config);
+  if (!validation.valid) {
+    throw new Error(`[PRANA_CONFIG_ERROR] ${validation.errors.join('; ')}`);
+  }
+
+  return config as PranaRuntimeConfig;
+};
+
 export const getRuntimeIntegrationStatus = (): RuntimeIntegrationStatus => {
   const config = sqliteConfigStoreService.readSnapshotSync()?.config ?? null;
   const validation = validatePranaRuntimeConfig(config);
@@ -219,11 +229,7 @@ export const getRuntimeIntegrationStatus = (): RuntimeIntegrationStatus => {
 };
 
 export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
-  const rawConfig = sqliteConfigStoreService.readSnapshotSync()?.config ?? null;
-  const validation = validatePranaRuntimeConfig(rawConfig);
-  if (!validation.valid) {
-    console.warn(`[PRANA_CONFIG_WARN] Runtime config validation failed (${validation.errors.join('; ')}). Continuing with defaults as the config is now props-based per screen.`);
-  }
+  const rawConfig = assertValidBootstrapConfig(sqliteConfigStoreService.readSnapshotSync()?.config ?? null);
   const director = rawConfig?.director || {} as any;
   const governance = rawConfig?.governance || {} as any;
   const vault = rawConfig?.vault || {} as any;
@@ -240,6 +246,7 @@ export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
     governance: {
       repoUrl: governance.repoUrl || '',
       repoPath: governance.repoPath || '',
+      testBranch: governance.testBranch || undefined,
     },
     vault: {
       specVersion: vault.specVersion ?? DEFAULT_VAULT_SPEC_VERSION,

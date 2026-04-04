@@ -13,6 +13,24 @@ const hasRequiredStartupStagesReady = (startupStatus: any): boolean => {
     .every((stage: any) => stage.status === 'SUCCESS');
 };
 
+const resolveBootstrapConfig = async (): Promise<Record<string, unknown>> => {
+  const windowConfig = window.__pranaBootstrapConfig;
+  if (windowConfig && typeof windowConfig === 'object') {
+    return windowConfig;
+  }
+
+  if (!window.api?.app?.getBootstrapConfig) {
+    throw new Error('Missing preload bridge: app.getBootstrapConfig');
+  }
+
+  const ipcConfig = await window.api.app.getBootstrapConfig();
+  if (ipcConfig && typeof ipcConfig === 'object') {
+    return ipcConfig as Record<string, unknown>;
+  }
+
+  throw new Error('Host bootstrap config is unavailable. Splash bootstrap cannot start.');
+};
+
 export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => void) => {
   // useDataState returns: [state, execute, setAppState]
   const [bootState, , setBootState] = useDataState<boolean>();
@@ -29,15 +47,17 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
 
       const startupStatus = await runSafely(
         async () => {
-          if (!window.api?.app?.getStartupStatus) {
-            throw new Error('Missing preload bridge: app.getStartupStatus');
+          if (!window.api?.app?.bootstrapHost) {
+            throw new Error('Missing preload bridge: app.bootstrapHost');
           }
-          return window.api.app.getStartupStatus();
+
+          const config = await resolveBootstrapConfig();
+          return window.api.app.bootstrapHost({ config });
         },
         {
           category: 'ipc',
-          title: 'Startup Status Error',
-          userMessage: 'Startup status could not be verified.',
+          title: 'Startup Bootstrap Error',
+          userMessage: 'Startup bootstrap could not be completed.',
           swallow: true,
         },
       );

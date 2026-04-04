@@ -1,7 +1,3 @@
-import { existsSync } from 'node:fs';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { getGovernanceRepoPath } from './governanceRepoService';
 import type {
   GoogleSheetsGatewayProtocol,
   GoogleFormsGatewayProtocol,
@@ -10,8 +6,7 @@ import type {
 } from './administrationIntegrationService';
 import type { DocumentConversionService } from './documentConversionService';
 import { sqliteConfigStoreService } from './sqliteConfigStoreService';
-
-const DHI_VAULT_ROOT = 'dhi-vault';
+import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
 
 export interface GoogleDocsPublishResult {
   status: 'PUBLISHED' | 'SKIPPED' | 'FAILED';
@@ -57,9 +52,7 @@ export interface GoogleDocsPullerProtocol {
   pullDocToVault(documentId: string, vaultTargetPath: string): Promise<GoogleDocsPullResult>;
 }
 
-const getVaultRootPath = (): string => {
-  return join(getGovernanceRepoPath(), DHI_VAULT_ROOT);
-};
+const PUBLISHED_DOC_PREFIX = 'org/administration/published';
 
 const resolveCredentials = (): GoogleBridgeCredentials | null => {
   const googleConfig = sqliteConfigStoreService.readSnapshotSync()?.config?.google;
@@ -82,16 +75,14 @@ class FileBackedDocsPublisher implements GoogleDocsPublisherProtocol {
     const now = new Date().toISOString();
 
     try {
-      const publishDir = join(getVaultRootPath(), 'org', 'administration', 'published');
-      await mkdir(publishDir, { recursive: true });
-
-      const outputPath = join(publishDir, `${policyId}.published.html`);
-      await writeFile(outputPath, htmlContent, 'utf8');
+      const documentKey = `${PUBLISHED_DOC_PREFIX}/${policyId}.published.html`;
+      await runtimeDocumentStoreService.writeText(documentKey, htmlContent);
+      await runtimeDocumentStoreService.flushPendingToVault(`sync: publish policy ${policyId}`);
 
       return {
         status: 'PUBLISHED',
-        message: `Policy ${policyId} published to local vault (file-backed mode).`,
-        documentId: `local://${outputPath}`,
+        message: `Policy ${policyId} published to runtime document cache.`,
+        documentId: `local://${documentKey}`,
         publishedAt: now,
       };
     } catch (error) {
@@ -110,11 +101,9 @@ class FileBackedDocsPuller implements GoogleDocsPullerProtocol {
 
   async pullDocToVault(documentId: string, vaultTargetPath: string): Promise<GoogleDocsPullResult> {
     const now = new Date().toISOString();
-
-    const publishedPath = join(getVaultRootPath(), 'org', 'administration', 'published');
-    const localHtmlFile = join(publishedPath, `${documentId}.published.html`);
-
-    if (!existsSync(localHtmlFile)) {
+    const localHtmlFile = `${PUBLISHED_DOC_PREFIX}/${documentId}.published.html`;
+    const htmlContent = await runtimeDocumentStoreService.readText(localHtmlFile);
+    if (!htmlContent) {
       return {
         status: 'SKIPPED',
         message: `No published document found for ID: ${documentId}. File-backed mode requires local publish first.`,
@@ -124,20 +113,14 @@ class FileBackedDocsPuller implements GoogleDocsPullerProtocol {
     }
 
     try {
-      const htmlContent = await readFile(localHtmlFile, 'utf8');
-
       if (this.conversionService) {
         const converted = await this.conversionService.convertContent({
           sourceFormat: 'html',
           targetFormat: 'markdown',
           content: htmlContent,
         });
-
-        const targetDir = join(getVaultRootPath(), ...vaultTargetPath.split('/').slice(0, -1));
-        await mkdir(targetDir, { recursive: true });
-
-        const fullTarget = join(getVaultRootPath(), vaultTargetPath);
-        await writeFile(fullTarget, converted.content, 'utf8');
+        await runtimeDocumentStoreService.writeText(vaultTargetPath, converted.content);
+        await runtimeDocumentStoreService.flushPendingToVault(`sync: pull google doc ${documentId}`);
 
         return {
           status: 'PULLED',
@@ -146,12 +129,8 @@ class FileBackedDocsPuller implements GoogleDocsPullerProtocol {
           pulledAt: now,
         };
       }
-
-      const targetDir = join(getVaultRootPath(), ...vaultTargetPath.split('/').slice(0, -1));
-      await mkdir(targetDir, { recursive: true });
-
-      const fullTarget = join(getVaultRootPath(), vaultTargetPath);
-      await writeFile(fullTarget, htmlContent, 'utf8');
+      await runtimeDocumentStoreService.writeText(vaultTargetPath, htmlContent);
+      await runtimeDocumentStoreService.flushPendingToVault(`sync: pull google doc ${documentId}`);
 
       return {
         status: 'PULLED',
@@ -259,25 +238,7 @@ export class GoogleBridgeService {
     credentialsOverride?: GoogleBridgeCredentials | null,
   ) {
     this.credentials = credentialsOverride !== undefined ? credentialsOverride : resolveCredentials();
-
-    const mappingPath = join(
-      getVaultRootPath(),
-      'org',
-      'administration',
-      'integrations',
-      'google-sheets.mapping.json',
-    );
-
-    let spreadsheetId = '';
-    try {
-      if (existsSync(mappingPath)) {
-        const raw = require('fs').readFileSync(mappingPath, 'utf8');
-        const mapping = JSON.parse(raw) as { workbook?: { spreadsheetId?: string } };
-        spreadsheetId = mapping?.workbook?.spreadsheetId ?? '';
-      }
-    } catch {
-      spreadsheetId = '';
-    }
+    const spreadsheetId = '';
 
     this.config = {
       credentials: this.credentials,
@@ -286,8 +247,14 @@ export class GoogleBridgeService {
       docsEnabled: this.credentials !== null,
     };
 
-    if (this.credentials && spreadsheetId && spreadsheetId !== 'REPLACE_WITH_SPREADSHEET_ID') {
-      this.sheetsGateway = new LiveGoogleSheetsGateway(this.credentials, spreadsheetId);
+    if (this.credentials) {
+      this.sheetsGateway = spreadsheetId && spreadsheetId !== 'REPLACE_WITH_SPREADSHEET_ID'
+        ? new LiveGoogleSheetsGateway(this.credentials, spreadsheetId)
+        : {
+          async listStaffRows() {
+            return [];
+          },
+        };
       this.formsGateway = new LiveGoogleFormsGateway(this.credentials);
       this.docsPublisher = new LiveGoogleDocsPublisher(this.credentials);
       this.docsPuller = new LiveGoogleDocsPuller(this.credentials, conversionService);

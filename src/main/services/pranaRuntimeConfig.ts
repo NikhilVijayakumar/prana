@@ -29,6 +29,7 @@ export interface PranaRuntimeConfig {
   governance: {
     repoUrl: string;
     repoPath: string;
+    testBranch?: string;
   };
   vault: {
     specVersion?: string;
@@ -84,6 +85,8 @@ export interface PranaRuntimeConfig {
   };
 }
 
+let runtimeConfigOverride: PranaRuntimeConfig | null = null;
+
 const hasText = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
 
 const hasPositiveInteger = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value) && value > 0;
@@ -102,7 +105,7 @@ export const validatePranaRuntimeConfig = (config: PranaRuntimeConfig | null): P
   if (!config) {
     return {
       valid: false,
-      errors: ['Runtime config is not set. Host app must call setPranaRuntimeConfig() before Prana bootstrap.'],
+      errors: ['Runtime config is not set. Host app must provide bootstrap config before calling app:bootstrap-host.'],
       issues: [
         {
           key: 'runtimeConfig',
@@ -265,4 +268,12 @@ export const validatePranaRuntimeConfig = (config: PranaRuntimeConfig | null): P
     errors,
     issues,
   };
+};
+
+export const setPranaRuntimeConfig = (config: PranaRuntimeConfig | null): void => {
+  runtimeConfigOverride = config;
+};
+
+export const getPranaRuntimeConfig = (): PranaRuntimeConfig | null => {
+  return runtimeConfigOverride;
 };

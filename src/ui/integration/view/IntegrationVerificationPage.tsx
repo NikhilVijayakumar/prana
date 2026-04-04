@@ -91,7 +91,6 @@ const collectRendererStatus = (branding: Partial<PranaBrandingConfig>): Renderer
 
 const collectRuntimeStatus = async (): Promise<{
   runtime: RuntimeIntegrationStatus | null;
-  startup: StartupStatusReport | null;
   errors: string[];
   bridgeAvailable: boolean;
 }> => {
@@ -101,7 +100,6 @@ const collectRuntimeStatus = async (): Promise<{
     errors.push('Missing preload bridge: window.api.app.getIntegrationStatus');
     return {
       runtime: null,
-      startup: null,
       errors,
       bridgeAvailable: false,
     };
@@ -113,16 +111,8 @@ const collectRuntimeStatus = async (): Promise<{
       () => window.api.app.getIntegrationStatus(),
       (value) => typeof value === 'object' && value !== null,
     );
-    const startup = window.api?.app?.getStartupStatus
-      ? await safeIpcCall<StartupStatusReport>(
-          'app.getStartupStatus',
-          () => window.api.app.getStartupStatus(),
-          (value) => typeof value === 'object' && value !== null,
-        )
-      : null;
     return {
       runtime,
-      startup,
       errors,
       bridgeAvailable: true,
     };
@@ -130,7 +120,6 @@ const collectRuntimeStatus = async (): Promise<{
     errors.push('Unable to fetch runtime integration status from main process.');
     return {
       runtime: null,
-      startup: null,
       errors,
       bridgeAvailable: true,
     };
@@ -169,7 +158,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
         timestamp: new Date().toISOString(),
         bridgeAvailable: runtimeResult.bridgeAvailable,
         runtime: runtimeResult.runtime,
-        startup: runtimeResult.startup,
+        startup: null,
         rendererKeys,
         errors: runtimeResult.errors,
       });
@@ -187,18 +176,12 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
 
   const runtimeReady = snapshot?.runtime?.ready ?? false;
   const rendererReady = rendererSummary.total > 0 && rendererSummary.missing === 0;
-  const startupStages = snapshot?.startup?.stages ?? [];
-  const requiredStageIds = new Set(['integration', 'governance', 'vault']);
-  const requiredStartupStagesReady = startupStages
-    .filter((stage) => requiredStageIds.has(stage.id))
-    .every((stage) => stage.status === 'SUCCESS');
 
   const pageReady = Boolean(
     snapshot?.bridgeAvailable &&
       runtimeReady &&
       rendererReady &&
-      (snapshot?.errors.length ?? 0) === 0 &&
-      requiredStartupStagesReady,
+      (snapshot?.errors.length ?? 0) === 0,
   );
 
   return (
@@ -305,36 +288,6 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
                     </CardContent>
                   </Card>
                 </Stack>
-
-                <Card variant="outlined">
-                  <CardContent>
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      Startup Orchestration
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Overall: {snapshot?.startup?.overallStatus ?? 'UNKNOWN'}
-                    </Typography>
-
-                    <List dense>
-                      {(snapshot?.startup?.stages ?? []).map((stage) => (
-                        <ListItem key={stage.id} disableGutters>
-                          <ListItemText
-                            primary={stage.label}
-                            secondary={`${stage.status} | ${stage.message}`}
-                            secondaryTypographyProps={{
-                              color:
-                                stage.status === 'SUCCESS'
-                                  ? 'success.main'
-                                  : stage.status === 'FAILED'
-                                    ? 'error.main'
-                                    : 'warning.main',
-                            }}
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  </CardContent>
-                </Card>
 
                 <Typography variant="caption" color="text.secondary">
                   Checked at: {snapshot?.timestamp}

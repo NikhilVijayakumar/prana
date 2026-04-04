@@ -1,10 +1,21 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getAppDataRoot, getGovernanceRepoPath } from './governanceRepoService';
+import { getAppDataRoot } from './governanceRepoService';
+import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
 
-const DHI_VAULT_ROOT = 'dhi-vault';
 const STATE_FILE = 'administration-integration-state.json';
+const INTEGRATION_CONFIG_DOC_KEY = 'org/administration/integrations/external-systems.config.json';
+const SHEETS_MAPPING_DOC_KEY = 'org/administration/integrations/google-sheets.mapping.json';
+const STAFF_REGISTRY_DOC_KEY = 'org/administration/staff/staff-registry.csv';
+const FEEDBACK_RESPONSES_DOC_KEY = 'org/administration/feedback/google-forms.responses.json';
+const FEEDBACK_EVALUATION_DOC_KEY = 'org/administration/evaluations/feedback-latest.json';
+const KPI_SIGNALS_DOC_KEY = 'org/administration/evaluations/kpi-signals.json';
+const KPI_HAPPINESS_DOC_KEY = 'org/administration/evaluations/kpi-happiness-evaluation.latest.json';
+const ESCALATION_OUTPUT_DOC_KEY = 'org/administration/evaluations/kpi-happiness-escalations.latest.json';
+const SOCIAL_TREND_SIGNALS_DOC_KEY = 'org/administration/channels/twitter-trends.signals.json';
+const SOCIAL_TREND_POLICY_DOC_KEY = 'org/administration/evaluations/social-trend-policy-impact.latest.json';
+const SOCIAL_TREND_ESCALATIONS_DOC_KEY = 'org/administration/evaluations/social-trend-escalations.latest.json';
 
 export interface GoogleSheetStaffRow {
   employee_id: string;
@@ -194,54 +205,6 @@ interface SheetsMappingFile {
   };
 }
 
-const getVaultRootPath = (): string => {
-  return join(getGovernanceRepoPath(), DHI_VAULT_ROOT);
-};
-
-const getIntegrationConfigPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'integrations', 'external-systems.config.json');
-};
-
-const getSheetsMappingPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'integrations', 'google-sheets.mapping.json');
-};
-
-const getStaffRegistryPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'staff', 'staff-registry.csv');
-};
-
-const getFeedbackResponsesPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'feedback', 'google-forms.responses.json');
-};
-
-const getFeedbackEvaluationPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'evaluations', 'feedback-latest.json');
-};
-
-const getKpiSignalsPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'evaluations', 'kpi-signals.json');
-};
-
-const getKpiHappinessEvaluationPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'evaluations', 'kpi-happiness-evaluation.latest.json');
-};
-
-const getEscalationOutputPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'evaluations', 'kpi-happiness-escalations.latest.json');
-};
-
-const getSocialTrendSignalsPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'channels', 'twitter-trends.signals.json');
-};
-
-const getSocialTrendPolicyImpactPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'evaluations', 'social-trend-policy-impact.latest.json');
-};
-
-const getSocialTrendEscalationsPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'evaluations', 'social-trend-escalations.latest.json');
-};
-
 const getStateFilePath = (): string => {
   return join(getAppDataRoot(), STATE_FILE);
 };
@@ -335,24 +298,21 @@ const normalizeStaffRow = (row: Record<string, string>): GoogleSheetStaffRow => 
 
 class FileBackedGoogleSheetsGateway implements GoogleSheetsGatewayProtocol {
   async listStaffRows(): Promise<GoogleSheetStaffRow[]> {
-    const path = getStaffRegistryPath();
-    if (!existsSync(path)) {
+    const raw = await runtimeDocumentStoreService.readText(STAFF_REGISTRY_DOC_KEY);
+    if (!raw) {
       return [];
     }
-
-    const raw = await readFile(path, 'utf8');
     return parseCsv(raw).map(normalizeStaffRow);
   }
 }
 
 class FileBackedGoogleFormsGateway implements GoogleFormsGatewayProtocol {
   async listFeedbackResponses(): Promise<GoogleFormFeedbackResponse[]> {
-    const path = getFeedbackResponsesPath();
-    if (!existsSync(path)) {
+    const raw = await runtimeDocumentStoreService.readText(FEEDBACK_RESPONSES_DOC_KEY);
+    if (!raw) {
       return [];
     }
 
-    const raw = await readFile(path, 'utf8');
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (!Array.isArray(parsed)) {
@@ -378,23 +338,6 @@ class FileBackedGoogleFormsGateway implements GoogleFormsGatewayProtocol {
     }
   }
 }
-
-const readJsonObjectFile = async <T extends object>(path: string): Promise<T | null> => {
-  if (!existsSync(path)) {
-    return null;
-  }
-
-  try {
-    const raw = await readFile(path, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as T;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-};
 
 const readIntegrationState = async (): Promise<PersistedAdministrationIntegrationState> => {
   const path = getStateFilePath();
@@ -683,8 +626,8 @@ export class AdministrationIntegrationService {
 
   async getSnapshot(): Promise<AdministrationIntegrationSnapshot> {
     const [integrationConfig, sheetsMapping, staffRows, feedbackResponses, state] = await Promise.all([
-      readJsonObjectFile<IntegrationConfigFile>(getIntegrationConfigPath()),
-      readJsonObjectFile<SheetsMappingFile>(getSheetsMappingPath()),
+      runtimeDocumentStoreService.readJsonObject<IntegrationConfigFile>(INTEGRATION_CONFIG_DOC_KEY),
+      runtimeDocumentStoreService.readJsonObject<SheetsMappingFile>(SHEETS_MAPPING_DOC_KEY),
       this.sheetsGateway.listStaffRows(),
       this.formsGateway.listFeedbackResponses(),
       readIntegrationState(),
@@ -696,17 +639,17 @@ export class AdministrationIntegrationService {
     return {
       mode: 'adapter-ready',
       configPaths: {
-        integrationConfig: getIntegrationConfigPath(),
-        googleSheetsMapping: getSheetsMappingPath(),
-        staffRegistry: getStaffRegistryPath(),
-        feedbackResponses: getFeedbackResponsesPath(),
-        feedbackEvaluation: getFeedbackEvaluationPath(),
-        kpiSignals: getKpiSignalsPath(),
-        kpiHappinessEvaluation: getKpiHappinessEvaluationPath(),
-        escalationOutput: getEscalationOutputPath(),
-        socialTrendSignals: getSocialTrendSignalsPath(),
-        socialTrendPolicyImpact: getSocialTrendPolicyImpactPath(),
-        socialTrendEscalations: getSocialTrendEscalationsPath(),
+        integrationConfig: INTEGRATION_CONFIG_DOC_KEY,
+        googleSheetsMapping: SHEETS_MAPPING_DOC_KEY,
+        staffRegistry: STAFF_REGISTRY_DOC_KEY,
+        feedbackResponses: FEEDBACK_RESPONSES_DOC_KEY,
+        feedbackEvaluation: FEEDBACK_EVALUATION_DOC_KEY,
+        kpiSignals: KPI_SIGNALS_DOC_KEY,
+        kpiHappinessEvaluation: KPI_HAPPINESS_DOC_KEY,
+        escalationOutput: ESCALATION_OUTPUT_DOC_KEY,
+        socialTrendSignals: SOCIAL_TREND_SIGNALS_DOC_KEY,
+        socialTrendPolicyImpact: SOCIAL_TREND_POLICY_DOC_KEY,
+        socialTrendEscalations: SOCIAL_TREND_ESCALATIONS_DOC_KEY,
       },
       providers: {
         googleSheets: {
@@ -751,7 +694,7 @@ export class AdministrationIntegrationService {
 
   async syncStaffRegistryFromSheets(): Promise<AdministrationSyncRunReport> {
     const now = new Date().toISOString();
-    const sheetsMapping = await readJsonObjectFile<SheetsMappingFile>(getSheetsMappingPath());
+    const sheetsMapping = await runtimeDocumentStoreService.readJsonObject<SheetsMappingFile>(SHEETS_MAPPING_DOC_KEY);
     const spreadsheetId = sheetsMapping?.workbook?.spreadsheetId ?? '';
 
     if (spreadsheetId.trim().length === 0 || spreadsheetId === 'REPLACE_WITH_SPREADSHEET_ID') {
@@ -802,9 +745,8 @@ export class AdministrationIntegrationService {
         sheet_row_ref: row.sheet_row_ref,
       }));
 
-      const targetPath = getStaffRegistryPath();
-      await mkdir(join(getVaultRootPath(), 'org', 'administration', 'staff'), { recursive: true });
-      await writeFile(targetPath, toCsv(headers, csvRows), 'utf8');
+      await runtimeDocumentStoreService.writeText(STAFF_REGISTRY_DOC_KEY, toCsv(headers, csvRows));
+      await runtimeDocumentStoreService.flushPendingToVault('sync: administration staff registry');
 
       const report: AdministrationSyncRunReport = {
         status: 'SYNCED',
@@ -843,10 +785,8 @@ export class AdministrationIntegrationService {
     try {
       const responses = await this.formsGateway.listFeedbackResponses();
       const summary = calculateFeedbackSummary(responses);
-      const evaluationPath = getFeedbackEvaluationPath();
-
-      await mkdir(join(getVaultRootPath(), 'org', 'administration', 'evaluations'), { recursive: true });
-      await writeFile(evaluationPath, JSON.stringify(summary, null, 2), 'utf8');
+      await runtimeDocumentStoreService.writeJson(FEEDBACK_EVALUATION_DOC_KEY, summary);
+      await runtimeDocumentStoreService.flushPendingToVault('sync: administration feedback evaluation');
 
       const report: AdministrationSyncRunReport = {
         status: 'SYNCED',
@@ -883,7 +823,7 @@ export class AdministrationIntegrationService {
     const [staffRows, feedbackResponses, kpiSignalRaw] = await Promise.all([
       this.sheetsGateway.listStaffRows(),
       this.formsGateway.listFeedbackResponses(),
-      readJsonObjectFile<{ signals?: unknown }>(getKpiSignalsPath()),
+      runtimeDocumentStoreService.readJsonObject<{ signals?: unknown }>(KPI_SIGNALS_DOC_KEY),
     ]);
 
     const kpiSignals = normalizeKpiSignals(kpiSignalRaw?.signals ?? []);
@@ -893,13 +833,13 @@ export class AdministrationIntegrationService {
       kpiSignals,
     });
 
-    await mkdir(join(getVaultRootPath(), 'org', 'administration', 'evaluations'), { recursive: true });
-    await writeFile(getKpiHappinessEvaluationPath(), JSON.stringify(output, null, 2), 'utf8');
-    await writeFile(getEscalationOutputPath(), JSON.stringify({
+    await runtimeDocumentStoreService.writeJson(KPI_HAPPINESS_DOC_KEY, output);
+    await runtimeDocumentStoreService.writeJson(ESCALATION_OUTPUT_DOC_KEY, {
       generatedAt: output.generatedAt,
       summary: output.summary,
       escalations: output.escalations,
-    }, null, 2), 'utf8');
+    });
+    await runtimeDocumentStoreService.flushPendingToVault('sync: administration kpi happiness');
 
     const state = await readIntegrationState();
     state.lastEvaluationSync = {
@@ -916,7 +856,7 @@ export class AdministrationIntegrationService {
   }
 
   async runSocialTrendIntelligence(): Promise<SocialTrendIntelligenceOutput> {
-    const integrationConfig = await readJsonObjectFile<IntegrationConfigFile>(getIntegrationConfigPath());
+    const integrationConfig = await runtimeDocumentStoreService.readJsonObject<IntegrationConfigFile>(INTEGRATION_CONFIG_DOC_KEY);
     const socialEnabled = Boolean(integrationConfig?.channels?.socialTrend?.enabled ?? true);
 
     if (!socialEnabled) {
@@ -932,25 +872,17 @@ export class AdministrationIntegrationService {
       };
     }
 
-    const trendRaw = await readJsonObjectFile<{ signals?: unknown }>(getSocialTrendSignalsPath());
+    const trendRaw = await runtimeDocumentStoreService.readJsonObject<{ signals?: unknown }>(SOCIAL_TREND_SIGNALS_DOC_KEY);
     const signals = normalizeSocialTrendSignals(trendRaw?.signals ?? []);
     const output = buildSocialTrendPolicyIntelligence(signals);
 
-    await mkdir(join(getVaultRootPath(), 'org', 'administration', 'evaluations'), { recursive: true });
-    await writeFile(getSocialTrendPolicyImpactPath(), JSON.stringify(output, null, 2), 'utf8');
-    await writeFile(
-      getSocialTrendEscalationsPath(),
-      JSON.stringify(
-        {
-          generatedAt: output.generatedAt,
-          escalations: output.recommendations.filter((item) => item.escalationRequired),
-          summary: output.summary,
-        },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    await runtimeDocumentStoreService.writeJson(SOCIAL_TREND_POLICY_DOC_KEY, output);
+    await runtimeDocumentStoreService.writeJson(SOCIAL_TREND_ESCALATIONS_DOC_KEY, {
+      generatedAt: output.generatedAt,
+      escalations: output.recommendations.filter((item) => item.escalationRequired),
+      summary: output.summary,
+    });
+    await runtimeDocumentStoreService.flushPendingToVault('sync: administration social trend intelligence');
 
     const state = await readIntegrationState();
     state.lastTrendSync = {

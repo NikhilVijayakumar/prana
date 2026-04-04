@@ -62,12 +62,12 @@ const hasGitRepository = (repoPath: string): boolean => {
 };
 
 const getRequestedTestBranch = (): string | null => {
-  const configuredBranch = process.env.PRANA_TEST_BRANCH?.trim();
+  const configuredBranch = getRuntimeBootstrapConfig().governance.testBranch?.trim();
   if (configuredBranch) {
     return configuredBranch;
   }
 
-  return process.env.NODE_ENV === 'test' ? 'test-sandbox' : null;
+  return getPranaPlatformRuntime().mode === 'test' ? 'test-sandbox' : null;
 };
 
 const doesRemoteBranchExist = async (repoUrl: string, branchName: string): Promise<boolean> => {

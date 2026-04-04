@@ -24,7 +24,7 @@ export const assertRequiredBrandingFields = (
 ): void => {
   const missing = findMissingBrandingFields(branding, requiredFields);
   if (missing.length > 0) {
-    throw new Error(`[PRANA_BRANDING_ERROR][${screenId}] Missing required branding props: ${missing.join(', ')}`);
+    console.warn(`[PRANA_BRANDING_WARN][${screenId}] Missing required branding props: ${missing.join(', ')}`);
   }
 };
 
@@ -34,7 +34,7 @@ export const assertRequiredBrandingFields = (
 /*  Falls back to window global for backward compat (deprecated).      */
 /* ------------------------------------------------------------------ */
 
-import { createContext, useContext, useState, useEffect, type FC, type ReactNode } from 'react';
+import { createContext, createElement, useContext, useState, useEffect, type FC, type ReactNode } from 'react';
 
 const BrandingContext = createContext<Partial<PranaBrandingConfig>>({});
 
@@ -99,7 +99,7 @@ export const BrandingProvider: FC<{ children: ReactNode }> = ({ children }) => {
     };
   }, []);
 
-  return <BrandingContext.Provider value={branding}>{children}</BrandingContext.Provider>;
+  return createElement(BrandingContext.Provider, { value: branding }, children);
 };
 
 export const useBranding = (): Partial<PranaBrandingConfig> => {

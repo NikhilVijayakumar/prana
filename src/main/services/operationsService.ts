@@ -3164,7 +3164,7 @@ export const operationsService = {
     await rm(tempPath, { force: true });
     await vaultService.createTempSnapshot(`onboarding-final-${Date.now()}`);
     await syncProviderService.stageApprovedRegistryForSync('onboarding-commit-approved');
-    void syncProviderService.triggerBackgroundPush();
+    await syncProviderService.triggerBackgroundPush();
     await onboardingStageStoreService.clearSnapshot();
 
     return {
@@ -3537,9 +3537,23 @@ export const operationsService = {
   },
 
   async reviewLifecycleDraft(payload: ReviewLifecycleDraftPayload): Promise<LifecycleUpdateResult> {
-    if (payload.status === 'APPROVED') {
+    const normalizedPayload: ReviewLifecycleDraftPayload = {
+      ...payload,
+      reviewNote: payload.reviewNote?.trim() || undefined,
+    };
+    const reviewNote = normalizedPayload.reviewNote ?? '';
+
+    if ((normalizedPayload.status === 'REJECTED' || normalizedPayload.status === 'OVERRIDDEN') && reviewNote.length === 0) {
+      return {
+        success: false,
+        updatedAt: new Date().toISOString(),
+        validationErrors: ['Review note is required when rejecting or overriding a lifecycle draft.'],
+      };
+    }
+
+    if (normalizedPayload.status === 'APPROVED') {
       const allDrafts = await governanceLifecycleQueueStoreService.listLifecycleDrafts('PENDING');
-      const target = allDrafts.find((entry) => entry.draftId === payload.draftId);
+      const target = allDrafts.find((entry) => entry.draftId === normalizedPayload.draftId);
       if (!target) {
         return {
           success: false,
@@ -3558,7 +3572,7 @@ export const operationsService = {
       }
     }
 
-    const reviewed = await governanceLifecycleQueueStoreService.reviewLifecycleDraft(payload);
+    const reviewed = await governanceLifecycleQueueStoreService.reviewLifecycleDraft(normalizedPayload);
     if (!reviewed) {
       return {
         success: false,

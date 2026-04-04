@@ -55,6 +55,8 @@ interface PersistedCronState {
   updatedAt: string;
 }
 
+type CronJobExecutor = () => Promise<void>;
+
 const STORE_FILE = 'cron-schedules.json';
 const TICK_INTERVAL_MS = 30_000;
 let initialized = false;
@@ -71,6 +73,7 @@ let latestRecoverySummary: CronRecoverySummary = {
 };
 
 const jobs = new Map<string, CronJob>();
+const customJobExecutors = new Map<string, CronJobExecutor>();
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -143,6 +146,12 @@ const defaultJobs = (): CronJob[] => {
 };
 
 const runJobAction = async (job: CronJob): Promise<void> => {
+  const customExecutor = customJobExecutors.get(job.id);
+  if (customExecutor) {
+    await customExecutor();
+    return;
+  }
+
   if (job.id === SYNC_PUSH_CRON_JOB_ID) {
     await syncProviderService.triggerBackgroundPush();
     return;
@@ -697,5 +706,24 @@ export const cronSchedulerService = {
     Object.assign(job, patch);
     await writeStore();
     return cloneJob(job);
+  },
+
+  registerJobExecutor(jobId: string, executor: CronJobExecutor): void {
+    if (!jobId.trim()) {
+      throw new Error('Cron executor job id is required.');
+    }
+    customJobExecutors.set(jobId, executor);
+  },
+
+  unregisterJobExecutor(jobId: string): void {
+    customJobExecutors.delete(jobId);
+  },
+
+  unregisterJobExecutorsByPrefix(prefix: string): void {
+    for (const key of [...customJobExecutors.keys()]) {
+      if (key.startsWith(prefix)) {
+        customJobExecutors.delete(key);
+      }
+    }
   },
 };

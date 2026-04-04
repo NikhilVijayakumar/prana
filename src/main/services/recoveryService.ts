@@ -18,6 +18,7 @@
 
 import { spawn } from 'node:child_process';
 import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
+import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 import {
   ExecutionContext,
   ErrorClassification,
@@ -516,10 +517,11 @@ export class RecoveryService {
     const timeoutMs = Math.max(1, options.timeout) * 1000;
 
     return await new Promise((resolve, reject) => {
+      const platformRuntime = getPranaPlatformRuntime();
       const child = spawn(command, {
         shell: true,
         env: {
-          ...process.env,
+          ...(platformRuntime.inheritedEnv ?? {}),
           ...options.env,
         },
       });

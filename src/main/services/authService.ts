@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { ensureGovernanceRepoReady } from './governanceRepoService';
-import { driveControllerService } from './driveControllerService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { authStoreService, type AuthStoreRecord } from './authStoreService';
 
@@ -139,7 +138,6 @@ export const authService = {
     }
 
     const sessionToken = `${SESSION_TOKEN_PREFIX}${randomUUID()}`;
-    const vaultMount = await driveControllerService.mountVaultDrive(password);
     return {
       success: true,
       reason: 'invalid_credentials',
@@ -147,8 +145,8 @@ export const authService = {
       email: record.email,
       isFirstInstall: true,
       sessionToken,
-      vaultDriveMounted: vaultMount.success,
-      vaultDriveMessage: vaultMount.message,
+      vaultDriveMounted: false,
+      vaultDriveMessage: 'Vault drive remains locked until an explicit high-security flow requests access.',
     };
   },
 

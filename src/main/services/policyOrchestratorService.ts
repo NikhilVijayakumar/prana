@@ -1,9 +1,5 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { getGovernanceRepoPath } from './governanceRepoService';
-
-const DHI_VAULT_ROOT = 'dhi-vault';
+import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
+const POLICY_INDEX_DOC_KEY = 'org/administration/policies/policy-index.json';
 
 export interface PolicyMetadata {
   id: string;
@@ -87,14 +83,6 @@ export interface SentimentTeamSummary {
   averageSentiment: number;
   topConcerns: string[];
 }
-
-const getVaultRootPath = (): string => {
-  return join(getGovernanceRepoPath(), DHI_VAULT_ROOT);
-};
-
-const getPolicyIndexPath = (): string => {
-  return join(getVaultRootPath(), 'org', 'administration', 'policies', 'policy-index.json');
-};
 
 const REVIEW_CADENCE_DAYS: Record<string, number> = {
   weekly: 7,
@@ -325,13 +313,12 @@ export const suggestPolicyImprovements = (
 
 export class PolicyOrchestratorService {
   async listPolicies(): Promise<PolicyMetadata[]> {
-    const indexPath = getPolicyIndexPath();
-    if (!existsSync(indexPath)) {
+    const raw = await runtimeDocumentStoreService.readText(POLICY_INDEX_DOC_KEY);
+    if (!raw) {
       return [];
     }
 
     try {
-      const raw = await readFile(indexPath, 'utf8');
       const parsed = JSON.parse(raw) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         return [];

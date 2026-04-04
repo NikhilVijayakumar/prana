@@ -640,86 +640,99 @@ const assertVaultRelativePath = (relativePath: string): string => {
   return fullPath;
 };
 
+const withVaultWorkspace = async <T>(operation: () => Promise<T>): Promise<T> => {
+  await ensureVaultStore();
+  try {
+    return await operation();
+  } finally {
+    await vaultService.cleanupTemporaryWorkspace(true);
+  }
+};
+
 export const vaultService = {
   async initializeVault(): Promise<void> {
     await ensureVaultStore();
   },
 
   async createTempSnapshot(label = 'manual'): Promise<string> {
-    await ensureVaultStore();
-    const archivePath = await writeEncryptedArchiveFromWorkingRoot();
-    const snapshotName = `${Date.now()}_${label}${getRuntimeVaultConfig().tempZipExtension}`;
-    const snapshotPath = join(getSnapshotDir(), snapshotName);
-    await copyFile(archivePath, snapshotPath);
-    return snapshotPath;
+    return withVaultWorkspace(async () => {
+      const archivePath = await writeEncryptedArchiveFromWorkingRoot();
+      const snapshotName = `${Date.now()}_${label}${getRuntimeVaultConfig().tempZipExtension}`;
+      const snapshotPath = join(getSnapshotDir(), snapshotName);
+      await copyFile(archivePath, snapshotPath);
+      return snapshotPath;
+    });
   },
 
   async resumeFromSnapshot(snapshotPath: string): Promise<void> {
-    const absolutePath = resolve(snapshotPath);
-    if (!isPathInsideRoot(absolutePath, getSnapshotDir()) || !existsSync(absolutePath)) {
-      throw new Error('Snapshot path is invalid.');
-    }
+    await withVaultWorkspace(async () => {
+      const absolutePath = resolve(snapshotPath);
+      if (!isPathInsideRoot(absolutePath, getSnapshotDir()) || !existsSync(absolutePath)) {
+        throw new Error('Snapshot path is invalid.');
+      }
 
-    const raw = await readFile(absolutePath, 'utf8');
-    const payload = decryptVaultEnvelope(raw);
-    await materializePayloadToWorkingRoot(payload);
+      const raw = await readFile(absolutePath, 'utf8');
+      const payload = decryptVaultEnvelope(raw);
+      await materializePayloadToWorkingRoot(payload);
+    });
   },
 
   async publishVaultChanges(options?: PublishVaultOptions): Promise<PublishVaultResult> {
-    await ensureVaultStore();
-    const repoPath = getGovernanceRepoPath();
-    const timestamp = new Date().toISOString();
-    const message = options?.commitMessage?.trim() || `vault: publish ${timestamp}`;
-    const approvedByUser = options?.approvedByUser === true;
+    return withVaultWorkspace(async () => {
+      const repoPath = getGovernanceRepoPath();
+      const timestamp = new Date().toISOString();
+      const message = options?.commitMessage?.trim() || `vault: publish ${timestamp}`;
+      const approvedByUser = options?.approvedByUser === true;
 
-    const archivePath = await writeEncryptedArchiveFromWorkingRoot();
-    if (!approvedByUser) {
-      return {
-        success: true,
-        archivePath,
-        committed: false,
-        pushed: false,
-        hadStashedChanges: false,
-        message: 'Vault archive saved locally. Awaiting explicit user approval for commit and push.',
-      };
-    }
-
-    await assertDataRepoTarget(repoPath);
-
-    const stashRef = await stashChanges(repoPath);
-    const hadStashedChanges = Boolean(stashRef);
-    let committed = false;
-    let pushed = false;
-
-    try {
-      const beforeStatus = await executeCommand('git', ['status', '--porcelain', '--', relative(repoPath, archivePath)], 20_000, repoPath);
-      const hasArchiveDelta = beforeStatus.ok && beforeStatus.stdout.trim().length > 0;
-
-      if (hasArchiveDelta) {
-        await commitAndPushArchive(repoPath, archivePath, message);
-        committed = true;
-        pushed = true;
+      const archivePath = await writeEncryptedArchiveFromWorkingRoot();
+      if (!approvedByUser) {
+        return {
+          success: true,
+          archivePath,
+          committed: false,
+          pushed: false,
+          hadStashedChanges: false,
+          message: 'Vault archive saved locally. Awaiting explicit user approval for commit and push.',
+        };
       }
 
-      return {
-        success: true,
-        archivePath,
-        committed,
-        pushed,
-        hadStashedChanges,
-        message: hasArchiveDelta ? 'Vault archive published.' : 'No archive changes to publish.',
-      };
-    } finally {
-      await hookSystemService.emit('schedule.tick', {
-        jobId: 'vault.publish',
-        approvedByUser,
-        committed,
-        pushed,
-      });
-      if (hadStashedChanges) {
-        await popStashIfPresent(repoPath, stashRef);
+      await assertDataRepoTarget(repoPath);
+
+      const stashRef = await stashChanges(repoPath);
+      const hadStashedChanges = Boolean(stashRef);
+      let committed = false;
+      let pushed = false;
+
+      try {
+        const beforeStatus = await executeCommand('git', ['status', '--porcelain', '--', relative(repoPath, archivePath)], 20_000, repoPath);
+        const hasArchiveDelta = beforeStatus.ok && beforeStatus.stdout.trim().length > 0;
+
+        if (hasArchiveDelta) {
+          await commitAndPushArchive(repoPath, archivePath, message);
+          committed = true;
+          pushed = true;
+        }
+
+        return {
+          success: true,
+          archivePath,
+          committed,
+          pushed,
+          hadStashedChanges,
+          message: hasArchiveDelta ? 'Vault archive published.' : 'No archive changes to publish.',
+        };
+      } finally {
+        await hookSystemService.emit('schedule.tick', {
+          jobId: 'vault.publish',
+          approvedByUser,
+          committed,
+          pushed,
+        });
+        if (hadStashedChanges) {
+          await popStashIfPresent(repoPath, stashRef);
+        }
       }
-    }
+    });
   },
 
   async syncFromRemoteVault(): Promise<SyncFromRemoteResult> {
@@ -758,149 +771,166 @@ export const vaultService = {
   },
 
   async listFiles(): Promise<VaultFileRecord[]> {
-    const records = await readIndex();
-    return [...records].sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
+    return withVaultWorkspace(async () => {
+      const records = await readIndex();
+      return [...records].sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
+    });
   },
 
   async getKnowledgeSnapshot(): Promise<VaultKnowledgeSnapshot> {
-    await ensureVaultStore();
+    return withVaultWorkspace(async () => {
+      const workingRoot = getWorkingRootDir();
+      const status: VaultKnowledgeSnapshot['status'] = existsSync(workingRoot) ? 'UNLOCKED' : 'LOCKED';
+      const lastSync = new Date().toISOString();
 
-    const workingRoot = getWorkingRootDir();
-    const status: VaultKnowledgeSnapshot['status'] = existsSync(workingRoot) ? 'UNLOCKED' : 'LOCKED';
-    const lastSync = new Date().toISOString();
+      const directoryTree = await buildTreeForDirectory(workingRoot, workingRoot);
+      const pendingFiles = await listPendingFromAgentTemp();
 
-    const directoryTree = await buildTreeForDirectory(workingRoot, workingRoot);
-    const pendingFiles = await listPendingFromAgentTemp();
-
-    return {
-      status,
-      lastSync,
-      pendingFiles,
-      directoryTree,
-    };
+      return {
+        status,
+        lastSync,
+        pendingFiles,
+        directoryTree,
+      };
+    });
   },
 
   async readKnowledgeFile(relativePath: string): Promise<VaultFileReadResult> {
-    await ensureVaultStore();
-    const filePath = assertVaultRelativePath(relativePath);
-    const fileName = basename(filePath);
-    const extension = extname(fileName).toLowerCase();
-    const mimeType = getMimeType(extension);
+    return withVaultWorkspace(async () => {
+      const filePath = assertVaultRelativePath(relativePath);
+      const fileName = basename(filePath);
+      const extension = extname(fileName).toLowerCase();
+      const mimeType = getMimeType(extension);
 
-    if (isTextLikeExtension(extension)) {
-      const content = await readFile(filePath, 'utf8');
+      if (isTextLikeExtension(extension)) {
+        const content = await readFile(filePath, 'utf8');
+        return {
+          fileName,
+          relativePath: relativePath.replace(/\\/g, '/'),
+          encoding: 'text',
+          mimeType,
+          content,
+        };
+      }
+
+      const binary = await readFile(filePath);
       return {
         fileName,
         relativePath: relativePath.replace(/\\/g, '/'),
-        encoding: 'text',
+        encoding: 'base64',
         mimeType,
-        content,
+        content: binary.toString('base64'),
       };
-    }
-
-    const binary = await readFile(filePath);
-    return {
-      fileName,
-      relativePath: relativePath.replace(/\\/g, '/'),
-      encoding: 'base64',
-      mimeType,
-      content: binary.toString('base64'),
-    };
+    });
   },
 
   async approvePendingFile(relativePath: string): Promise<VaultKnowledgeSnapshot> {
-    await ensureVaultStore();
-    const sourcePath = assertVaultRelativePath(relativePath);
-    const normalizedRelative = relativePath.replace(/\\/g, '/');
+    return withVaultWorkspace(async () => {
+      const sourcePath = assertVaultRelativePath(relativePath);
+      const normalizedRelative = relativePath.replace(/\\/g, '/');
 
-    if (!normalizedRelative.startsWith('agent-temp/')) {
-      throw new Error('Only agent-temp files can be approved.');
-    }
+      if (!normalizedRelative.startsWith('agent-temp/')) {
+        throw new Error('Only agent-temp files can be approved.');
+      }
 
-    const targetPath = join(getWorkingRootDir(), 'data', 'processed', basename(sourcePath));
-    await mkdir(dirname(targetPath), { recursive: true });
-    await rename(sourcePath, targetPath);
-    await writeEncryptedArchiveFromWorkingRoot();
-    await refreshMemoryIndex();
-    await hookSystemService.emit('vault.pending.approved', { relativePath });
+      const targetPath = join(getWorkingRootDir(), 'data', 'processed', basename(sourcePath));
+      await mkdir(dirname(targetPath), { recursive: true });
+      await rename(sourcePath, targetPath);
+      await writeEncryptedArchiveFromWorkingRoot();
+      await refreshMemoryIndex();
+      await hookSystemService.emit('vault.pending.approved', { relativePath });
 
-    return this.getKnowledgeSnapshot();
+      const workingRoot = getWorkingRootDir();
+      return {
+        status: 'UNLOCKED',
+        lastSync: new Date().toISOString(),
+        pendingFiles: await listPendingFromAgentTemp(),
+        directoryTree: await buildTreeForDirectory(workingRoot, workingRoot),
+      };
+    });
   },
 
   async rejectPendingFile(relativePath: string): Promise<VaultKnowledgeSnapshot> {
-    await ensureVaultStore();
-    const sourcePath = assertVaultRelativePath(relativePath);
-    const normalizedRelative = relativePath.replace(/\\/g, '/');
+    return withVaultWorkspace(async () => {
+      const sourcePath = assertVaultRelativePath(relativePath);
+      const normalizedRelative = relativePath.replace(/\\/g, '/');
 
-    if (!normalizedRelative.startsWith('agent-temp/')) {
-      throw new Error('Only agent-temp files can be rejected.');
-    }
+      if (!normalizedRelative.startsWith('agent-temp/')) {
+        throw new Error('Only agent-temp files can be rejected.');
+      }
 
-    await rm(sourcePath, { recursive: false, force: true });
-    await writeEncryptedArchiveFromWorkingRoot();
-    await refreshMemoryIndex();
-    await hookSystemService.emit('vault.pending.rejected', { relativePath });
+      await rm(sourcePath, { recursive: false, force: true });
+      await writeEncryptedArchiveFromWorkingRoot();
+      await refreshMemoryIndex();
+      await hookSystemService.emit('vault.pending.rejected', { relativePath });
 
-    return this.getKnowledgeSnapshot();
+      const workingRoot = getWorkingRootDir();
+      return {
+        status: 'UNLOCKED',
+        lastSync: new Date().toISOString(),
+        pendingFiles: await listPendingFromAgentTemp(),
+        directoryTree: await buildTreeForDirectory(workingRoot, workingRoot),
+      };
+    });
   },
 
   async ingestPaths(sourcePaths: string[]): Promise<VaultFileRecord[]> {
-    await ensureVaultStore();
+    return withVaultWorkspace(async () => {
+      const workingRoot = getWorkingRootDir();
+      const index = await readIndex();
+      const created: VaultFileRecord[] = [];
 
-    const workingRoot = getWorkingRootDir();
-    const index = await readIndex();
-    const created: VaultFileRecord[] = [];
+      for (const sourcePath of sourcePaths) {
+        const sourceAbsolutePath = resolve(sourcePath);
+        if (!existsSync(sourceAbsolutePath)) {
+          continue;
+        }
 
-    for (const sourcePath of sourcePaths) {
-      const sourceAbsolutePath = resolve(sourcePath);
-      if (!existsSync(sourceAbsolutePath)) {
-        continue;
+        const fileName = basename(sourceAbsolutePath);
+        const timestamp = Date.now();
+        const stageFileName = `${timestamp}_${fileName}`;
+        const stagePath = join(getStageDir(), stageFileName);
+
+        if (!isPathInsideRoot(stagePath, workingRoot)) {
+          continue;
+        }
+
+        await copyFile(sourceAbsolutePath, stagePath);
+
+        const schemaType = detectSchemaType(fileName);
+        const validation = await validateAgainstSchema(stagePath, schemaType);
+        const classification = classifyData(schemaType, validation.headers);
+
+        const destinationPath = join(getRawDir(), stageFileName);
+        let status: VaultScanStatus = 'CLEAN';
+
+        if (validation.valid) {
+          await rename(stagePath, destinationPath);
+        } else {
+          status = 'QUARANTINE';
+        }
+
+        const fileStats = await stat(validation.valid ? destinationPath : stagePath);
+        const record: VaultFileRecord = {
+          id: `VLT-${randomUUID()}`,
+          filename: fileName,
+          size: bytesToHumanReadable(fileStats.size),
+          classification,
+          scanStatus: status,
+          uploadedAt: new Date().toISOString(),
+          validationErrors: validation.errors.length > 0 ? validation.errors : undefined,
+        };
+
+        index.unshift(record);
+        created.push(record);
       }
 
-      const fileName = basename(sourceAbsolutePath);
-      const timestamp = Date.now();
-      const stageFileName = `${timestamp}_${fileName}`;
-      const stagePath = join(getStageDir(), stageFileName);
-
-      if (!isPathInsideRoot(stagePath, workingRoot)) {
-        continue;
-      }
-
-      await copyFile(sourceAbsolutePath, stagePath);
-
-      const schemaType = detectSchemaType(fileName);
-      const validation = await validateAgainstSchema(stagePath, schemaType);
-      const classification = classifyData(schemaType, validation.headers);
-
-      const destinationPath = join(getRawDir(), stageFileName);
-      let status: VaultScanStatus = 'CLEAN';
-
-      if (validation.valid) {
-        await rename(stagePath, destinationPath);
-      } else {
-        status = 'QUARANTINE';
-      }
-
-      const fileStats = await stat(validation.valid ? destinationPath : stagePath);
-      const record: VaultFileRecord = {
-        id: `VLT-${randomUUID()}`,
-        filename: fileName,
-        size: bytesToHumanReadable(fileStats.size),
-        classification,
-        scanStatus: status,
-        uploadedAt: new Date().toISOString(),
-        validationErrors: validation.errors.length > 0 ? validation.errors : undefined,
-      };
-
-      index.unshift(record);
-      created.push(record);
-    }
-
-    await writeIndex(index);
-    await writeEncryptedArchiveFromWorkingRoot();
-    await refreshMemoryIndex();
-    await hookSystemService.emit('vault.ingested', { count: created.length });
-    return created;
+      await writeIndex(index);
+      await writeEncryptedArchiveFromWorkingRoot();
+      await refreshMemoryIndex();
+      await hookSystemService.emit('vault.ingested', { count: created.length });
+      return created;
+    });
   },
 
   getWorkingRootPath(): string {

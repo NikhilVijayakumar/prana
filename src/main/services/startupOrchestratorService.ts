@@ -6,6 +6,7 @@ import { recoveryOrchestratorService } from './recoveryOrchestratorService';
 import { cronSchedulerService } from './cronSchedulerService';
 import { hookSystemService } from './hookSystemService';
 import { memoryIndexService } from './memoryIndexService';
+import { emailOrchestratorService } from './emailOrchestratorService';
 
 export type StartupStageId =
   | 'integration'
@@ -264,13 +265,14 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
   try {
     markStage(stages, 'cron-recovery', 'PENDING', 'Recovering cron scheduler and missed runs...');
     await cronSchedulerService.initialize();
+    const emailHeartbeat = await emailOrchestratorService.syncHeartbeatSchedules();
     await cronSchedulerService.tick();
     const telemetry = await cronSchedulerService.getTelemetry();
     markStage(
       stages,
       'cron-recovery',
       'SUCCESS',
-      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
+      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, emailHeartbeatJobs=${emailHeartbeat.configuredJobs.length}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
     );
   } catch (error) {
     markStage(

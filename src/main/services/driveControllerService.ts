@@ -271,8 +271,11 @@ const spawnMount = async (
       if (!settled) {
         const message = stderr.trim() || stdout.trim() || `rclone mount exited early with code ${code ?? 'unknown'}.`;
         mountRegistryService.upsert(buildRecord(driveId, 'FAILED', mountPoint, sourcePath, message, stderr || stdout, null));
+        void hookSystemService.emit('system.status', { component: `drive:${driveId}`, status: 'degraded', reason: message });
       } else if (current?.stage === 'MOUNTED') {
-        mountRegistryService.upsert(buildRecord(driveId, 'FAILED', mountPoint, sourcePath, `Mount process exited with code ${code ?? 'unknown'}.`, stderr || stdout, null));
+        const message = `Mount process exited with code ${code ?? 'unknown'}.`;
+        mountRegistryService.upsert(buildRecord(driveId, 'FAILED', mountPoint, sourcePath, message, stderr || stdout, null));
+        void hookSystemService.emit('system.status', { component: `drive:${driveId}`, status: 'degraded', reason: message });
       }
     });
   });

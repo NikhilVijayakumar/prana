@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { assertRequiredBrandingFields, findMissingBrandingFields } from './pranaConfig';
 
 describe('pranaConfig branding prop validation', () => {
@@ -14,15 +14,20 @@ describe('pranaConfig branding prop validation', () => {
     expect(missing).toEqual(['appTitlebarTagline', 'directorSenderEmail']);
   });
 
-  it('throws fail-fast error when required props are missing', () => {
-    expect(() =>
-      assertRequiredBrandingFields(
-        'MainLayout',
-        {
-          appBrandName: 'Prana',
-        },
-        ['appBrandName', 'appTitlebarTagline'],
-      ),
-    ).toThrow('[PRANA_BRANDING_ERROR][MainLayout]');
+  it('warns when required props are missing', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    assertRequiredBrandingFields(
+      'MainLayout',
+      {
+        appBrandName: 'Prana',
+      },
+      ['appBrandName', 'appTitlebarTagline'],
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[PRANA_BRANDING_WARN][MainLayout] Missing required branding props: appTitlebarTagline',
+    );
+    warnSpy.mockRestore();
   });
 });

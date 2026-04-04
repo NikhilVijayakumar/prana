@@ -8,13 +8,13 @@ import { sqliteConfigStoreService } from './services/sqliteConfigStoreService'
 import { contextDigestStoreService } from './services/contextDigestStoreService'
 import { getPranaPlatformRuntime, setPranaPlatformRuntime } from './services/pranaPlatformRuntime'
 import { hookSystemService } from './services/hookSystemService'
+import { runtimeDocumentStoreService } from './services/runtimeDocumentStoreService'
 
 const initializePranaRuntime = (): void => {
   setPranaPlatformRuntime({
-    mode: (process.env.NODE_ENV as 'development' | 'production' | 'test' | undefined) ?? 'production',
+    mode: app.isPackaged ? 'production' : 'development',
     homeDir: app.getPath('home'),
-    userProfileDir: process.env.USERPROFILE,
-    inheritedEnv: { ...process.env } as Record<string, string>,
+    userProfileDir: app.getPath('home'),
   })
 }
 
@@ -76,11 +76,7 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers({
-    registryRuntime: {
-      registryRoot: sqliteConfigStoreService.readSnapshotSync()?.config?.registryRoot ?? join(process.cwd(), '.prana', 'registry')
-    }
-  })
+  registerIpcHandlers()
 
   createWindow()
 
@@ -106,6 +102,7 @@ app.on('before-quit', () => {
   void syncProviderService.syncOnClose()
   void syncProviderService.dispose()
   void sqliteConfigStoreService.dispose()
+  void runtimeDocumentStoreService.dispose()
   void contextDigestStoreService.dispose()
   void vaultService.cleanupTemporaryWorkspace()
 })

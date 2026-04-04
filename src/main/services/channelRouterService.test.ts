@@ -40,6 +40,14 @@ describe('channelRouterService', () => {
           pushCronExpression: '*/10 * * * *',
           pullCronExpression: '*/15 * * * *',
         },
+        branding: {
+          appBrandName: 'Prana',
+          appTitlebarTagline: 'Tagline',
+          appSplashSubtitle: 'Subtitle',
+          directorSenderEmail: 'director@prana.local',
+          directorSenderName: 'Director',
+          avatarBaseUrl: '',
+        },
       }),
     });
 
@@ -71,6 +79,14 @@ describe('channelRouterService', () => {
           cronEnabled: true,
           pushCronExpression: '*/10 * * * *',
           pullCronExpression: '*/15 * * * *',
+        },
+        branding: {
+          appBrandName: 'Prana',
+          appTitlebarTagline: 'Tagline',
+          appSplashSubtitle: 'Subtitle',
+          directorSenderEmail: 'director@prana.local',
+          directorSenderName: 'Director',
+          avatarBaseUrl: '',
         },
       }),
       createId: () => 'id-fixed',
@@ -138,6 +154,14 @@ describe('channelRouterService', () => {
           pushCronExpression: '*/10 * * * *',
           pullCronExpression: '*/15 * * * *',
         },
+        branding: {
+          appBrandName: 'Prana',
+          appTitlebarTagline: 'Tagline',
+          appSplashSubtitle: 'Subtitle',
+          directorSenderEmail: 'director@prana.local',
+          directorSenderName: 'Director',
+          avatarBaseUrl: '',
+        },
       }),
       audit: {
         createTransaction: async () => 'txn-1',
@@ -201,6 +225,14 @@ describe('channelRouterService', () => {
           cronEnabled: true,
           pushCronExpression: '*/10 * * * *',
           pullCronExpression: '*/15 * * * *',
+        },
+        branding: {
+          appBrandName: 'Prana',
+          appTitlebarTagline: 'Tagline',
+          appSplashSubtitle: 'Subtitle',
+          directorSenderEmail: 'director@prana.local',
+          directorSenderName: 'Director',
+          avatarBaseUrl: '',
         },
       }),
       audit: {

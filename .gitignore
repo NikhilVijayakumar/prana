@@ -159,3 +159,4 @@ out/
 /test-results/playwright/.last-run.json
 /test-results/playwright/e2e-quality-report.json
 /test-results/playwright/e2e-quality-report.md
+/reference/

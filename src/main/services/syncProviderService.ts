@@ -12,6 +12,7 @@ import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { getAppDataRoot } from './governanceRepoService';
 import { diffEngine } from './diffEngine';
 import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
+import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
 
 const REGISTRY_SYNC_RELATIVE_PATH = join('data', 'registry-sync', 'registry-sync.snapshot.json');
 const MACHINE_LOCK_RELATIVE_PATH = join('data', 'registry-sync', 'active-client-lock.json');
@@ -382,6 +383,7 @@ const pushLatestApprovedSnapshot = async (): Promise<void> => {
   }
 
   try {
+    await vaultService.initializeVault();
     const state = await syncStoreService.getDecryptedRegistrySnapshot();
     if (!state) {
       throw new Error('No encrypted registry sync state available for push.');
@@ -403,29 +405,37 @@ const pushLatestApprovedSnapshot = async (): Promise<void> => {
     );
     lastPushStatus = 'FAILED';
     lastPushMessage = error instanceof Error ? error.message : 'Unknown sync push error';
+  } finally {
+    await vaultService.cleanupTemporaryWorkspace(true);
   }
 };
 
 const pullLatestFromRemoteVaultAndMerge = async (
   installMode: SplashSyncResult['installMode'],
 ): Promise<SplashSyncResult> => {
-  const syncResult = await vaultService.syncFromRemoteVault();
-  if (!syncResult.success) {
-    lastPullAt = nowIso();
-    lastPullStatus = 'FAILED';
-    lastPullMessage = syncResult.message;
-    return {
-      installMode,
-      pulled: false,
-      merged: false,
-      pullStatus: 'FAILED',
-      mergeStatus: 'FAILED',
-      integrityStatus: 'UNKNOWN',
-      skippedReason: syncResult.message,
-    };
-  }
+  try {
+    await vaultService.initializeVault();
+    const syncResult = await vaultService.syncFromRemoteVault();
+    if (!syncResult.success) {
+      lastPullAt = nowIso();
+      lastPullStatus = 'FAILED';
+      lastPullMessage = syncResult.message;
+      return {
+        installMode,
+        pulled: false,
+        merged: false,
+        pullStatus: 'FAILED',
+        mergeStatus: 'FAILED',
+        integrityStatus: 'UNKNOWN',
+        skippedReason: syncResult.message,
+      };
+    }
 
-  return applyRemoteSnapshotIfNewer(installMode);
+    await runtimeDocumentStoreService.seedFromVaultWorkspace(vaultService.getWorkingRootPath());
+    return applyRemoteSnapshotIfNewer(installMode);
+  } finally {
+    await vaultService.cleanupTemporaryWorkspace(true);
+  }
 };
 
 const startPushTimer = (): void => {
@@ -454,7 +464,6 @@ export const syncProviderService = {
       return recordStartupSyncResult(await pullLatestFromRemoteVaultAndMerge(installMode));
     }
 
-    await vaultService.initializeVault();
     await recoveryOrchestratorService.recoverPendingSyncTasks();
     pushIntervalMs = Math.max(30_000, getRuntimeBootstrapConfig().sync.pushIntervalMs);
     const persistedPushInterval = await loadPushIntervalFromSettings();
@@ -466,7 +475,6 @@ export const syncProviderService = {
     lastMachineLockWarning = machineLockWarning ?? null;
     const pullResult = await pullLatestFromRemoteVaultAndMerge(installMode);
 
-    startPushTimer();
     initialized = true;
 
     return recordStartupSyncResult({
