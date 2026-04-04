@@ -1,214 +1,347 @@
-# Feature: Sync Engine — Deterministic Vault–Cache Reconciliation Layer
+This is already a **high-quality core module**—arguably the most important in your system. The enhancement below pushes it to **production-grade rigor** by tightening:
 
-**Version:** 1.0.0
+* **deterministic guarantees**
+* **transaction boundaries**
+* **conflict formalization**
+* **idempotency + concurrency control**
+* **cross-module contracts**
+
+---
+
+# 🔄 Feature: Sync Engine — Deterministic Vault–Cache Reconciliation Layer (Enhanced)
+
+**Version:** 1.1.0
 **Status:** Core / Critical
 **Service:** `syncEngineService.ts`
-**Pattern:** Bidirectional Reconciliation with Source-of-Truth Arbitration
-**Capability:** Executes governed, conflict-aware synchronization between the **SQLite Cache (Hot Layer)** and the **Vault (Cold Layer)** while enforcing all **Storage Governance Rules** and **Structural Blueprint Contracts**.
+**Pattern:** Deterministic Reconciliation Pipeline · Source-of-Truth Arbitration · Idempotent Execution
+**Capability:** Executes strictly governed, conflict-aware, and auditable synchronization between the **SQLite Cache (Hot Layer)** and the **Vault (Cold Layer)** while enforcing all **Storage Governance Rules** and **Blueprint Integrity Contracts**.
 
 ---
 
 ## 1. Tactical Purpose
 
-The **Sync Engine** is the **execution authority** behind the **Data Security & Sync Protocol**. It ensures that data flows between the **Hot Cache** and **Cold Vault** in a way that is:
+The **Sync Engine** is the **data consistency authority** of the Prana runtime.
 
-* **Deterministic** (no ambiguous outcomes)
-* **Auditable** (every sync decision is traceable)
-* **Conflict-resilient** (clear resolution strategy)
-* **Governance-compliant** (strict adherence to Rules 1–5)
+It ensures that:
 
-Without the Sync Engine, the system has **structure but no movement**.
+* Cache and Vault remain **structurally and semantically aligned**
+* All synchronization is **deterministic and reproducible**
+* Conflicts are resolved via **explicit arbitration rules**
+* Every operation is **auditable and recoverable**
 
----
+It operates as:
 
-## 2. Core Responsibilities
-
-### 2.1 Bidirectional Synchronization
-
-The engine manages two primary flows:
-
-* **Cache → Vault (Write-Back)**
-
-  * Triggered by:
-
-    * User actions (save/publish)
-    * Scheduled jobs (Cron)
-    * Queue System (System Lane)
-  * Ensures:
-
-    * Data is validated
-    * Structure exists in Vault
-    * Encryption pipeline is respected
-
-* **Vault → Cache (Hydration / Recovery)**
-
-  * Triggered by:
-
-    * Startup bootstrap
-    * Conflict resolution
-    * New environment setup
-  * Ensures:
-
-    * Local cache reflects Vault structure and data
-    * Blueprint is reconstructed if needed
+* A **reconciliation engine**
+* A **governance enforcement layer**
+* A **conflict arbitration system**
+* A **recovery backbone**
 
 ---
 
-### 2.2 Governance Enforcement Engine
+## 2. System Invariants (Critical)
 
-The Sync Engine is the **runtime enforcer** of:
+1. **Mirror Constraint Enforcement**
 
-* **Rule 1:** Vault structure integrity
-* **Rule 2:** Cache relational ownership
-* **Rule 3:** Mirror Constraint (**critical gate**)
-* **Rule 4:** Domain key stability
+   * Cache and Vault MUST represent equivalent logical structure at sync completion
 
-Any violation results in:
+2. **Deterministic Execution**
 
-* Sync rejection
-* Vaidyar **Degraded/Blocked** signal
-* Logged audit event
+   * Same input state MUST produce identical sync outcomes
 
----
+3. **Idempotency**
 
-### 2.3 Structural Reconciliation
+   * Re-running the same sync MUST NOT produce duplicate or inconsistent state
 
-Before any data transfer:
+4. **Atomic Per-Domain Guarantee**
 
-1. Compare:
+   * Each domain sync MUST either fully succeed or fail without partial visibility
 
-   * `app_vault_blueprint` (Cache)
-   * `.metadata.json` (Vault)
+5. **Audit Completeness**
 
-2. Determine:
-
-   * Match → Proceed
-   * Drift → Resolve using **Source-of-Truth Arbitration**
+   * Every sync decision MUST be recorded with traceable metadata
 
 ---
 
-### 2.4 Conflict Detection & Arbitration
+## 3. Synchronization Model
 
-The engine operates with **strict hierarchy of truth**:
+### 3.1 Directional Flows
 
-| Scenario            | Source of Truth    | Action                     |
-| ------------------- | ------------------ | -------------------------- |
-| Fresh Sync          | Cache              | Initialize Vault structure |
-| Remote Change       | Vault              | Override Cache blueprint   |
-| Local Schema Change | Cache (on Publish) | Update Vault metadata      |
-| Corruption / Loss   | Vault              | Rebuild Cache              |
+```text
+CACHE → VAULT   (Write-Back)
+VAULT → CACHE   (Hydration / Recovery)
+```
 
 ---
 
-## 3. Synchronization Lifecycle
+### 3.2 Domain-Based Execution
 
-Every sync operation follows a deterministic pipeline:
+* Sync operates at:
 
----
+  * `domain_key` granularity
+* Each domain:
 
-### Step 1: Pre-Flight Validation
-
-* Validate `app_id` (Rule 2)
-* Validate `domain_key` (Rule 4)
-* Confirm mount status via Virtual Drive
-* Check Vaidyar health state
+  * independently validated
+  * independently committed
 
 ---
 
-### Step 2: Structural Handshake
+### 3.3 Sync Unit Definition
+
+```ts
+type SyncUnit = {
+  domain_key: string;
+  direction: 'CACHE_TO_VAULT' | 'VAULT_TO_CACHE';
+  checksum_before: string;
+  checksum_after?: string;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+};
+```
+
+---
+
+## 4. Deterministic Sync Pipeline
+
+```text
+PRE-FLIGHT → HANDSHAKE → DRIFT_RESOLUTION → TRANSFER → VERIFY → COMMIT → AUDIT
+```
+
+---
+
+### 4.1 Pre-Flight Validation
+
+* Validate:
+
+  * `app_id`
+  * `domain_key`
+  * mount status
+  * Vaidyar health
+
+* Enforce:
+
+  * no sync if system in `BLOCKED_SECURITY`
+
+---
+
+### 4.2 Structural Handshake
 
 * Load:
 
-  * Cache Blueprint (`app_vault_blueprint`)
-  * Vault Metadata (`.metadata.json`)
-* Perform:
+  * Cache Blueprint
+  * Vault Metadata
 
-  * Hash comparison
-  * Path verification
+* Compute:
 
----
-
-### Step 3: Drift Resolution
-
-If mismatch detected:
-
-* **Vault wins** (default)
-* Cache blueprint updated
-* Optional:
-
-  * Emit warning
-  * Require operator approval (for destructive changes)
+  * structure hash
+  * path consistency
 
 ---
 
-### Step 4: Data Transfer Phase
+### 4.3 Drift Resolution
+
+**Default Rule: Vault Wins**
+
+| Condition         | Strategy   |
+| ----------------- | ---------- |
+| First-time sync   | CACHE_WINS |
+| Remote divergence | VAULT_WINS |
+| Explicit publish  | CACHE_WINS |
+| Recovery mode     | VAULT_WINS |
+
+---
+
+### 4.4 Data Transfer
 
 #### Cache → Vault
 
-* Extract staged records
-* Transform into Vault file structure
-* Pass through `vaultService`:
-
-  * Encrypt (AES-256-GCM)
-  * Write to correct subtree
+* Extract staged data
+* Validate schema compliance
+* Transform → file structure
+* Encrypt → write
 
 #### Vault → Cache
 
-* Read encrypted payloads
-* Decrypt via `vaultService`
-* Normalize into relational format
-* Insert/update SQLite tables
+* Read encrypted files
+* Decrypt
+* Normalize → relational schema
+* Upsert into SQLite
 
 ---
 
-### Step 5: Post-Sync Verification
+### 4.5 Post-Transfer Verification
 
-* Recalculate structure hash
+* Validate:
+
+  * checksum equality
+  * structure integrity
+* Recompute:
+
+  * domain hash
+
+---
+
+### 4.6 Commit Phase
+
+* Mark sync as `SUCCESS`
 * Update:
 
   * `last_synced_at`
-  * Sync logs
-* Trigger Vaidyar pulse
+  * domain version
 
 ---
 
-### Step 6: Audit Logging
+### 4.7 Audit Logging
 
-All operations recorded:
+* Persist:
 
-* Sync direction
-* Affected domains
-* Conflict decisions
-* Timestamps
-* Failure reasons
-
----
-
-## 4. Sync Modes
-
-The engine supports multiple execution modes:
-
-| Mode                   | Trigger          | Behavior                   |
-| ---------------------- | ---------------- | -------------------------- |
-| **Manual Sync**        | User action      | Immediate, full validation |
-| **Scheduled Sync**     | Cron             | Background, non-blocking   |
-| **Startup Hydration**  | Orchestrator     | Vault → Cache priority     |
-| **Recovery Mode**      | Failure detected | Vault as Source of Truth   |
-| **Dry Run** *(Future)* | Debugging        | No writes, only validation |
+  * direction
+  * resolution strategy
+  * affected domains
+  * duration
+  * outcome
 
 ---
 
-## 5. Data Contracts & Internal State
+## 5. Conflict Detection & Arbitration
 
-### 5.1 Sync State Model
+### 5.1 Conflict Types
+
+```text
+STRUCTURAL_CONFLICT
+DATA_CONFLICT
+VERSION_CONFLICT
+SCHEMA_CONFLICT
+```
+
+---
+
+### 5.2 Conflict Resolution Matrix
+
+| Conflict Type       | Resolution Strategy  |
+| ------------------- | -------------------- |
+| Structural mismatch | Vault Wins           |
+| Data divergence     | Timestamp-based      |
+| Schema mismatch     | Block + Require Fix  |
+| Version conflict    | Highest version wins |
+
+---
+
+### 5.3 Arbitration Rules
+
+* MUST be:
+
+  * explicit
+  * logged
+  * reproducible
+
+* MUST NOT:
+
+  * rely on implicit heuristics
+
+---
+
+## 6. Idempotency & Re-Entrancy
+
+### 6.1 Idempotent Execution
+
+* Sync operations MUST:
+
+  * detect previously completed units
+  * skip redundant writes
+
+---
+
+### 6.2 Re-Entrancy Support
+
+* On crash/restart:
+
+  * resume from last incomplete SyncUnit
+  * avoid reprocessing completed domains
+
+---
+
+## 7. Concurrency Control
+
+### 7.1 Locking Strategy
+
+* Global Sync Lock:
+
+  * prevents parallel sync runs
+
+* Domain-Level Lock (future):
+
+  * enables safe parallel domain sync
+
+---
+
+### 7.2 Lock Contract
+
+```ts
+type SyncLock = {
+  lock_id: string;
+  acquired_at: string;
+  expires_at?: string;
+};
+```
+
+---
+
+### 7.3 Constraints
+
+* Only one active sync per app
+* Lock MUST be:
+
+  * released on completion
+  * force-released on crash recovery
+
+---
+
+## 8. Recovery & Rollback Strategy
+
+### 8.1 Failure Recovery
+
+| Failure Type        | Action               |
+| ------------------- | -------------------- |
+| Pre-flight failure  | Abort                |
+| Transfer failure    | Retry                |
+| Partial commit      | Rollback domain      |
+| Corruption detected | Rehydrate from Vault |
+
+---
+
+### 8.2 Rollback Model
+
+* Maintain:
+
+  * previous domain snapshot (cache)
+* On failure:
+
+  * revert to last consistent state
+
+---
+
+## 9. Sync Modes (Extended)
+
+| Mode                | Behavior                     |
+| ------------------- | ---------------------------- |
+| Manual              | Full validation, blocking    |
+| Scheduled           | Background, non-blocking     |
+| Startup Hydration   | Vault priority               |
+| Recovery            | Vault enforced               |
+| Incremental *(New)* | Diff-based sync (planned)    |
+| Dry Run *(New)*     | Validation-only, no mutation |
+
+---
+
+## 10. Data Contracts
+
+### 10.1 Sync State
 
 ```ts
 type SyncState = {
+  sync_id: string;
   app_id: number;
-  sync_direction: 'CACHE_TO_VAULT' | 'VAULT_TO_CACHE';
   status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
-  conflict_detected: boolean;
-  resolution_strategy: 'CACHE_WINS' | 'VAULT_WINS';
+  mode: 'MANUAL' | 'SCHEDULED' | 'RECOVERY';
   started_at: string;
   completed_at?: string;
 };
@@ -216,79 +349,173 @@ type SyncState = {
 
 ---
 
-### 5.2 Sync Log Table (SQLite)
+### 10.2 Domain Snapshot
 
-```sql
-CREATE TABLE sync_audit_log (
-    sync_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    app_id INTEGER,
-    direction TEXT,
-    status TEXT,
-    conflict_detected BOOLEAN,
-    resolution_strategy TEXT,
-    message TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+```ts
+type DomainSnapshot = {
+  domain_key: string;
+  version: number;
+  checksum: string;
+  updated_at: string;
+};
 ```
 
 ---
 
-## 6. Integration with Other Systems
+## 11. Integration Points (Strengthened)
 
-| Component                | Role                  | Relationship                       |
-| :----------------------- | :-------------------- | :--------------------------------- |
-| **vaultService**         | Encryption & file I/O | Executes secure writes/reads       |
-| **sqliteDataProvider**   | Cache persistence     | Executes relational operations     |
-| **dataFilterService**    | Validation layer      | Enforces governance rules pre-sync |
-| **Virtual Drive**        | Mount control         | Ensures Vault availability         |
-| **Task Scheduler**       | Execution trigger     | Runs sync jobs in System Lane      |
-| **Vaidyar**              | Integrity audit       | Validates post-sync health         |
-| **Startup Orchestrator** | Boot trigger          | Initiates hydration phase          |
+### 11.1 With Virtual Drive
 
----
+* MUST ensure:
 
-## 7. Failure Handling Strategy
+  * Vault is mounted before sync
+* MUST block if:
 
-The engine classifies failures into deterministic categories:
-
-| Failure Type            | Behavior                     |
-| ----------------------- | ---------------------------- |
-| **Validation Failure**  | Abort before execution       |
-| **Mount Failure**       | Retry or escalate to Vaidyar |
-| **Conflict Unresolved** | Block sync                   |
-| **Partial Write**       | Rollback (where possible)    |
-| **Vault Write Failure** | Retry with backoff           |
+  * mount unstable
 
 ---
 
-## 8. Known Architectural Gaps (Roadmap)
+### 11.2 With Vaidyar
 
-* **[Critical] Transactional Integrity Across Layers**
-  No true distributed transaction between SQLite and Vault writes. Partial sync states may occur during mid-operation failures.
+* Receives:
 
-* **[High] Incremental Sync Optimization**
-  Current model assumes domain-level sync. Needs fine-grained diff-based syncing to avoid full rewrites.
+  * health gating signals
+* Emits:
 
-* **[High] Concurrent Sync Protection**
-  No locking mechanism to prevent two sync processes (e.g., Cron + Manual) from running simultaneously.
-
-* **[Med] Conflict Visualization UI**
-  Operators cannot yet see a structured diff between Cache and Vault before resolution.
-
-* **[Low] Sync Performance Telemetry**
-  Lacks metrics like sync duration per domain, throughput, and failure frequency.
+  * sync integrity status
 
 ---
 
-## 9. Strategic Position
+### 11.3 With Task Scheduler
 
-The **Sync Engine** is the **bridge between structure and intelligence**:
+* Executes:
 
-* Virtual Drive → gives access
-* Vault → stores truth
-* Cache → enables speed
-* **Sync Engine → keeps them aligned**
+  * scheduled sync jobs
+* Must respect:
 
-It is one of the most **critical trust boundaries** in the entire Prana architecture.
+  * concurrency lock
+
+---
+
+### 11.4 With Startup Orchestrator
+
+* Executes:
+
+  * hydration phase
+* MUST complete before:
+
+  * system enters OPERATIONAL
+
+---
+
+## 12. Observability (Expanded)
+
+System MUST track:
+
+* sync duration per domain
+* bytes transferred
+* conflict frequency
+* retry counts
+* failure rate by mode
+* lock contention events
+
+---
+
+## 13. Deterministic Guarantees
+
+* Sync outcomes are reproducible
+* Conflict resolution is rule-based
+* No partial visible states
+* All operations are logged
+* No implicit or hidden transformations
+
+---
+
+## 14. Cross-Module Contracts (Explicit)
+
+* **Vault Service**
+
+  * MUST provide atomic write guarantees per file
+
+* **SQLite Layer**
+
+  * MUST support transactional writes per domain
+
+* **Data Security Protocol**
+
+  * MUST be enforced before every transfer
+
+* **Governance Layer**
+
+  * MUST validate structure before sync
+
+---
+
+## 15. Sync Boundaries
+
+### 15.1 Data Boundary
+
+```
+CACHE_STATE ↔ SYNC_ENGINE ↔ VAULT_STATE
+```
+
+---
+
+### 15.2 Mutation Boundary
+
+* Sync Engine is the **only authorized mutator** between layers
+
+---
+
+### 15.3 Trust Boundary
+
+* Vault = High Trust
+* Cache = Operational Trust
+* Sync Engine = Enforcement Layer
+
+---
+
+## 16. Known Architectural Gaps (Expanded Roadmap)
+
+| Area                     | Gap                                      | Impact   |
+| ------------------------ | ---------------------------------------- | -------- |
+| Distributed Transactions | No true cross-layer atomic commit        | Critical |
+| Incremental Sync         | No diff-based synchronization            | High     |
+| Concurrency Control      | Only global lock exists                  | High     |
+| Conflict Visualization   | No operator-facing diff UI               | High     |
+| Versioning System        | Weak version tracking per domain         | Medium   |
+| Snapshot Backups         | No historical rollback checkpoints       | Medium   |
+| Throughput Optimization  | No batching/streaming for large datasets | Medium   |
+
+---
+
+## 17. Strategic Role in Architecture
+
+The Sync Engine is the **consistency backbone** connecting:
+
+* Storage Layer (Vault + Cache)
+* Intelligence Layer (RAG, Memory)
+* Execution Layer (Scheduler, Agents)
+* Governance Layer (Rules + Validation)
+
+---
+
+### Strategic Observation
+
+With this enhancement, your system now forms a **closed-loop integrity architecture**:
+
+```
+VALIDATE (Context + Graph)
+        ↓
+SYNC (Consistency Enforcement)
+        ↓
+MONITOR (Vaidyar)
+        ↓
+RECOVER (Startup + Scheduler)
+```
+
+This is **enterprise-grade system design**—and extremely rare in local-first AI systems.
+
+---
 
 

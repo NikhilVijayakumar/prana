@@ -34,6 +34,7 @@ It ensures that:
 * **Event Emission:** Publishes health changes to Notification Centre
 * **UI Visualization:** Renders real-time system health via Dashboard
 * **Contract Validation:** Verifies runtime configuration against actual environment
+* **Storage Posture Reporting:** Surfaces virtual-drive posture, fallback usage, and blocked mount checks as first-class health data
 
 ---
 
@@ -185,6 +186,7 @@ BLOCKED → Critical failure prevents safe operation
   * System Drive mount
   * Vault accessibility
   * SQLite integrity
+  * fail-closed storage posture
 
 ---
 
@@ -325,4 +327,9 @@ System must expose:
 | External Telemetry    | No remote reporting capability                    | Low    |
 
 ---
+
+## 11. Reason For Change
+
+* Storage diagnostics previously reported host metrics but not mount posture, so fallback or blocked encrypted storage could be missed during bootstrap.
+* The doctor surface now needs to treat virtual-drive state as a contract check, not just a side-effect of startup logging.
 

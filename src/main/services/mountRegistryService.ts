@@ -4,10 +4,17 @@ export type VirtualDriveStage = 'UNMOUNTED' | 'MOUNTING' | 'MOUNTED' | 'FAILED' 
 export interface VirtualDriveRecord {
   id: VirtualDriveId;
   stage: VirtualDriveStage;
+  posture: 'SECURE' | 'DEGRADED' | 'UNAVAILABLE';
+  providerId: string;
   mountPoint: string;
   sourcePath: string;
+  resolvedPath: string;
+  usedFallbackPath: boolean;
   pid: number | null;
   mountedAt: string | null;
+  unmountedAt: string | null;
+  activeSessionCount: number;
+  retryCount: number;
   lastError: string | null;
   lastStderr: string | null;
 }

@@ -35,6 +35,7 @@ export interface PranaRuntimeConfig {
     specVersion?: string;
     tempZipExtension?: string;
     outputPrefix?: string;
+    appKey?: string;
     archivePassword: string;
     archiveSalt: string;
     kdfIterations: number;
@@ -73,6 +74,26 @@ export interface PranaRuntimeConfig {
     vaultDriveLetter?: string;
     systemCryptPassword?: string;
     obscuredFileNames?: boolean;
+    failClosed?: boolean;
+    provider?: {
+      type?: string;
+      rcloneBinaryPath?: string;
+    };
+    system?: {
+      mountPoint?: string;
+      sourceSubpath?: string;
+      fallbackSubpath?: string;
+      remoteName?: string;
+      cryptPassword?: string;
+      allowFallback?: boolean;
+    };
+    vault?: {
+      mountPoint?: string;
+      sourceSubpath?: string;
+      remoteName?: string;
+      cryptPassword?: string;
+      requireSessionMount?: boolean;
+    };
   };
   registryRoot?: string;
   branding?: {

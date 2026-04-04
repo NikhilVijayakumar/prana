@@ -9,6 +9,7 @@ import { contextDigestStoreService } from './services/contextDigestStoreService'
 import { getPranaPlatformRuntime, setPranaPlatformRuntime } from './services/pranaPlatformRuntime'
 import { hookSystemService } from './services/hookSystemService'
 import { runtimeDocumentStoreService } from './services/runtimeDocumentStoreService'
+import { driveControllerService } from './services/driveControllerService'
 
 const initializePranaRuntime = (): void => {
   setPranaPlatformRuntime({
@@ -93,6 +94,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   void syncProviderService.syncOnClose()
   void vaultService.cleanupTemporaryWorkspace()
+  void driveControllerService.dispose()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -105,6 +107,7 @@ app.on('before-quit', () => {
   void runtimeDocumentStoreService.dispose()
   void contextDigestStoreService.dispose()
   void vaultService.cleanupTemporaryWorkspace()
+  void driveControllerService.dispose()
 })
 
 // In this file you can include the rest of your app's specific main process

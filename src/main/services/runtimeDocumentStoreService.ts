@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { getAppDataRoot } from './governanceRepoService';
 import { vaultService } from './vaultService';
+import { syncStoreService } from './syncStoreService';
 
 const DB_FILE_NAME = 'runtime-documents.sqlite';
 
@@ -267,6 +268,16 @@ export const runtimeDocumentStoreService = {
       return { flushed: 0, synced: true };
     }
 
+    const lockOwner = `runtime-documents:${process.pid}`;
+    const acquired = await syncStoreService.acquireSyncLock({
+      owner: lockOwner,
+      lockKey: 'global',
+      ttlMs: 120_000,
+    });
+    if (!acquired) {
+      throw new Error('Global storage sync lock is busy.');
+    }
+
     try {
       await vaultService.initializeVault();
       const workingRoot = vaultService.getWorkingRootPath();
@@ -279,6 +290,13 @@ export const runtimeDocumentStoreService = {
 
         await mkdir(dirname(targetPath), { recursive: true });
         await writeFile(targetPath, record.content, 'utf8');
+        await syncStoreService.upsertSyncLineageRecord({
+          recordKey: `runtime_document:${record.documentKey}`,
+          tableName: 'runtime_documents',
+          syncStatus: 'PENDING_UPDATE',
+          payload: record.content,
+          lastModified: record.updatedAt,
+        });
       }
 
       await vaultService.publishVaultChanges({
@@ -288,11 +306,22 @@ export const runtimeDocumentStoreService = {
 
       for (const record of pending) {
         await upsertDocument(record.documentKey, record.content, 'SYNCED');
+        await syncStoreService.upsertSyncLineageRecord({
+          recordKey: `runtime_document:${record.documentKey}`,
+          tableName: 'runtime_documents',
+          syncStatus: 'SYNCED',
+          payload: record.content,
+          lastModified: nowIso(),
+        });
       }
 
       return { flushed: pending.length, synced: true };
     } finally {
       await vaultService.cleanupTemporaryWorkspace(true);
+      await syncStoreService.releaseSyncLock({
+        owner: lockOwner,
+        lockKey: 'global',
+      });
     }
   },
 

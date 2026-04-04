@@ -1,6 +1,6 @@
 # Feature: Virtual Drive — Storage Abstraction Layer
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Status:** Stable / Core  
 **Service:** `driveControllerService.ts` · `mountRegistryService.ts`  
 **Storage Domain:** `mount_registry` (Memory/SQLite)  
@@ -25,6 +25,8 @@ This layer acts as the **storage gatekeeper** of the runtime, guaranteeing that 
 * **Security Posture Enforcement:** Differentiates between encrypted mount and fallback modes and exposes posture status to the runtime.
 * **Fallback Resolution:** Supports controlled fallback to local filesystem paths when encrypted mounts are unavailable, with explicit downgrade signaling.
 * **Health Visibility:** Exposes mount health signals for diagnostic systems (e.g., Runtime Doctor / Vaidyar).
+* **Provider Abstraction:** Resolves mount execution through a provider contract so the core depends on a mount protocol rather than a single implementation detail.
+* **Fail-Closed Policy:** Allows hosts to block startup instead of silently downgrading when encrypted storage is unavailable.
 
 ---
 
@@ -42,6 +44,7 @@ This layer acts as the **storage gatekeeper** of the runtime, guaranteeing that 
 | Component | Role | Relationship |
 | :--- | :--- | :--- |
 | **Main Process** | `driveControllerService` | Executes OS-level mount/unmount operations |
+| **Provider Contract** | `virtualDriveProvider.ts` | Adapts provider-specific mount/unmount implementations |
 | **Registry** | `mountRegistryService` | Tracks mount state, failures, and metadata |
 | **Feature** | **Vaidyar (Runtime Doctor)** | Validates mount health and posture |
 | **Service** | `vaultService` | Coordinates encrypted archive access |
@@ -183,6 +186,7 @@ DEGRADED (fallback mode)
 
   * internal mutex or execution guard
 * Sync, Vault, and Email services must coordinate via mount availability signals
+* Vault session-scoped operations must increment active session count before mount use and release it before unmount
 
 ---
 
@@ -261,6 +265,9 @@ The `mountRegistry` must capture:
 * failure reasons
 * retry counts
 * posture state
+* provider id
+* resolved runtime path
+* active vault session count
 
 ---
 
@@ -306,4 +313,10 @@ The `mountRegistry` must capture:
 | Telemetry Depth         | Limited mount health and performance metrics | Low    |
 
 ---
+
+## 14. Reason For Change
+
+* Mount execution was previously tied directly to an `rclone` process with Prana-specific remote names, which leaked implementation details into the core runtime.
+* Storage startup did not expose mount posture as first-class diagnostics, making degraded or blocked storage easy to miss.
+* Vault sync and workspace flows relied on ad hoc mount usage instead of an explicit session contract, which made deterministic unmounting unreliable.
 

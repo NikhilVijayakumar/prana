@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { driveControllerService, VirtualDriveDiagnosticsSnapshot } from './driveControllerService';
 
 export interface SystemHealthSnapshot {
   cpuUsagePercent: number;
@@ -6,6 +7,7 @@ export interface SystemHealthSnapshot {
   processRssMb: number;
   totalMemoryMb: number;
   uptimeSeconds: number;
+  storage: VirtualDriveDiagnosticsSnapshot;
 }
 
 interface CpuTimes {
@@ -73,6 +75,7 @@ export const systemHealthService = {
       processRssMb,
       totalMemoryMb,
       uptimeSeconds,
+      storage: driveControllerService.getDiagnostics(),
     };
   },
 

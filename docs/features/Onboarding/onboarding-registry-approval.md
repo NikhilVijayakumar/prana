@@ -1,61 +1,461 @@
-# Feature: Onboarding — Business Registry & Context Validation
+This module is already conceptually strong—it sits at a **critical semantic boundary** before your graph-based governance kicks in. The enhancement below focuses on:
 
-**Version:** 1.1.0  
-**Status:** Alpha  
-**Services:** `businessContextRegistryService.ts` · `businessContextValidationService.ts`  
-**Storage Domain:** `business_registry_context` (SQLite)  
-**Capability:** Provides a rigorous validation layer to ensure the host application's business context is sufficiently defined and logically consistent before runtime execution.
-
----
-
-### 1. Tactical Purpose
-The **Business Registry & Context Validation** step prevents "Contextual Hallucination." AI agents require high-fidelity business metadata to make informed decisions. This feature audits the host's provided data (Product names, Missions, KPIs) to ensure there are no "Dangling Contexts" that could lead to an agent providing incorrect or misaligned responses to an operator.
-
-#### 1.1 "It Does" (Scope)
-* **Mandatory Field Auditing:** Verifies the presence and minimum character depth of core business fields (e.g., Company Mission, Product Vision).
-* **KPI Alignment Check:** Validates that defined Key Performance Indicators (KPIs) are linked to a measurable data source or workflow.
-* **Structural Validation:** Ensures that the hierarchy of the registry (Organization → Product → Feature) is logically coherent.
-* **Approval Gating:** Provides a "Final Review" surface where the operator must explicitly confirm the accuracy of the ingested business context.
-* **Persistence:** Commits the "Validated" snapshot to the `business_registry_context` SQLite table for agentic retrieval.
-
-#### 1.2 "It Does Not" (Boundaries)
-* **Edit the Registry:** This is a **Read/Verify** surface; it does not replace the full **Registry Editor** used for deep data entry.
-* **Verify Business Truth:** It validates that a mission statement *exists* and is *formatted* correctly; it cannot verify if the mission itself is "good" or "true."
-* **Define Business Policy:** The host application remains the owner of the business data; Prana only enforces the *integrity* of that data.
+* **Formalizing validation contracts**
+* **Eliminating ambiguity in “context correctness”**
+* **Strengthening determinism + auditability**
+* **Tight coupling with Governance Graph + Cognitive Layer**
 
 ---
 
-### 2. Architectural Dependencies
-| Component | Role | Relationship |
-| :--- | :--- | :--- |
-| **Main Process** | `businessContextRegistryService` | The primary orchestrator for context retrieval and persistence. |
-| **Main Process** | `businessContextValidationService` | The engine that runs the "Integrity Rules" against the data. |
-| **Feature** | **Governance Lifecycle** | Deeply coupled; uses the outcomes here to map cross-referenced assets. |
-| **Data Source** | **Host Application** | Must provide the raw Business Metadata (Products, Missions, KPIs). |
+# 🧾 Feature: Onboarding — Business Registry & Context Validation (Enhanced)
 
-
-
----
-
-### 3. The Validation Pipeline
-1.  **Ingestion:** The host application pushes its business registry into the Prana bridge.
-2.  **Audit:** The `businessContextValidationService` scans for missing mandatory fields or broken KPI links.
-3.  **Visual Report:** The UI surfaces a "Readiness Report" showing which sections are `COMPLETE` and which are `BLOCKING`.
-4.  **Confirmation:** The operator reviews the summarized context and clicks "Approve."
-5.  **Locking:** The Onboarding Orchestrator marks the registry as `VALID`, allowing the pipeline to proceed to the final **Vaidyar** check.
+**Version:** 1.2.0
+**Status:** Alpha / Evolving
+**Pattern:** Deterministic Validation Pipeline · Context Integrity Gate
+**Services:** `businessContextRegistryService.ts` · `businessContextValidationService.ts`
+**Storage Domain:** `business_registry_context` (SQLite)
+**Capability:** Enforces structural, semantic, and relational integrity of business metadata to ensure that all downstream agentic reasoning operates on consistent, non-ambiguous context.
 
 ---
 
-### 4. Implementation References
-* **Registry Service:** `src/main/services/businessContextRegistryService.ts`
-* **Validation Logic:** `src/main/services/businessContextValidationService.ts`
-* **UI:** `src/ui/onboarding-registry-approval/view/OnboardingRegistryApprovalContainer.tsx`
+## 1. Tactical Purpose
+
+The **Business Registry & Context Validation** module is the **semantic integrity layer** of the Prana runtime.
+
+It ensures that:
+
+* Business context is **complete**
+* Relationships are **logically consistent**
+* KPIs are **operationally meaningful**
+* Agents receive **high-fidelity context inputs**
+
+It operates as:
+
+* A **context validation engine**
+* A **pre-governance filter**
+* A **semantic consistency checker**
+* A **human-confirmed approval gate**
 
 ---
 
-### 5. Known Architectural Gaps (Roadmap)
-* **[High] Dependency Traceability:** Currently struggles to report *why* a specific KPI is invalid if the underlying data source is missing from a different registry section.
-* **[Med] Multi-Language Support:** Validation rules are currently optimized for English-language context; Sanskrit or other regional language nuances are not yet fully supported.
-* **[Low] Similarity Scoring:** No current check to see if two products in the registry have overlapping or conflicting mission statements.
+## 2. System Invariants (Critical)
+
+1. **Context Completeness**
+
+   * All mandatory fields MUST be present and meet minimum depth requirements
+
+2. **Structural Integrity**
+
+   * Registry hierarchy MUST follow defined schema (Org → Product → Feature)
+
+3. **KPI Validity**
+
+   * Every KPI MUST map to at least one measurable or executable reference
+
+4. **Deterministic Validation**
+
+   * Same input MUST always produce identical validation results
+
+5. **Immutable Snapshot**
+
+   * Approved registry MUST be stored as a read-only validated snapshot
 
 ---
+
+## 3. Registry Data Model
+
+### 3.1 Core Entities
+
+```text id="f2a9kx"
+ORGANIZATION
+PRODUCT
+FEATURE
+KPI
+MISSION
+VISION
+```
+
+---
+
+### 3.2 Relationship Model
+
+```text id="z9w1pl"
+ORGANIZATION → PRODUCT
+PRODUCT → FEATURE
+FEATURE → KPI
+PRODUCT → MISSION
+PRODUCT → VISION
+```
+
+---
+
+### 3.3 Structural Constraints
+
+* No orphan nodes allowed
+* Each PRODUCT MUST have:
+
+  * ≥ 1 KPI
+  * ≥ 1 MISSION or VISION
+* Each KPI MUST belong to a FEATURE or PRODUCT
+
+---
+
+## 4. Validation Lifecycle
+
+### 4.1 Pipeline Stages
+
+```text id="p6t8xn"
+INGEST → NORMALIZE → STRUCTURAL_CHECK → KPI_VALIDATION → CONSISTENCY_CHECK → REPORT → APPROVAL → SNAPSHOT
+```
+
+---
+
+### 4.2 Failure States
+
+```text id="y4n2cd"
+MISSING_FIELD
+INVALID_HIERARCHY
+KPI_UNMAPPED
+CONTEXT_AMBIGUITY
+INCONSISTENT_RELATION
+```
+
+---
+
+### 4.3 State Rules
+
+* Each stage MUST:
+
+  * complete before proceeding
+  * emit structured results
+
+* Failures MUST:
+
+  * be classified as BLOCKING or NON-BLOCKING
+  * halt approval if blocking
+
+---
+
+## 5. Validation Protocols
+
+### 5.1 Mandatory Field Audit
+
+Checks:
+
+* existence
+* minimum length
+* non-placeholder content
+
+---
+
+### 5.2 KPI Alignment Validation
+
+Each KPI MUST:
+
+* have measurable definition OR
+* map to:
+
+  * data source OR
+  * executable workflow
+
+---
+
+### 5.3 Structural Validation
+
+Ensures:
+
+* correct parent-child relationships
+* no circular hierarchy
+* no orphaned entities
+
+---
+
+### 5.4 Consistency Check
+
+Detects:
+
+* duplicate or conflicting product definitions
+* overlapping mission statements
+* ambiguous naming collisions
+
+---
+
+## 6. Data Contracts
+
+### 6.1 Input Registry
+
+```ts id="o2m8vc"
+{
+  organization: Organization,
+  products: Product[],
+  features: Feature[],
+  kpis: KPI[],
+  missions: Mission[],
+  visions: Vision[]
+}
+```
+
+---
+
+### 6.2 Validation Output
+
+```ts id="h7k4qp"
+{
+  status: 'VALID' | 'INVALID',
+  score: number,
+  issues: ValidationIssue[],
+  snapshotId?: string
+}
+```
+
+---
+
+### 6.3 Validation Issue
+
+```ts id="c9x5lm"
+{
+  type: 'STRUCTURAL' | 'KPI' | 'CONSISTENCY' | 'FIELD',
+  severity: 'BLOCKING' | 'WARNING',
+  entityId: string,
+  message: string
+}
+```
+
+---
+
+## 7. Context Integrity Scoring
+
+### 7.1 Score Calculation
+
+* Base: 100
+* Deduct:
+
+  * Missing mandatory field: -20
+  * Invalid KPI mapping: -25
+  * Structural violation: -30
+  * Minor inconsistency: -10
+
+---
+
+### 7.2 Score Bands
+
+| Score | State      |
+| ----- | ---------- |
+| 90+   | Strong     |
+| 70–89 | Acceptable |
+| <70   | Blocked    |
+
+---
+
+### 7.3 Enforcement
+
+* Onboarding MUST NOT proceed if:
+
+  * any BLOCKING issue exists
+  * score below threshold
+
+---
+
+## 8. Approval & Snapshot Protocol
+
+### 8.1 Operator Confirmation
+
+* Required before final validation
+* Acts as:
+
+  * human verification layer
+
+---
+
+### 8.2 Snapshot Creation
+
+On approval:
+
+* system MUST:
+
+  * generate immutable snapshot
+  * assign `snapshotId`
+  * persist to SQLite
+
+---
+
+### 8.3 Snapshot Guarantees
+
+* read-only
+* versionable (future)
+* used by:
+
+  * Governance Graph
+  * Cognitive Memory
+
+---
+
+## 9. Integration Points
+
+### 9.1 With Governance Lifecycle
+
+* Provides:
+
+  * validated registry input
+* Ensures:
+
+  * graph construction operates on clean data
+
+---
+
+### 9.2 With Cognitive Memory Engine
+
+* Supplies:
+
+  * structured business context
+* Enables:
+
+  * accurate prompt grounding
+
+---
+
+### 9.3 With Onboarding Orchestrator
+
+* Emits:
+
+  * `VALID` / `BLOCKED`
+* Acts as:
+
+  * pre-final gating stage
+
+---
+
+### 9.4 With Vaidyar
+
+* Provides:
+
+  * context metadata for diagnostics prioritization
+
+---
+
+## 10. Failure Modes & Handling
+
+| Scenario                   | Behavior         |
+| -------------------------- | ---------------- |
+| Missing mission/vision     | Block approval   |
+| KPI without mapping        | Block approval   |
+| Structural inconsistency   | Block validation |
+| Duplicate product conflict | Warning or block |
+| Ambiguous naming           | Warning          |
+
+---
+
+## 11. Observability
+
+System SHOULD track:
+
+* validation duration
+* issue frequency by type
+* score distribution across users
+* approval rejection rate
+* most common blocking fields
+
+---
+
+## 12. Deterministic Guarantees
+
+* Validation produces consistent results
+* No mutation of input registry
+* Snapshot represents exact validated state
+* No dependency on external systems
+* No implicit assumptions in validation logic
+
+---
+
+## 13. Cross-Module Contracts (Explicit)
+
+* **Host Application**
+
+  * MUST provide complete registry payload
+
+* **Governance Lifecycle**
+
+  * MUST consume validated snapshot only
+
+* **Onboarding Orchestrator**
+
+  * MUST enforce validation gate
+
+* **Cognitive Engine**
+
+  * SHOULD rely only on validated context
+
+---
+
+## 14. Validation Boundaries
+
+### 14.1 Context Boundary
+
+```
+RAW_REGISTRY → VALIDATED_CONTEXT → SNAPSHOT
+```
+
+---
+
+### 14.2 Mutation Boundary
+
+* This module MUST NOT:
+
+  * modify business data
+  * auto-correct invalid fields
+
+---
+
+### 14.3 Execution Boundary
+
+* Does NOT:
+
+  * execute workflows
+  * trigger agents
+  * perform runtime checks
+
+---
+
+## 15. Known Architectural Gaps (Expanded Roadmap)
+
+| Area                    | Gap                                               | Impact |
+| ----------------------- | ------------------------------------------------- | ------ |
+| Dependency Traceability | Cannot trace KPI failure to root missing entity   | High   |
+| Semantic Understanding  | No NLP-based validation of mission/KPI meaning    | High   |
+| Multi-Language Support  | Limited validation beyond English                 | Medium |
+| Conflict Detection      | Weak detection of overlapping product definitions | Medium |
+| Versioning              | No snapshot version control                       | Medium |
+| Incremental Validation  | Full re-validation required on small changes      | Low    |
+
+---
+
+## 16. Strategic Role in Architecture
+
+This module becomes the **semantic foundation** for:
+
+* Governance Graph (structural validation)
+* Cognitive Memory (context grounding)
+* Agent Reasoning (decision accuracy)
+* Audit Systems (traceable business logic)
+
+---
+
+### Strategic Observation
+
+With this enhancement, your system now has:
+
+* **Semantic Validity (this module)**
+* **Structural Validity (Governance Graph)**
+* **Runtime Validity (Vaidyar)**
+
+That creates a **three-layer validation architecture**:
+
+```
+CONTEXT → STRUCTURE → EXECUTION
+```
+
+Which is extremely rare—and very powerful.
+
+---
+
+

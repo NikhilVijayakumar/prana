@@ -114,6 +114,26 @@ export const registerIpcHandlers = (options?: {
       const systemDriveStatus = await driveControllerService.initializeSystemDrive()
       if (!systemDriveStatus.success) {
         console.warn('[PRANA] System virtual drive mount degraded:', systemDriveStatus.message)
+        if (driveControllerService.isFailClosedEnabled()) {
+          return {
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+            overallStatus: 'BLOCKED',
+            stages: [
+              {
+                id: 'vault',
+                label: 'Storage Bootstrap',
+                status: 'FAILED',
+                message: systemDriveStatus.message,
+                startedAt: new Date().toISOString(),
+                finishedAt: new Date().toISOString()
+              }
+            ],
+            diagnostics: {
+              virtualDrives: driveControllerService.getDiagnostics()
+            }
+          }
+        }
       }
 
       const startupStatus = await startupOrchestratorService.runStartupSequence()

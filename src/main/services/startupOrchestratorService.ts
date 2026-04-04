@@ -7,6 +7,7 @@ import { cronSchedulerService } from './cronSchedulerService';
 import { hookSystemService } from './hookSystemService';
 import { memoryIndexService } from './memoryIndexService';
 import { emailOrchestratorService } from './emailOrchestratorService';
+import { driveControllerService, VirtualDriveDiagnosticsSnapshot } from './driveControllerService';
 
 export type StartupStageId =
   | 'integration'
@@ -31,6 +32,9 @@ export interface StartupStatusReport {
   finishedAt: string | null;
   overallStatus: 'READY' | 'DEGRADED' | 'BLOCKED';
   stages: StartupStageReport[];
+  diagnostics?: {
+    virtualDrives: VirtualDriveDiagnosticsSnapshot;
+  };
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -83,6 +87,9 @@ let latestStartupReport: StartupStatusReport = {
   finishedAt: null,
   overallStatus: 'DEGRADED',
   stages: createInitialStages(),
+  diagnostics: {
+    virtualDrives: driveControllerService.getDiagnostics(),
+  },
 };
 
 let runningSequence: Promise<StartupStatusReport> | null = null;
@@ -151,6 +158,9 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
         finishedAt: nowIso(),
         overallStatus: determineOverallStatus(stages),
         stages,
+        diagnostics: {
+          virtualDrives: driveControllerService.getDiagnostics(),
+        },
       };
 
       return latestStartupReport;
@@ -174,6 +184,9 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       finishedAt: nowIso(),
       overallStatus: determineOverallStatus(stages),
       stages,
+      diagnostics: {
+        virtualDrives: driveControllerService.getDiagnostics(),
+      },
     };
 
     return latestStartupReport;
@@ -198,6 +211,9 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       finishedAt: nowIso(),
       overallStatus: determineOverallStatus(stages),
       stages,
+      diagnostics: {
+        virtualDrives: driveControllerService.getDiagnostics(),
+      },
     };
 
     return latestStartupReport;
@@ -239,6 +255,9 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       finishedAt: nowIso(),
       overallStatus: determineOverallStatus(stages),
       stages,
+      diagnostics: {
+        virtualDrives: driveControllerService.getDiagnostics(),
+      },
     };
 
     return latestStartupReport;
@@ -300,6 +319,9 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     finishedAt: nowIso(),
     overallStatus: determineOverallStatus(stages),
     stages,
+    diagnostics: {
+      virtualDrives: driveControllerService.getDiagnostics(),
+    },
   };
 
   return latestStartupReport;

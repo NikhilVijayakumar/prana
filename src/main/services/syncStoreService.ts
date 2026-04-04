@@ -71,6 +71,32 @@ export interface EmbeddingRecord {
   updatedAt: string;
 }
 
+export interface AppRegistryRecord {
+  appId: number;
+  appKey: string;
+  appName: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppVaultBlueprintRecord {
+  blueprintId: number;
+  appId: number;
+  domainKey: string;
+  relativePath: string;
+  isRequired: boolean;
+  lastSyncedAt: string | null;
+  updatedAt: string;
+}
+
+export interface SyncLockRecord {
+  lockKey: string;
+  owner: string;
+  acquiredAt: string;
+  expiresAt: string | null;
+}
+
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
 let cachedDatabase: Database | null = null;
@@ -201,6 +227,40 @@ const initializeDatabase = async (): Promise<Database> => {
   `);
 
   database.run(`
+    CREATE TABLE IF NOT EXISTS app_registry (
+      app_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_key TEXT UNIQUE NOT NULL,
+      app_name TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS app_vault_blueprint (
+      blueprint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_id INTEGER NOT NULL,
+      domain_key TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      is_required INTEGER NOT NULL DEFAULT 1,
+      last_synced_at TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (app_id) REFERENCES app_registry(app_id),
+      UNIQUE(app_id, domain_key)
+    );
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS sync_runtime_lock (
+      lock_key TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      acquired_at TEXT NOT NULL,
+      expires_at TEXT
+    );
+  `);
+
+  database.run(`
     CREATE TABLE IF NOT EXISTS prompt_cache (
       cache_key TEXT PRIMARY KEY,
       prompt TEXT NOT NULL,
@@ -291,6 +351,32 @@ const mapQueueRow = (row: Record<string, unknown>): SyncQueueTask => ({
 
 const createTaskId = (): string => `sync-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+const mapAppRegistryRow = (row: Record<string, unknown>): AppRegistryRecord => ({
+  appId: Number(row.app_id ?? 0),
+  appKey: String(row.app_key ?? ''),
+  appName: String(row.app_name ?? ''),
+  isActive: Number(row.is_active ?? 0) === 1,
+  createdAt: String(row.created_at ?? nowIso()),
+  updatedAt: String(row.updated_at ?? nowIso()),
+});
+
+const mapAppBlueprintRow = (row: Record<string, unknown>): AppVaultBlueprintRecord => ({
+  blueprintId: Number(row.blueprint_id ?? 0),
+  appId: Number(row.app_id ?? 0),
+  domainKey: String(row.domain_key ?? ''),
+  relativePath: String(row.relative_path ?? ''),
+  isRequired: Number(row.is_required ?? 0) === 1,
+  lastSyncedAt: row.last_synced_at ? String(row.last_synced_at) : null,
+  updatedAt: String(row.updated_at ?? nowIso()),
+});
+
+const mapSyncLockRow = (row: Record<string, unknown>): SyncLockRecord => ({
+  lockKey: String(row.lock_key ?? ''),
+  owner: String(row.owner ?? ''),
+  acquiredAt: String(row.acquired_at ?? nowIso()),
+  expiresAt: row.expires_at ? String(row.expires_at) : null,
+});
+
 export const syncStoreService = {
   async dispose(): Promise<void> {
     await writeQueue;
@@ -362,6 +448,175 @@ export const syncStoreService = {
       const db = await getDatabase();
       const statement = db.prepare('DELETE FROM sync_meta WHERE key = ?');
       statement.run([META_SYNC_STATE_KEY]);
+      statement.free();
+      await persistDatabase(db);
+    });
+  },
+
+  async ensureAppRegistered(input: {
+    appKey: string;
+    appName: string;
+    isActive?: boolean;
+  }): Promise<AppRegistryRecord> {
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const timestamp = nowIso();
+      const statement = db.prepare(`
+        INSERT INTO app_registry (app_key, app_name, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(app_key) DO UPDATE SET
+          app_name = excluded.app_name,
+          is_active = excluded.is_active,
+          updated_at = excluded.updated_at
+      `);
+      statement.run([
+        input.appKey,
+        input.appName,
+        input.isActive === false ? 0 : 1,
+        timestamp,
+        timestamp,
+      ]);
+      statement.free();
+      await persistDatabase(db);
+    });
+
+    const record = await this.getAppByKey(input.appKey);
+    if (!record) {
+      throw new Error(`Failed to register app ${input.appKey}.`);
+    }
+    return record;
+  },
+
+  async getAppByKey(appKey: string): Promise<AppRegistryRecord | null> {
+    const db = await getDatabase();
+    const statement = db.prepare('SELECT * FROM app_registry WHERE app_key = ?');
+    statement.bind([appKey]);
+
+    if (!statement.step()) {
+      statement.free();
+      return null;
+    }
+
+    const row = statement.getAsObject() as Record<string, unknown>;
+    statement.free();
+    return mapAppRegistryRow(row);
+  },
+
+  async listApps(): Promise<AppRegistryRecord[]> {
+    const db = await getDatabase();
+    const statement = db.prepare('SELECT * FROM app_registry ORDER BY app_key ASC');
+
+    const apps: AppRegistryRecord[] = [];
+    while (statement.step()) {
+      apps.push(mapAppRegistryRow(statement.getAsObject() as Record<string, unknown>));
+    }
+    statement.free();
+    return apps;
+  },
+
+  async replaceVaultBlueprint(input: {
+    appId: number;
+    entries: Array<{
+      domainKey: string;
+      relativePath: string;
+      isRequired?: boolean;
+      lastSyncedAt?: string | null;
+    }>;
+  }): Promise<AppVaultBlueprintRecord[]> {
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const deleteStatement = db.prepare('DELETE FROM app_vault_blueprint WHERE app_id = ?');
+      deleteStatement.run([input.appId]);
+      deleteStatement.free();
+
+      const insertStatement = db.prepare(`
+        INSERT INTO app_vault_blueprint (app_id, domain_key, relative_path, is_required, last_synced_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      const timestamp = nowIso();
+      for (const entry of input.entries) {
+        insertStatement.run([
+          input.appId,
+          entry.domainKey,
+          entry.relativePath,
+          entry.isRequired === false ? 0 : 1,
+          entry.lastSyncedAt ?? null,
+          timestamp,
+        ]);
+      }
+      insertStatement.free();
+      await persistDatabase(db);
+    });
+
+    return this.listVaultBlueprint(input.appId);
+  },
+
+  async listVaultBlueprint(appId: number): Promise<AppVaultBlueprintRecord[]> {
+    const db = await getDatabase();
+    const statement = db.prepare('SELECT * FROM app_vault_blueprint WHERE app_id = ? ORDER BY domain_key ASC');
+    statement.bind([appId]);
+
+    const rows: AppVaultBlueprintRecord[] = [];
+    while (statement.step()) {
+      rows.push(mapAppBlueprintRow(statement.getAsObject() as Record<string, unknown>));
+    }
+    statement.free();
+    return rows;
+  },
+
+  async getSyncLock(lockKey = 'global'): Promise<SyncLockRecord | null> {
+    const db = await getDatabase();
+    const statement = db.prepare('SELECT * FROM sync_runtime_lock WHERE lock_key = ?');
+    statement.bind([lockKey]);
+
+    if (!statement.step()) {
+      statement.free();
+      return null;
+    }
+
+    const row = statement.getAsObject() as Record<string, unknown>;
+    statement.free();
+    return mapSyncLockRow(row);
+  },
+
+  async acquireSyncLock(input: { owner: string; lockKey?: string; ttlMs?: number }): Promise<boolean> {
+    const lockKey = input.lockKey ?? 'global';
+    const current = await this.getSyncLock(lockKey);
+    const now = Date.now();
+    const currentExpiresAt = current?.expiresAt ? Date.parse(current.expiresAt) : null;
+    const lockExpired = currentExpiresAt !== null && !Number.isNaN(currentExpiresAt) && currentExpiresAt <= now;
+
+    if (current && current.owner !== input.owner && !lockExpired) {
+      return false;
+    }
+
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const timestamp = nowIso();
+      const expiresAt = input.ttlMs ? new Date(Date.now() + input.ttlMs).toISOString() : null;
+      const statement = db.prepare(`
+        INSERT INTO sync_runtime_lock (lock_key, owner, acquired_at, expires_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(lock_key) DO UPDATE SET
+          owner = excluded.owner,
+          acquired_at = excluded.acquired_at,
+          expires_at = excluded.expires_at
+      `);
+      statement.run([lockKey, input.owner, timestamp, expiresAt]);
+      statement.free();
+      await persistDatabase(db);
+    });
+
+    return true;
+  },
+
+  async releaseSyncLock(input: { owner: string; lockKey?: string }): Promise<void> {
+    const lockKey = input.lockKey ?? 'global';
+    await queueWriteOperation(async () => {
+      const db = await getDatabase();
+      const statement = db.prepare('DELETE FROM sync_runtime_lock WHERE lock_key = ? AND owner = ?');
+      statement.run([lockKey, input.owner]);
       statement.free();
       await persistDatabase(db);
     });

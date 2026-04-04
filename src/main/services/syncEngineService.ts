@@ -20,6 +20,8 @@ let snapshot: SyncEngineSnapshot = {
   lastTransitionAt: null,
   lastError: null,
 };
+let activeCommit: Promise<{ committed: boolean; pushed: boolean; pendingRecords: number }> | null = null;
+const SYNC_ENGINE_LOCK_OWNER = `sync-engine:${process.pid}`;
 
 const markPhase = (phase: SyncEngineSnapshot['phase'], error: string | null = null): void => {
   snapshot = {
@@ -49,64 +51,88 @@ export const syncEngineService = {
   },
 
   async commitPendingApprovedRuntimeToVault(): Promise<{ committed: boolean; pushed: boolean; pendingRecords: number }> {
-    const pendingRecords = await syncStoreService.listSyncLineageRecords('PENDING_UPDATE');
-    if (pendingRecords.length === 0) {
-      return {
-        committed: false,
-        pushed: false,
-        pendingRecords: 0,
-      };
+    if (activeCommit) {
+      return activeCommit;
     }
 
-    markPhase('OPENING');
-    vaultLifecycleManager.markUnlocked();
-
-    try {
-      markPhase('COMMITTING');
-      const approvedRuntime = await registryRuntimeStoreService.getApprovedRuntimeState();
-      if (!approvedRuntime) {
-        throw new Error('Approved runtime state is missing during sync commit.');
+    activeCommit = (async () => {
+      const pendingRecords = await syncStoreService.listSyncLineageRecords('PENDING_UPDATE');
+      if (pendingRecords.length === 0) {
+        return {
+          committed: false,
+          pushed: false,
+          pendingRecords: 0,
+        };
       }
 
-      markPhase('PUSHING');
-      const publishResult = await vaultService.publishVaultChanges({
-        approvedByUser: true,
-        commitMessage: `sync: commit approved runtime ${approvedRuntime.committedAt}`,
-      });
+      markPhase('OPENING');
+      vaultLifecycleManager.markUnlocked();
 
-      if (!publishResult.success || !publishResult.pushed) {
-        throw new Error(publishResult.message);
+      try {
+        const acquired = await syncStoreService.acquireSyncLock({
+          owner: SYNC_ENGINE_LOCK_OWNER,
+          lockKey: 'global',
+          ttlMs: 120_000,
+        });
+        if (!acquired) {
+          throw new Error('Global storage sync lock is busy.');
+        }
+
+        markPhase('COMMITTING');
+        const approvedRuntime = await registryRuntimeStoreService.getApprovedRuntimeState();
+        if (!approvedRuntime) {
+          throw new Error('Approved runtime state is missing during sync commit.');
+        }
+
+        markPhase('PUSHING');
+        const publishResult = await vaultService.publishVaultChanges({
+          approvedByUser: true,
+          commitMessage: `sync: commit approved runtime ${approvedRuntime.committedAt}`,
+        });
+
+        if (!publishResult.success || !publishResult.pushed) {
+          throw new Error(publishResult.message);
+        }
+
+        const payload = JSON.stringify(approvedRuntime);
+        const vaultHash = computeHash(payload);
+        await syncStoreService.upsertSyncLineageRecord({
+          recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
+          tableName: 'runtime_registry_meta',
+          syncStatus: 'SYNCED',
+          payload,
+          vaultHash,
+          lastModified: approvedRuntime.committedAt,
+        });
+
+        markPhase('CLOSING');
+        vaultLifecycleManager.markLocked();
+        markPhase('IDLE');
+
+        return {
+          committed: true,
+          pushed: true,
+          pendingRecords: pendingRecords.length,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Sync engine push failed.';
+        markPhase('ERROR', message);
+        return {
+          committed: false,
+          pushed: false,
+          pendingRecords: pendingRecords.length,
+        };
+      } finally {
+        await syncStoreService.releaseSyncLock({
+          owner: SYNC_ENGINE_LOCK_OWNER,
+          lockKey: 'global',
+        });
       }
+    })().finally(() => {
+      activeCommit = null;
+    });
 
-      const payload = JSON.stringify(approvedRuntime);
-      const vaultHash = computeHash(payload);
-      await syncStoreService.upsertSyncLineageRecord({
-        recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
-        tableName: 'runtime_registry_meta',
-        syncStatus: 'SYNCED',
-        payload,
-        vaultHash,
-        lastModified: approvedRuntime.committedAt,
-      });
-
-      markPhase('CLOSING');
-      vaultLifecycleManager.markLocked();
-      markPhase('IDLE');
-
-      return {
-        committed: true,
-        pushed: true,
-        pendingRecords: pendingRecords.length,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Sync engine push failed.';
-      markPhase('ERROR', message);
-      return {
-        committed: false,
-        pushed: false,
-        pendingRecords: pendingRecords.length,
-      };
-    }
+    return activeCommit;
   },
 
   getSnapshot(): SyncEngineSnapshot {

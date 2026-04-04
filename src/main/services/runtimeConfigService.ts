@@ -49,6 +49,7 @@ export interface RuntimeBootstrapConfig {
     specVersion: string;
     tempZipExtension: string;
     outputPrefix: string;
+    appKey?: string;
     archivePassword: string;
     archiveSalt: string;
     kdfIterations: number;
@@ -252,6 +253,7 @@ export const getRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
       specVersion: vault.specVersion ?? DEFAULT_VAULT_SPEC_VERSION,
       tempZipExtension: normalizeExtension(vault.tempZipExtension ?? DEFAULT_VAULT_TEMP_ZIP_EXT),
       outputPrefix: vault.outputPrefix ?? DEFAULT_VAULT_OUTPUT_PREFIX,
+      appKey: vault.appKey || undefined,
       archivePassword: vault.archivePassword || '',
       archiveSalt: vault.archiveSalt || '',
       kdfIterations: vault.kdfIterations || 100000,

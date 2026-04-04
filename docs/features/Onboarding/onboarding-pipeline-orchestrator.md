@@ -1,75 +1,462 @@
-This is the final, refined **Feature Contract** for the **Onboarding Pipeline Orchestrator**. 
+# 🚀 Feature: Onboarding Pipeline Orchestrator (Enhanced)
 
-I have removed all specific host-app references (**Dhi**) and focused strictly on the **Protocol-driven relationship** between Prana and any connected host. This makes the documentation truly "Library-First" and architecture-neutral.
-
----
-
-# Feature: Onboarding Pipeline Orchestrator
-
-**Version:** 1.1.0  
-**Status:** Stable  
-**Pattern:** Master-Detail MVVM  
-**Service:** `onboardingOrchestratorService.ts`  
-**Storage Domain:** `onboarding_registry` (SQLite)  
-**Capability:** Provides a host-agnostic state machine to transition a connected application through the mandatory governance stages required for a secure runtime.
+**Version:** 1.2.0
+**Status:** Stable
+**Pattern:** Deterministic State Machine · Master-Detail MVVM
+**Service:** `onboardingOrchestratorService.ts`
+**Storage Domain:** `onboarding_registry` (SQLite)
+**Capability:** Enforces a deterministic, persistent, and auditable onboarding pipeline that guarantees Minimum Viable Governance (MVG) before runtime activation.
 
 ---
 
 ## 1. Tactical Purpose
-The **Onboarding Pipeline Orchestrator** is the gatekeeper of the Prana library. It ensures that no host application can access core orchestration or agentic features until a **Minimum Viable Governance (MVG)** state is achieved. It abstracts the complexity of step-sequencing, allowing the UI to remain a "dumb" presenter of the current state while Prana manages the underlying logic and persistence.
 
+The Onboarding Orchestrator is the **governance gatekeeper** of the Prana runtime.
 
+It ensures that:
 
----
+* All required system capabilities are **validated before activation**
+* Host applications cannot bypass **security or configuration requirements**
+* Onboarding progress is **persistent, resumable, and deterministic**
+* The system reaches a **provably valid operational baseline (MVG)**
 
-## 2. Scope & Boundaries
+It operates as:
 
-### 2.1 "It Does" (Scope)
-* **Enforce Sequential Integrity:** Implements a strict "No-Skip" policy where Stage $N+1$ is locked until Stage $N$ returns a `VALID` signal to the service.
-* **Persistent State Tracking:** Saves the current step index, completion percentages, and the final `ONBOARDING_COMPLETE` flag to the `onboarding_registry` table in SQLite.
-* **State Recovery:** Automatically restores the user’s exact position in the onboarding flow across application restarts.
-* **Metadata Handover:** Collects validated metadata from sub-features (e.g., API keys, Channel IDs) and prepares them for the final **Vaidyar** system pulse.
-* **Status Broadcasting:** Emits standardized IPC events (`app:onboarding-state`) to keep the host UI in sync with the backend state machine.
-
-### 2.2 "It Does Not" (Boundaries)
-* **Validate Sub-Feature Data:** It does not know how to check a Telegram token or a Model ID; it delegates that responsibility to the respective sub-features and listens for the result.
-* **Define Business Policy:** It manages the *pathway* to compliance, not the specific *rules* of the business registry (see `Registry Approval`).
-* **Inhibit Custom UI:** While it manages the state, it does not dictate the host's CSS or layout, provided the host complies with the IPC protocol.
+* A **state machine controller**
+* A **compliance enforcement layer**
+* A **metadata aggregation pipeline**
+* A **pre-bootstrap validation authority**
 
 ---
 
-## 3. Architectural Dependencies
-| Component | Role | Relationship |
-| :--- | :--- | :--- |
-| **Main Process** | `onboardingOrchestratorService` | The "Brain" executing the state transition logic. |
-| **Renderer** | `OnboardingContainer` | The Master view component that switches sub-feature views based on IPC state. |
-| **Feature** | **Vaidyar** | The final mandatory step is a "Full System Pulse" diagnostic. |
-| **Storage** | `sqliteConfigStore` | Persists the global readiness flags for the Cold-Vault boot sequence. |
+## 2. System Invariants (Critical)
+
+1. **No-Skip Enforcement**
+
+   * Stages MUST execute sequentially
+   * No manual override allowed
+
+2. **Validation-Driven Progression**
+
+   * Each stage MUST emit `VALID` before progression
+   * Invalid state MUST block advancement
+
+3. **Persistent Truth**
+
+   * State MUST be stored in SQLite
+   * Recovery MUST restore exact state
+
+4. **Single Authority**
+
+   * Only `onboardingOrchestratorService` controls transitions
+
+5. **Pre-Boot Requirement**
+
+   * `ONBOARDING_COMPLETE` MUST be true before full runtime access
 
 ---
 
-## 4. The Standard Onboarding Sequence
-The Orchestrator moves through four discrete, mandatory stages by default:
+## 3. State Machine Definition
 
-1.  **Intelligence Setup:** Identification of the AI Model and Context Window limits provided by the host.
-2.  **Connection Setup:** Configuration of external communication channels (e.g., Telegram, WhatsApp adapters).
-3.  **Governance Setup:** Validation of the host's product registry, mission context, and KPI alignment.
-4.  **Integrity Check (Vaidyar):** A final comprehensive diagnostic scan to ensure all previous configurations are physically reachable and operational.
+### 3.1 Core States
 
-
+```text id="onb1"
+INIT → IN_PROGRESS → STAGE_VALIDATED → ONBOARDING_COMPLETE
+```
 
 ---
 
-## 5. Implementation References
-* **State Engine:** `src/main/services/onboardingOrchestratorService.ts`
-* **UI Shell:** `src/ui/onboarding/view/OnboardingContainer.tsx`
-* **IPC Surface:** `app:onboarding-state` (Subscribe) | `app:onboarding-submit` (Invoke)
+### 3.2 Stage-Level States
+
+```text id="onb2"
+LOCKED → ACTIVE → VALIDATING → VALID → FAILED
+```
 
 ---
 
-## 6. Known Architectural Gaps (Roadmap)
-* **[High] Conditional Branching:** The current path is linear; it needs to support "Optional" steps based on the host app's requirements (e.g., skipping Channel setup).
-* **[Med] Reset/Re-Onboard:** No standardized trigger exists to wipe the `onboarding_registry` and restart the initiation journey.
-* **[Low] Telemetry:** No current mechanism to track "Time-to-Completion" for individual steps to identify friction in the setup process.
+### 3.3 Transition Rules
+
+* A stage transitions:
+
+  ```
+  LOCKED → ACTIVE → VALIDATING → VALID
+  ```
+
+* Failure:
+
+  ```
+  VALIDATING → FAILED → ACTIVE
+  ```
+
+* Global progression:
+
+  ```
+  STAGE_N (VALID) → STAGE_N+1 (ACTIVE)
+  ```
 
 ---
+
+## 4. Standard Onboarding Pipeline (Formalized)
+
+### 4.1 Stage Definitions
+
+| Stage | Key                | Responsibility                  |
+| :---- | :----------------- | :------------------------------ |
+| 1     | INTELLIGENCE_SETUP | Model selection, context limits |
+| 2     | CONNECTION_SETUP   | Channel configuration           |
+| 3     | GOVERNANCE_SETUP   | Registry + mission validation   |
+| 4     | INTEGRITY_CHECK    | Full Vaidyar diagnostic         |
+
+---
+
+### 4.2 Stage Contract
+
+Each stage MUST define:
+
+```ts
+{
+  stage_id: string,
+  required: boolean,
+  validator: string,
+  output_schema: object
+}
+```
+
+---
+
+## 5. Data Flow Pipeline
+
+```text
+UI → IPC (submit) → Orchestrator → Feature Validator → Result → State Update → IPC (broadcast)
+```
+
+---
+
+### 5.1 Constraints
+
+* Orchestrator MUST:
+
+  * not validate internally
+  * delegate validation to feature modules
+
+---
+
+## 6. Persistence Model
+
+### 6.1 SQLite Schema (Conceptual)
+
+```ts
+{
+  current_stage: string,
+  stage_status: string,
+  completion_percentage: number,
+  onboarding_complete: boolean,
+  metadata: json
+}
+```
+
+---
+
+### 6.2 Recovery Guarantees
+
+* On restart:
+
+  * restore exact stage
+  * restore validation state
+  * resume from last ACTIVE stage
+
+---
+
+## 7. Metadata Aggregation Contract
+
+### 7.1 Collected Data
+
+* Model configuration
+* Channel credentials
+* Governance registry
+* System validation results
+
+---
+
+### 7.2 Output (Final Handover)
+
+```ts
+{
+  onboarding_complete: true,
+  validated_config: object,
+  timestamp: number
+}
+```
+
+---
+
+### 7.3 Integration Target
+
+* Passed to:
+
+  * `StartupOrchestrator`
+  * `PranaRuntimeConfig`
+
+---
+
+## 8. IPC Contract (Formalized)
+
+### 8.1 Events
+
+| Event                     | Direction | Purpose                 |
+| :------------------------ | :-------- | :---------------------- |
+| `app:onboarding-state`    | Main → UI | Broadcast current state |
+| `app:onboarding-submit`   | UI → Main | Submit stage data       |
+| `app:onboarding-error`    | Main → UI | Validation failure      |
+| `app:onboarding-complete` | Main → UI | Completion signal       |
+
+---
+
+### 8.2 State Payload
+
+```ts
+{
+  stage: string,
+  status: string,
+  progress: number,
+  metadata?: object,
+  error?: string
+}
+```
+
+---
+
+## 9. Integration Points
+
+### 9.1 With Startup Orchestrator
+
+* MUST enforce:
+
+  ```
+  ONBOARDING_COMPLETE === true
+  ```
+
+* Otherwise:
+
+  * block bootstrap progression
+
+---
+
+### 9.2 With Vaidyar
+
+* Final stage triggers:
+
+  * full system pulse
+* MUST:
+
+  * validate real-world connectivity
+
+---
+
+### 9.3 With Config System
+
+* Outputs:
+
+  * validated runtime configuration
+
+---
+
+### 9.4 With Notification Centre
+
+* Emits:
+
+  * onboarding errors
+  * completion signals
+
+---
+
+## 10. Dynamic Stage System (New — Critical)
+
+### 10.1 Purpose
+
+Support host-specific onboarding flows
+
+---
+
+### 10.2 Stage Registration
+
+```ts
+registerStage({
+  id: string,
+  order: number,
+  required: boolean,
+  validator: function
+})
+```
+
+---
+
+### 10.3 Conditional Execution
+
+* Stages MAY:
+
+  * be skipped if `required = false`
+  * be dynamically injected
+
+---
+
+### 10.4 Constraint
+
+* Even dynamic stages MUST:
+
+  * follow validation contract
+  * be persisted
+
+---
+
+## 11. Failure Handling
+
+| Scenario                     | Behavior          |
+| :--------------------------- | :---------------- |
+| Validation failure           | Remain in ACTIVE  |
+| Missing data                 | Reject submission |
+| External service unreachable | Retry or fail     |
+| Vaidyar failure              | Block completion  |
+
+---
+
+## 12. Observability
+
+System SHOULD track:
+
+* time per stage
+* validation failure rates
+* retries per stage
+* drop-off points
+* total onboarding duration
+
+---
+
+## 13. Reset & Re-Onboard (New)
+
+### 13.1 Trigger
+
+* Manual reset OR system invalidation
+
+---
+
+### 13.2 Behavior
+
+* Clear:
+
+  * onboarding_registry
+* Reset state to:
+
+  * INIT
+
+---
+
+### 13.3 Constraint
+
+* MUST require confirmation
+* MUST log reset event
+
+---
+
+## 14. Deterministic Guarantees
+
+* Onboarding path is strictly ordered
+* State is fully recoverable
+* Validation controls progression
+* No hidden transitions
+* Output is reproducible
+
+---
+
+## 15. Known Architectural Gaps (Expanded)
+
+| Area                  | Gap                                | Impact |
+| :-------------------- | :--------------------------------- | :----- |
+| Conditional Branching | Limited dynamic flow support       | High   |
+| Reset Mechanism       | Not standardized                   | High   |
+| Validation Registry   | No centralized validator mapping   | Medium |
+| Telemetry             | No tracking of onboarding friction | Medium |
+| Partial Revalidation  | Cannot revalidate single stage     | Medium |
+
+---
+
+## 16. Cross-Module Contracts
+
+* **Feature Validators**
+
+  * MUST return deterministic validation results
+
+* **Vaidyar**
+
+  * MUST provide final system integrity status
+
+* **Startup Orchestrator**
+
+  * MUST block if onboarding incomplete
+
+* **Config System**
+
+  * MUST consume validated metadata
+
+---
+
+## 17. Deterministic Boundaries
+
+### Validation Boundary
+
+```text
+STAGE INPUT → VALIDATOR → RESULT
+```
+
+---
+
+### State Boundary
+
+```text
+CURRENT STATE → TRANSITION → NEXT STATE
+```
+
+---
+
+### Bootstrap Boundary
+
+```text
+ONBOARDING_COMPLETE → ENABLE STARTUP
+```
+
+---
+
+## 18. System Role (Final Positioning)
+
+This module is:
+
+* The **entry gate of governance**
+* The **enforcer of system readiness**
+* The **builder of runtime configuration truth**
+
+---
+
+## 19. Strategic Role in Architecture
+
+It connects:
+
+* **Auth Layer** → identity
+* **Config Layer** → runtime definition
+* **Vaidyar** → system validation
+* **Startup Orchestrator** → execution readiness
+
+---
+
+### Critical Observation
+
+This module ensures your system is not just:
+
+> “Configurable”
+
+but:
+
+> “**Provably valid before execution**”
+
+---
+
+

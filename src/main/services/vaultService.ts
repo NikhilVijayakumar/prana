@@ -8,6 +8,9 @@ import { executeCommand } from './processService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { hookSystemService } from './hookSystemService';
 import { memoryIndexService } from './memoryIndexService';
+import { vaultMetadataService } from './vaultMetadataService';
+import { vaultRegistryService } from './vaultRegistryService';
+import { syncStoreService } from './syncStoreService';
 
 const DEFAULT_SCHEMA_FILE = 'schema_validation.json';
 const DEFAULT_INDEX_FILE = 'vault_index.json';
@@ -364,6 +367,23 @@ const ensureVaultStore = async (): Promise<void> => {
   if (!existsSync(getIndexFilePath())) {
     await writeFile(getIndexFilePath(), JSON.stringify([]), 'utf8');
   }
+
+  const metadata = await vaultMetadataService.ensureMetadata(getWorkingRootDir());
+  await vaultRegistryService.ensureRegistered(getWorkingRootDir(), metadata);
+  const appRecord = await syncStoreService.ensureAppRegistered({
+    appKey: metadata.appKey,
+    appName: metadata.appName,
+    isActive: true,
+  });
+  await syncStoreService.replaceVaultBlueprint({
+    appId: appRecord.appId,
+    entries: metadata.domainKeys.map((domainKey) => ({
+      domainKey,
+      relativePath: `${metadata.rootPath}/${domainKey}`,
+      isRequired: true,
+      lastSyncedAt: metadata.generatedAt,
+    })),
+  });
 };
 
 const hasGitChanges = async (repoPath: string): Promise<boolean> => {
@@ -641,12 +661,14 @@ const assertVaultRelativePath = (relativePath: string): string => {
 };
 
 const withVaultWorkspace = async <T>(operation: () => Promise<T>): Promise<T> => {
-  await ensureVaultStore();
-  try {
-    return await operation();
-  } finally {
-    await vaultService.cleanupTemporaryWorkspace(true);
-  }
+  return driveControllerService.withVaultDriveSession(async () => {
+    await ensureVaultStore();
+    try {
+      return await operation();
+    } finally {
+      await vaultService.cleanupTemporaryWorkspace(true);
+    }
+  });
 };
 
 export const vaultService = {

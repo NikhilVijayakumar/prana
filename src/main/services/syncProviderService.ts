@@ -13,6 +13,7 @@ import { getAppDataRoot } from './governanceRepoService';
 import { diffEngine } from './diffEngine';
 import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
 import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
+import { driveControllerService } from './driveControllerService';
 
 const REGISTRY_SYNC_RELATIVE_PATH = join('data', 'registry-sync', 'registry-sync.snapshot.json');
 const MACHINE_LOCK_RELATIVE_PATH = join('data', 'registry-sync', 'active-client-lock.json');
@@ -92,8 +93,37 @@ let lastStartupPullStatus: SplashSyncResult['pullStatus'] | null = null;
 let lastStartupMergeStatus: SplashSyncResult['mergeStatus'] | null = null;
 let lastStartupIntegrityStatus: SplashSyncResult['integrityStatus'] | null = null;
 let lastStartupSyncMessage: string | null = null;
+let syncOperationQueue: Promise<void> = Promise.resolve();
+const SYNC_LOCK_OWNER = `sync-provider:${process.pid}`;
 
 const nowIso = (): string => new Date().toISOString();
+
+const queueSyncOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const scheduled = syncOperationQueue.then(operation, operation);
+  syncOperationQueue = scheduled.then(() => undefined, () => undefined);
+  return scheduled;
+};
+
+const withSyncLock = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const acquired = await syncStoreService.acquireSyncLock({
+    owner: SYNC_LOCK_OWNER,
+    lockKey: 'global',
+    ttlMs: 120_000,
+  });
+
+  if (!acquired) {
+    throw new Error('Another sync operation already holds the global storage lock.');
+  }
+
+  try {
+    return await operation();
+  } finally {
+    await syncStoreService.releaseSyncLock({
+      owner: SYNC_LOCK_OWNER,
+      lockKey: 'global',
+    });
+  }
+};
 
 const getMachineId = (): string => {
   const host = hostname();
@@ -383,16 +413,18 @@ const pushLatestApprovedSnapshot = async (): Promise<void> => {
   }
 
   try {
-    await vaultService.initializeVault();
-    const state = await syncStoreService.getDecryptedRegistrySnapshot();
-    if (!state) {
-      throw new Error('No encrypted registry sync state available for push.');
-    }
+    await driveControllerService.withVaultDriveSession(async () => {
+      await vaultService.initializeVault();
+      const state = await syncStoreService.getDecryptedRegistrySnapshot();
+      if (!state) {
+        throw new Error('No encrypted registry sync state available for push.');
+      }
 
-    await writeRemoteSnapshot(state.snapshot);
-    await vaultService.publishVaultChanges({
-      commitMessage: `sync: approved registry push ${state.sourceVersion}`,
-      approvedByUser: true,
+      await writeRemoteSnapshot(state.snapshot);
+      await vaultService.publishVaultChanges({
+        commitMessage: `sync: approved registry push ${state.sourceVersion}`,
+        approvedByUser: true,
+      });
     });
 
     await syncStoreService.markTaskCompleted(task.taskId);
@@ -414,25 +446,27 @@ const pullLatestFromRemoteVaultAndMerge = async (
   installMode: SplashSyncResult['installMode'],
 ): Promise<SplashSyncResult> => {
   try {
-    await vaultService.initializeVault();
-    const syncResult = await vaultService.syncFromRemoteVault();
-    if (!syncResult.success) {
-      lastPullAt = nowIso();
-      lastPullStatus = 'FAILED';
-      lastPullMessage = syncResult.message;
-      return {
-        installMode,
-        pulled: false,
-        merged: false,
-        pullStatus: 'FAILED',
-        mergeStatus: 'FAILED',
-        integrityStatus: 'UNKNOWN',
-        skippedReason: syncResult.message,
-      };
-    }
+    return await driveControllerService.withVaultDriveSession(async () => {
+      await vaultService.initializeVault();
+      const syncResult = await vaultService.syncFromRemoteVault();
+      if (!syncResult.success) {
+        lastPullAt = nowIso();
+        lastPullStatus = 'FAILED';
+        lastPullMessage = syncResult.message;
+        return {
+          installMode,
+          pulled: false,
+          merged: false,
+          pullStatus: 'FAILED',
+          mergeStatus: 'FAILED',
+          integrityStatus: 'UNKNOWN',
+          skippedReason: syncResult.message,
+        };
+      }
 
-    await runtimeDocumentStoreService.seedFromVaultWorkspace(vaultService.getWorkingRootPath());
-    return applyRemoteSnapshotIfNewer(installMode);
+      await runtimeDocumentStoreService.seedFromVaultWorkspace(vaultService.getWorkingRootPath());
+      return applyRemoteSnapshotIfNewer(installMode);
+    });
   } finally {
     await vaultService.cleanupTemporaryWorkspace(true);
   }
@@ -459,28 +493,30 @@ const stopPushTimer = (): void => {
 
 export const syncProviderService = {
   async initializeOnSplash(options?: { installMode?: SplashSyncResult['installMode'] }): Promise<SplashSyncResult> {
-    const installMode = options?.installMode ?? 'RETURNING_INSTALL';
-    if (initialized) {
-      return recordStartupSyncResult(await pullLatestFromRemoteVaultAndMerge(installMode));
-    }
+    return queueSyncOperation(async () => withSyncLock(async () => {
+      const installMode = options?.installMode ?? 'RETURNING_INSTALL';
+      if (initialized) {
+        return recordStartupSyncResult(await pullLatestFromRemoteVaultAndMerge(installMode));
+      }
 
-    await recoveryOrchestratorService.recoverPendingSyncTasks();
-    pushIntervalMs = Math.max(30_000, getRuntimeBootstrapConfig().sync.pushIntervalMs);
-    const persistedPushInterval = await loadPushIntervalFromSettings();
-    if (persistedPushInterval) {
-      pushIntervalMs = persistedPushInterval;
-    }
+      await recoveryOrchestratorService.recoverPendingSyncTasks();
+      pushIntervalMs = Math.max(30_000, getRuntimeBootstrapConfig().sync.pushIntervalMs);
+      const persistedPushInterval = await loadPushIntervalFromSettings();
+      if (persistedPushInterval) {
+        pushIntervalMs = persistedPushInterval;
+      }
 
-    const machineLockWarning = await updateActiveMachineLock();
-    lastMachineLockWarning = machineLockWarning ?? null;
-    const pullResult = await pullLatestFromRemoteVaultAndMerge(installMode);
+      const machineLockWarning = await updateActiveMachineLock();
+      lastMachineLockWarning = machineLockWarning ?? null;
+      const pullResult = await pullLatestFromRemoteVaultAndMerge(installMode);
 
-    initialized = true;
+      initialized = true;
 
-    return recordStartupSyncResult({
-      ...pullResult,
-      machineLockWarning,
-    });
+      return recordStartupSyncResult({
+        ...pullResult,
+        machineLockWarning,
+      });
+    }));
   },
 
   async stageApprovedRegistryForSync(reason: string): Promise<void> {
@@ -488,17 +524,25 @@ export const syncProviderService = {
   },
 
   async triggerBackgroundPush(): Promise<void> {
-    await pushLatestApprovedSnapshot();
+    await queueSyncOperation(async () => {
+      await withSyncLock(async () => {
+        await pushLatestApprovedSnapshot();
+      });
+    });
   },
 
   async triggerBackgroundPull(): Promise<{ pulled: boolean; merged: boolean; skippedReason?: string }> {
-    return pullLatestFromRemoteVaultAndMerge('RETURNING_INSTALL');
+    return queueSyncOperation(async () => withSyncLock(async () => pullLatestFromRemoteVaultAndMerge('RETURNING_INSTALL')));
   },
 
   async syncOnClose(): Promise<void> {
-    const warning = await updateActiveMachineLock();
-    lastMachineLockWarning = warning ?? null;
-    await pushLatestApprovedSnapshot();
+    await queueSyncOperation(async () => {
+      await withSyncLock(async () => {
+        const warning = await updateActiveMachineLock();
+        lastMachineLockWarning = warning ?? null;
+        await pushLatestApprovedSnapshot();
+      });
+    });
   },
 
   getLastMachineLockWarning(): string | null {

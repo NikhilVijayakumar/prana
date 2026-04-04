@@ -1,59 +1,500 @@
-# Feature: Onboarding — Channel & Routing Setup
+This module is critical—it defines how your runtime **interfaces with the outside world**. The enhancement below formalizes it into a **deterministic communication contract layer**, ensuring channels are not just configured, but **verifiably reachable, authorized, and governable**.
 
-**Version:** 1.1.0  
-**Status:** Stable  
-**Service:** `registryRuntimeStoreService.ts`  
-**Storage Domain:** `channel_configuration` (SQLite)  
-**Capability:** Configures and validates external communication gateways to enable the **Channel Integration** and **Agent Communication** features.
+Key upgrades focus on:
 
----
-
-### 1. Tactical Purpose
-The **Channel & Routing Setup** ensures that the Prana runtime has the correct "Address Book" for external messaging. By validating bot tokens and chat identifiers during onboarding, it prevents runtime failures where an agent attempts to send a critical alert to an unreachable or unauthorized channel.
-
-#### 1.1 "It Does" (Scope)
-* **Credential Capture:** Securely receives Bot Tokens, API Keys, and unique Chat/Group IDs from the host application.
-* **Connectivity Verification:** Performs a real-time handshake with the external provider (e.g., Telegram `getMe`) to verify the token is active.
-* **Route Mapping:** Associates specific inbound channels with internal agent work-order pipelines.
-* **Persona Authorization:** Links external IDs to authorized operator personas to prevent unauthorized command execution.
-* **Persistence:** Saves validated channel metadata to the `channel_configuration` SQLite table.
-
-#### 1.2 "It Does Not" (Boundaries)
-* **Execute Message Routing:** It does not handle the "In-Flight" logic of sending or receiving messages (see **Channel Integration**).
-* **Manage Transport Drivers:** It does not contain the low-level HTTP/WebSocket code for Telegram; it delegates the check to the respective service.
-* **Store Global Secrets:** While it captures tokens, the primary encryption at rest for these secrets is governed by the **Vault**.
+* Formalizing **channel identity + routing contracts**
+* Strengthening **security + persona mapping**
+* Defining **deterministic handshake + validation pipeline**
+* Introducing **multi-channel abstraction + extensibility**
+* Aligning with **Notification Centre, Agents, and Governance Layer**
 
 ---
 
-### 2. Architectural Dependencies
-| Component | Role | Relationship |
-| :--- | :--- | :--- |
-| **Main Process** | `registryRuntimeStoreService` | The primary store for channel-to-agent mapping. |
-| **Feature** | **Channel Integration** | Consumes the IDs and Tokens configured here for live routing. |
-| **Feature** | **Vaidyar** | Verifies the "Health Pulse" of the configured channel before finishing onboarding. |
-| **Data Source** | **Host Application** | Must provide the specific tokens and channel types (Telegram/WhatsApp). |
+# 📡 Feature: Onboarding — Channel & Routing Setup (Enhanced)
+
+**Version:** 1.2.0
+**Status:** Stable
+**Pattern:** Capability-Aware Channel Registry · Deterministic Routing Configuration
+**Service:** `registryRuntimeStoreService.ts`
+**Storage Domain:** `channel_configuration` (SQLite)
+**Capability:** Establishes verified, secure, and routable communication channels by configuring external gateways, validating connectivity, and binding them to internal agent workflows.
 
 ---
 
-### 3. The Connection Handshake
-1.  **Input:** The host application provides a Bot Token and a Target Chat ID.
-2.  **Ping:** The `registryRuntimeStoreService` attempts a "Pulse Check" via the provider's API.
-3.  **Discovery:** If successful, the system retrieves the Bot's Username and permissions.
-4.  **Verification:** The **Vaidyar** ensures the network path is open (no firewall blocks).
-5.  **Commit:** The Onboarding Orchestrator marks the channel as `VALID`.
+## 1. Tactical Purpose
+
+The Channel & Routing Setup is the **External Communication Contract Layer** of the Prana runtime.
+
+It ensures that:
+
+* All external channels are **reachable and authenticated**
+* Messages are routed through **validated and deterministic paths**
+* Operators are **securely mapped to communication identities**
+* Agents interact only with **authorized endpoints**
+
+It operates as:
+
+* A **channel registry system**
+* A **routing configuration layer**
+* A **persona authorization bridge**
+* A **pre-runtime connectivity validator**
 
 ---
 
-### 4. Implementation References
-* **Storage Logic:** `src/main/services/registryRuntimeStoreService.ts`
-* **Routing Contract:** `docs/features/channel-integration.md`
-* **UI:** `src/ui/onboarding-channel-configuration/view/OnboardingChannelConfigurationContainer.tsx`
+## 2. System Invariants (Critical)
+
+1. **Verified Connectivity**
+
+   * Channels MUST pass handshake validation before activation
+
+2. **Secure Credential Handling**
+
+   * Tokens MUST NOT be stored in plaintext
+   * Encryption MUST align with Vault/Auth policies
+
+3. **Deterministic Routing**
+
+   * Every channel MUST map to a defined internal route
+
+4. **Persona Binding**
+
+   * External identities MUST map to authorized operators
+
+5. **Immutable Configuration Snapshot**
+
+   * Channel configuration MUST be versioned and persisted
 
 ---
 
-### 5. Known Architectural Gaps (Roadmap)
-* **[High] Multi-Channel Identity:** No current mechanism to link a single operator across different channels (e.g., "User A on Telegram" is the same as "User A on WhatsApp").
-* **[Med] Webhook Management:** Currently optimized for "Polling" modes; no automated webhook registration surface exists in this setup step.
-* **[Low] Rate Limit Config:** No UI exists to define "Quiet Hours" or rate-limiting per channel during the setup phase.
+## 3. Channel Configuration Schema (Formalized)
+
+### 3.1 Channel Definition
+
+```ts id="ch1"
+{
+  channel_id: string,
+  provider: 'telegram' | 'whatsapp' | 'custom',
+  credentials: {
+    token_ref: string
+  },
+  target: {
+    chat_id: string,
+    group?: boolean
+  },
+  routing: {
+    agent_pipeline: string,
+    priority: number
+  },
+  persona_binding: {
+    external_id: string,
+    internal_user_id: string
+  },
+  status: 'ACTIVE' | 'INVALID' | 'PENDING'
+}
+```
 
 ---
+
+### 3.2 Versioning (New)
+
+```ts id="ch2"
+{
+  config_version: string,
+  created_at: timestamp,
+  checksum: string
+}
+```
+
+---
+
+## 4. Channel Capability Model (New)
+
+### 4.1 Capability Definition
+
+```ts id="ch3"
+{
+  supports_inbound: boolean,
+  supports_outbound: boolean,
+  supports_webhook: boolean,
+  supports_polling: boolean
+}
+```
+
+---
+
+### 4.2 Constraint
+
+* Channel MUST declare capabilities before activation
+
+---
+
+## 5. Connection Handshake Pipeline (Deterministic)
+
+```text
+INPUT → CREDENTIAL VALIDATION → PROVIDER HANDSHAKE → METADATA DISCOVERY → VAIDYAR CHECK → COMMIT
+```
+
+---
+
+### 5.1 Stage Breakdown
+
+#### 1. Input
+
+* Receive token + channel ID
+
+#### 2. Credential Validation
+
+* Verify token format + structure
+
+#### 3. Provider Handshake
+
+* API call (e.g., `getMe`)
+
+#### 4. Metadata Discovery
+
+* Retrieve:
+
+  * bot name
+  * permissions
+
+#### 5. Vaidyar Check
+
+* Validate:
+
+  * network reachability
+  * response latency
+
+#### 6. Commit
+
+* Persist validated configuration
+
+---
+
+## 6. Routing Contract
+
+### 6.1 Routing Definition
+
+```ts id="ch4"
+{
+  channel_id: string,
+  route_to: string, // agent pipeline
+  fallback_route?: string
+}
+```
+
+---
+
+### 6.2 Routing Guarantees
+
+* Every inbound message MUST:
+
+  * resolve to a route
+* No message MUST be:
+
+  * dropped silently
+
+---
+
+### 6.3 Priority Handling
+
+* Channels MAY define:
+
+  * priority levels
+* Used by:
+
+  * Task Scheduler
+
+---
+
+## 7. Persona Authorization Model
+
+### 7.1 Identity Mapping
+
+```ts id="ch5"
+{
+  external_user_id: string,
+  internal_user_id: string,
+  role: 'admin' | 'operator' | 'viewer'
+}
+```
+
+---
+
+### 7.2 Authorization Rules
+
+* Only mapped users MAY:
+
+  * trigger agent actions
+* Unauthorized users MUST:
+
+  * be rejected
+
+---
+
+## 8. Multi-Channel Identity (New — Critical)
+
+### 8.1 Unified Identity Model
+
+```ts id="ch6"
+{
+  internal_user_id: string,
+  linked_channels: string[]
+}
+```
+
+---
+
+### 8.2 Purpose
+
+* Link:
+
+  * Telegram user
+  * WhatsApp user
+* To:
+
+  * single operator identity
+
+---
+
+### 8.3 Constraint
+
+* Identity mapping MUST:
+
+  * be verified during onboarding
+
+---
+
+## 9. Webhook vs Polling Strategy (New)
+
+### 9.1 Modes
+
+| Mode    | Description       |
+| :------ | :---------------- |
+| Polling | Scheduled fetch   |
+| Webhook | Event-driven push |
+
+---
+
+### 9.2 Configuration
+
+```ts id="ch7"
+{
+  mode: 'polling' | 'webhook',
+  endpoint?: string
+}
+```
+
+---
+
+### 9.3 Constraint
+
+* Channel MUST:
+
+  * support selected mode
+
+---
+
+## 10. Integration Points
+
+### 10.1 With Channel Integration
+
+* Consumes:
+
+  * tokens
+  * routing rules
+
+---
+
+### 10.2 With Notification Centre
+
+* Sends:
+
+  * alerts via configured channels
+
+---
+
+### 10.3 With Vaidyar
+
+* Validates:
+
+  * channel health
+
+---
+
+### 10.4 With Task Scheduler
+
+* Uses:
+
+  * channel priority for execution
+
+---
+
+## 11. Failure Handling
+
+| Scenario            | Behavior             |
+| :------------------ | :------------------- |
+| Invalid token       | Reject configuration |
+| API failure         | Retry or fail        |
+| Unauthorized access | Block action         |
+| Network unreachable | Fail Vaidyar check   |
+| Routing missing     | Block activation     |
+
+---
+
+## 12. Observability
+
+System MUST track:
+
+* channel uptime
+* message success rate
+* failure frequency
+* latency per provider
+* unauthorized access attempts
+
+---
+
+## 13. Rate Limiting & Quiet Hours (New)
+
+### 13.1 Configuration
+
+```ts id="ch8"
+{
+  rate_limit_per_minute: number,
+  quiet_hours: {
+    start: string,
+    end: string
+  }
+}
+```
+
+---
+
+### 13.2 Behavior
+
+* During quiet hours:
+
+  * suppress non-critical messages
+
+---
+
+## 14. Security Model
+
+### 14.1 Credential Storage
+
+* Tokens MUST:
+
+  * be encrypted
+  * referenced via `token_ref`
+
+---
+
+### 14.2 Access Control
+
+* Channel actions MUST:
+
+  * pass persona validation
+
+---
+
+## 15. Deterministic Guarantees
+
+* Channels are validated before use
+* Routing is explicitly defined
+* Identity mapping is enforced
+* No message flows without configuration
+* All communication paths are auditable
+
+---
+
+## 16. Known Architectural Gaps (Expanded)
+
+| Area                        | Gap               | Impact   |
+| :-------------------------- | :---------------- | :------- |
+| Multi-Channel Identity      | Not implemented   | Critical |
+| Webhook Support             | Limited tooling   | High     |
+| Rate Limiting UI            | Not available     | Medium   |
+| Channel Capability Registry | Not centralized   | Medium   |
+| Fallback Routing            | Not fully defined | Low      |
+
+---
+
+## 17. Cross-Module Contracts
+
+* **Channel Integration**
+
+  * MUST consume routing definitions
+
+* **Vaidyar**
+
+  * MUST validate connectivity
+
+* **Auth Layer**
+
+  * MUST support persona mapping
+
+* **Notification Centre**
+
+  * MUST use configured channels
+
+---
+
+## 18. Deterministic Boundaries
+
+### Connection Boundary
+
+```text
+TOKEN → HANDSHAKE → VALIDATION
+```
+
+---
+
+### Routing Boundary
+
+```text
+CHANNEL → ROUTE → AGENT PIPELINE
+```
+
+---
+
+### Identity Boundary
+
+```text
+EXTERNAL USER → INTERNAL USER → AUTHORIZED ACTION
+```
+
+---
+
+## 19. System Role (Final Positioning)
+
+This module is:
+
+* The **communication gateway validator**
+* The **routing configuration authority**
+* The **identity bridge between external and internal systems**
+
+---
+
+## 20. Strategic Role in Architecture
+
+It connects:
+
+* **External Channels** → inbound/outbound messaging
+* **Agents** → execution pipelines
+* **Notification System** → alert delivery
+* **Auth System** → user validation
+
+---
+
+### Critical Observation
+
+This module ensures your system is not just:
+
+> “Connected”
+
+but:
+
+> “**Securely, deterministically, and intelligently reachable**”
+
+---
+
+
