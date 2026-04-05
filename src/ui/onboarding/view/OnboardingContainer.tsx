@@ -18,6 +18,9 @@ export const OnboardingContainer: FC = () => {
     <PranaModuleErrorBoundary>
       <OnboardingView
         steps={vm.steps}
+        flowStage={vm.flowStage}
+        consentState={vm.consentState}
+        lastCheckpointAt={vm.lastCheckpointAt}
         stepStatusById={vm.stepStatusById}
         phaseTrackerById={vm.phaseTrackerById}
         currentStep={vm.currentStep}
@@ -55,6 +58,8 @@ export const OnboardingContainer: FC = () => {
         onApproveAndCommit={() => {
           void vm.approveAndCommit();
         }}
+        onUpdateConsent={vm.updateConsent}
+        onFinishOnboarding={vm.finishOnboarding}
       />
     </PranaModuleErrorBoundary>
   );

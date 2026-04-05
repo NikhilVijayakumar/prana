@@ -9,6 +9,31 @@
 
 ---
 
+## 0. Runtime Implementation Update (2026-04-06)
+
+The onboarding runtime now includes an explicit staged UX around the deterministic pipeline.
+
+### 0.1 Implemented UX Gap Closures
+
+| Gap (Prior) | Runtime Status | Notes |
+| :---------- | :------------- | :---- |
+| Missing Welcome/Orientation entry screen | Implemented | Added explicit welcome stage before step execution. |
+| Missing phase-level policy/consent checkpoint | Implemented | Added consent stage that blocks progression until required confirmations are accepted. |
+| Missing final Review/Confirm before commit | Implemented | Added review stage that aggregates onboarding context, model access summary, and commit preview. |
+| Missing completion handoff screen | Implemented | Commit success now lands on completion stage before explicit transition to triage. |
+| Weak pause/resume messaging | Implemented | Resume hint now shows checkpoint stage/step and timestamp when available. |
+| Resume did not capture non-step stages | Implemented | Stage snapshot metadata now persists flow stage + consent state + checkpoint timestamp. |
+
+### 0.2 Deterministic Contract Preservation
+
+The UX stage additions do not change the deterministic commit contract:
+
+* Core approval sequence remains step-gated and dependency-driven.
+* Commit still requires all required onboarding steps to be approved.
+* Snapshot persistence remains authoritative and resumable.
+
+---
+
 ## 1. Tactical Purpose
 
 The Onboarding Orchestrator is the **governance gatekeeper** of the Prana runtime.
@@ -377,6 +402,16 @@ System SHOULD track:
 | Validation Registry   | No centralized validator mapping   | Medium |
 | Telemetry             | No tracking of onboarding friction | Medium |
 | Partial Revalidation  | Cannot revalidate single stage     | Medium |
+
+### 15.1 Gap Closure Notes (2026-04-06)
+
+The following previously observed UX-level gaps are now closed in runtime implementation:
+
+* Welcome/orientation flow
+* Policy/consent gate before commit review
+* Final review checkpoint before commit
+* Completion handoff screen
+* Resume checkpoint messaging and non-step stage restore
 
 ---
 

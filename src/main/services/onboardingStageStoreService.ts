@@ -7,6 +7,7 @@ import { getAppDataRoot } from './governanceRepoService';
 const DB_FILE_NAME = 'onboarding-stage.sqlite';
 const META_CURRENT_STEP = 'current_step';
 const META_MODEL_ACCESS = 'model_access';
+const META_FLOW_META = 'flow_meta';
 
 export interface OnboardingPhaseStageRecord {
   stepId: string;
@@ -20,6 +21,15 @@ export interface OnboardingStageSnapshot {
   phases: Record<string, OnboardingPhaseStageRecord>;
   currentStep: number | null;
   modelAccess: Record<string, unknown> | null;
+  meta?: {
+    stage: 'welcome' | 'steps' | 'consent' | 'review' | 'completion';
+    consent: {
+      dataHandling: boolean;
+      runtimePolicy: boolean;
+      externalChannels: boolean;
+    };
+    lastCheckpointAt: string;
+  };
 }
 
 export interface SaveOnboardingStagePayload {
@@ -30,6 +40,15 @@ export interface SaveOnboardingStagePayload {
   }>;
   currentStep: number;
   modelAccess?: Record<string, unknown>;
+  meta?: {
+    stage: 'welcome' | 'steps' | 'consent' | 'review' | 'completion';
+    consent: {
+      dataHandling: boolean;
+      runtimePolicy: boolean;
+      externalChannels: boolean;
+    };
+    lastCheckpointAt: string;
+  };
 }
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
@@ -178,6 +197,9 @@ export const onboardingStageStoreService = {
       if (payload.modelAccess) {
         upsertMeta(database, META_MODEL_ACCESS, JSON.stringify(payload.modelAccess));
       }
+      if (payload.meta) {
+        upsertMeta(database, META_FLOW_META, JSON.stringify(payload.meta));
+      }
 
       await persistDatabase(database);
     });
@@ -253,10 +275,59 @@ export const onboardingStageStoreService = {
       }
     }
 
+    const metaRaw = readMeta(database, META_FLOW_META);
+    let meta: OnboardingStageSnapshot['meta'] | undefined;
+    if (metaRaw) {
+      try {
+        const parsed = JSON.parse(metaRaw) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const candidate = parsed as {
+            stage?: unknown;
+            consent?: unknown;
+            lastCheckpointAt?: unknown;
+          };
+          const stage =
+            candidate.stage === 'welcome' ||
+            candidate.stage === 'steps' ||
+            candidate.stage === 'consent' ||
+            candidate.stage === 'review' ||
+            candidate.stage === 'completion'
+              ? candidate.stage
+              : null;
+          const consent =
+            candidate.consent && typeof candidate.consent === 'object' && !Array.isArray(candidate.consent)
+              ? (candidate.consent as {
+                  dataHandling?: unknown;
+                  runtimePolicy?: unknown;
+                  externalChannels?: unknown;
+                })
+              : null;
+
+          if (stage && consent) {
+            meta = {
+              stage,
+              consent: {
+                dataHandling: consent.dataHandling === true,
+                runtimePolicy: consent.runtimePolicy === true,
+                externalChannels: consent.externalChannels === true,
+              },
+              lastCheckpointAt:
+                typeof candidate.lastCheckpointAt === 'string' && candidate.lastCheckpointAt.trim().length > 0
+                  ? candidate.lastCheckpointAt
+                  : new Date().toISOString(),
+            };
+          }
+        }
+      } catch {
+        meta = undefined;
+      }
+    }
+
     return {
       phases,
       currentStep,
       modelAccess,
+      meta,
     };
   },
 
@@ -264,7 +335,11 @@ export const onboardingStageStoreService = {
     await queueWrite(async () => {
       const database = await getDatabase();
       database.run('DELETE FROM onboarding_phase_stage');
-      database.run('DELETE FROM onboarding_stage_meta WHERE key IN (?, ?)', [META_CURRENT_STEP, META_MODEL_ACCESS]);
+      database.run('DELETE FROM onboarding_stage_meta WHERE key IN (?, ?, ?)', [
+        META_CURRENT_STEP,
+        META_MODEL_ACCESS,
+        META_FLOW_META,
+      ]);
       await persistDatabase(database);
     });
   },

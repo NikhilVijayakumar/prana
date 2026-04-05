@@ -62,10 +62,21 @@ export interface OnboardingPhaseStage {
   updatedAt: string;
 }
 
+export interface OnboardingFlowMeta {
+  stage: 'welcome' | 'steps' | 'consent' | 'review' | 'completion';
+  consent: {
+    dataHandling: boolean;
+    runtimePolicy: boolean;
+    externalChannels: boolean;
+  };
+  lastCheckpointAt: string;
+}
+
 export interface OnboardingStageSnapshot {
   phases: Record<string, OnboardingPhaseStage>;
   currentStep: number | null;
   modelAccess: Record<string, unknown> | null;
+  meta?: OnboardingFlowMeta;
 }
 
 export interface SaveOnboardingStagePayload {
@@ -76,6 +87,7 @@ export interface SaveOnboardingStagePayload {
   }>;
   currentStep: number;
   modelAccess?: Record<string, unknown>;
+  meta?: OnboardingFlowMeta;
 }
 
 export class OnboardingRepo {

@@ -37,6 +37,13 @@ const getOnboardingInitialDraftByStep = (_agents: unknown[], _kpis: unknown[]): 
 
 export type OnboardingStepKind = 'dynamic-form' | 'infrastructure-finalization';
 export type OnboardingEntityStatus = 'PENDING' | 'DRAFT' | 'APPROVED';
+export type OnboardingFlowStage = 'welcome' | 'steps' | 'consent' | 'review' | 'completion';
+
+export interface OnboardingConsentState {
+  dataHandling: boolean;
+  runtimePolicy: boolean;
+  externalChannels: boolean;
+}
 
 export interface PhaseTrackerStatus {
   state: 'LOCKED' | 'DRAFT' | 'VALIDATED' | 'APPROVED';
@@ -148,6 +155,12 @@ const createInitialModelAccessDraft = (): ModelAccessDraft => ({
   lmstudio: createEmptyModelProvider('http://localhost:1234/v1', 'local-model'),
   openrouter: createEmptyModelProvider('https://openrouter.ai/api/v1', 'openai/gpt-4o-mini'),
   gemini: createEmptyModelProvider('https://generativelanguage.googleapis.com/v1beta', 'gemini-1.5-flash'),
+});
+
+const createInitialConsentState = (): OnboardingConsentState => ({
+  dataHandling: false,
+  runtimePolicy: false,
+  externalChannels: false,
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -491,6 +504,9 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
     Record<string, { protocols: string[]; workflows: string[] }>
   >({});
   const [currentStep, setCurrentStep] = useState<number>(0);
+  const [flowStage, setFlowStage] = useState<OnboardingFlowStage>('welcome');
+  const [consentState, setConsentState] = useState<OnboardingConsentState>(createInitialConsentState);
+  const [lastCheckpointAt, setLastCheckpointAt] = useState<string | null>(null);
   const [draftByStep, setDraftByStep] = useState<Record<string, DynamicFieldRecord[]>>(createInitialDraftByStep);
   const [approvalByStep, setApprovalByStep] = useState<Record<string, OnboardingEntityStatus>>(() => {
     return ONBOARDING_STEPS.reduce<Record<string, OnboardingEntityStatus>>((acc, step) => {
@@ -599,6 +615,19 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
             setCurrentStep(stagedPayload.currentStep);
           }
 
+          const stagedMeta = stagedPayload.meta;
+          if (stagedMeta) {
+            setFlowStage(stagedMeta.stage);
+            setConsentState(stagedMeta.consent);
+            setLastCheckpointAt(stagedMeta.lastCheckpointAt);
+          } else if (
+            typeof stagedPayload.currentStep === 'number' &&
+            stagedPayload.currentStep >= 0 &&
+            stagedPayload.currentStep <= ONBOARDING_STEPS.length - 1
+          ) {
+            setFlowStage('steps');
+          }
+
           const hydratedModel = coerceModelAccessDraft(stagedPayload.modelAccess);
           if (hydratedModel) {
             setModelAccess(hydratedModel);
@@ -657,11 +686,26 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
         phases,
         currentStep,
         modelAccess: modelAccess as unknown as Record<string, unknown>,
+        meta: {
+          stage: flowStage,
+          consent: consentState,
+          lastCheckpointAt: new Date().toISOString(),
+        },
       });
     };
 
     void persistStageSnapshot();
-  }, [approvalByStep, currentStep, draftByStep, isStageHydrated, modelAccess, repo, reverificationByStep]);
+  }, [
+    approvalByStep,
+    consentState,
+    currentStep,
+    draftByStep,
+    flowStage,
+    isStageHydrated,
+    modelAccess,
+    repo,
+    reverificationByStep,
+  ]);
 
   const currentStepValidation = useMemo(() => {
     return evaluateStepValidation(fieldSchemaByStep, currentStepConfig.id, currentStepFields);
@@ -693,8 +737,20 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
   }, [currentStepValidation]);
 
   const canGoNext = useMemo(() => {
-    return currentStep < totalSteps - 1;
-  }, [currentStep, totalSteps]);
+    if (flowStage === 'welcome') {
+      return true;
+    }
+
+    if (flowStage === 'steps') {
+      return true;
+    }
+
+    if (flowStage === 'consent') {
+      return consentState.dataHandling && consentState.runtimePolicy && consentState.externalChannels;
+    }
+
+    return false;
+  }, [consentState.dataHandling, consentState.externalChannels, consentState.runtimePolicy, flowStage]);
 
   const markDownstreamForReverification = useCallback((sourceStepId: string) => {
     const downstream = getDownstreamSteps(sourceStepId);
@@ -868,6 +924,10 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
   }, [modelAccess]);
 
   const canApproveCurrentStep = useMemo(() => {
+    if (flowStage !== 'steps') {
+      return false;
+    }
+
     const dependencies = STEP_DEPENDENCIES[currentStepConfig.id] ?? [];
     const dependencyBlocked = dependencies.some((stepId) => approvalByStep[stepId] !== 'APPROVED');
     if (dependencyBlocked) {
@@ -890,6 +950,7 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
     fieldSchemaByStep,
     modelConfigReady,
     profileAlignmentByAgent,
+    flowStage,
   ]);
 
   const stepStatusById = useMemo<Record<string, OnboardingEntityStatus>>(() => {
@@ -907,6 +968,10 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
   }, [approvalByStep, draftByStep]);
 
   const approveCurrentStep = useCallback(() => {
+    if (flowStage !== 'steps') {
+      return;
+    }
+
     setJsonError(null);
 
     const dependencies = STEP_DEPENDENCIES[currentStepConfig.id] ?? [];
@@ -955,6 +1020,7 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
     fieldSchemaByStep,
     modelConfigReady,
     profileAlignmentByAgent,
+    flowStage,
   ]);
 
   const jumpToStep = useCallback((targetIndex: number) => {
@@ -962,6 +1028,7 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
       return;
     }
 
+    setFlowStage('steps');
     setCurrentStep(targetIndex);
   }, [totalSteps]);
 
@@ -969,19 +1036,64 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
     setCommitError(null);
     setJsonError(null);
 
+    if (flowStage === 'welcome') {
+      setFlowStage('steps');
+      return;
+    }
+
+    if (flowStage === 'consent') {
+      if (!canGoNext) {
+        setJsonError('onboarding.guard.masterCommitBlocked');
+        return;
+      }
+      setFlowStage('review');
+      return;
+    }
+
+    if (flowStage !== 'steps') {
+      return;
+    }
+
     if (currentStep >= totalSteps - 1) {
+      setFlowStage('consent');
       return;
     }
 
     const nextStepIndex = Math.min(currentStep + 1, totalSteps - 1);
     setCurrentStep(nextStepIndex);
-  }, [currentStep, totalSteps]);
+    setLastCheckpointAt(new Date().toISOString());
+  }, [canGoNext, currentStep, flowStage, totalSteps]);
 
   const goBack = useCallback(() => {
     setCommitError(null);
     setJsonError(null);
-    setCurrentStep((prev) => Math.max(prev - 1, 0));
-  }, []);
+
+    if (flowStage === 'completion') {
+      setFlowStage('review');
+      return;
+    }
+
+    if (flowStage === 'review') {
+      setFlowStage('consent');
+      return;
+    }
+
+    if (flowStage === 'consent') {
+      setFlowStage('steps');
+      setCurrentStep(totalSteps - 1);
+      return;
+    }
+
+    if (flowStage === 'steps') {
+      if (currentStep === 0) {
+        setFlowStage('welcome');
+        return;
+      }
+
+      setCurrentStep((prev) => Math.max(prev - 1, 0));
+      return;
+    }
+  }, [currentStep, flowStage, totalSteps]);
 
   const allStepDrafts = useMemo<Record<string, Record<string, string>>>(() => {
     return Object.entries(draftByStep).reduce<Record<string, Record<string, string>>>((acc, [stepId, fields]) => {
@@ -1118,6 +1230,10 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
   }, [approvalByStep]);
 
   const canDirectorApproveAll = useMemo(() => {
+    if (flowStage !== 'review') {
+      return false;
+    }
+
     const finalStepId = ONBOARDING_STEPS[ONBOARDING_STEPS.length - 1]?.id;
     if (!finalStepId) {
       return false;
@@ -1125,7 +1241,7 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
     const finalDependencies = STEP_DEPENDENCIES[finalStepId] ?? [];
     const dependenciesApproved = finalDependencies.every((stepId) => approvalByStep[stepId] === 'APPROVED');
     return dependenciesApproved && approvalByStep[finalStepId] === 'APPROVED';
-  }, [approvalByStep]);
+  }, [approvalByStep, flowStage]);
 
   const approveAndCommit = useCallback(async () => {
     setCommitError(null);
@@ -1172,20 +1288,38 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
         const alignmentIssue = response.data?.alignmentIssues?.[0]?.reason;
         const validationError = response.data?.validationErrors?.[0];
         setCommitError(alignmentIssue ?? validationError ?? 'onboarding.commit.error.generic');
+        setFlowStage('review');
         return;
       }
 
       volatileSessionStore.setOnboardingStatus('COMPLETED');
-      onComplete();
+      setFlowStage('completion');
+      setLastCheckpointAt(new Date().toISOString());
     } catch {
       setCommitError('onboarding.commit.error.generic');
+      setFlowStage('review');
     } finally {
       setIsCommitting(false);
     }
-  }, [approvalByStep, contextByStepForCommit, kpiData, lifecycle.profiles, onComplete, registryAgentBindings, repo]);
+  }, [approvalByStep, contextByStepForCommit, kpiData, lifecycle.profiles, registryAgentBindings, repo]);
+
+  const updateConsent = useCallback((key: keyof OnboardingConsentState, accepted: boolean) => {
+    setConsentState((prev) => ({
+      ...prev,
+      [key]: accepted,
+    }));
+    setLastCheckpointAt(new Date().toISOString());
+  }, []);
+
+  const finishOnboarding = useCallback(() => {
+    onComplete();
+  }, [onComplete]);
 
   return {
     steps: ONBOARDING_STEPS,
+    flowStage,
+    consentState,
+    lastCheckpointAt,
     currentStep,
     totalSteps,
     currentStepConfig,
@@ -1220,5 +1354,7 @@ export const useOnboardingViewModel = (onComplete: () => void) => {
     goNext,
     goBack,
     approveAndCommit,
+    updateConsent,
+    finishOnboarding,
   };
 };

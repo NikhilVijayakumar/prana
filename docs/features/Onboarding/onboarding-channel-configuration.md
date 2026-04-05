@@ -21,6 +21,23 @@ Key upgrades focus on:
 
 ---
 
+## 0. Runtime Implementation Update (2026-04-06)
+
+Channel onboarding now participates in an explicit consent stage before final commit.
+
+### 0.1 Implemented Gap Closures (Channel-Adjacent UX)
+
+| Gap (Prior) | Runtime Status | Notes |
+| :---------- | :------------- | :---- |
+| No explicit pre-commit permissions/approval checkpoint | Implemented | Added required onboarding consent gate including external channel usage policy confirmation before review/commit. |
+| Weak resume messaging for where onboarding was interrupted | Implemented | Resume guidance now includes staged checkpoint hints that include channel-setup journey progress. |
+
+### 0.2 Remaining Channel-System Gaps
+
+Structural channel capability gaps in section 16 remain open (for example multi-channel identity system depth and richer webhook tooling) and are not superseded by the UX-level consent closure.
+
+---
+
 ## 1. Tactical Purpose
 
 The Channel & Routing Setup is the **External Communication Contract Layer** of the Prana runtime.

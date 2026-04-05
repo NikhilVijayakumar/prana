@@ -25,6 +25,7 @@ import { getInteractionContextForPath } from 'prana/ui/constants/employeeDirecto
 import { getEnabledPrimaryNavItems, getFirstEnabledMainRoute } from 'prana/ui/constants/moduleRegistry';
 import { useVolatileSessionStore } from 'prana/ui/state/volatileSessionStore';
 import { assertRequiredBrandingFields, useBranding } from 'prana/ui/constants/pranaConfig';
+import { safeIpcCall } from 'prana/ui/common/errors/safeIpcCall';
 
 interface MainLayoutProps {
   children?: ReactNode;
@@ -43,6 +44,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
   const session = useVolatileSessionStore();
   const routeStackRef = useRef<string[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [resumeHint, setResumeHint] = useState<string>('');
   const appBrandName = branding.appBrandName as string;
   const appTitlebarTagline = branding.appTitlebarTagline as string;
 
@@ -66,6 +68,65 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
   useEffect(() => {
     setIsDrawerOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (session.onboardingStatus === 'COMPLETED') {
+      setResumeHint('');
+      return;
+    }
+
+    let isMounted = true;
+    const loadResumeHint = async (): Promise<void> => {
+      try {
+        const snapshot = await safeIpcCall(
+          'operations.getOnboardingStageSnapshot',
+          () => window.api.operations.getOnboardingStageSnapshot(),
+          (value) => typeof value === 'object' && value !== null,
+        ) as {
+          currentStep?: number | null;
+          meta?: { stage?: 'welcome' | 'steps' | 'consent' | 'review' | 'completion'; lastCheckpointAt?: string };
+        };
+
+        if (!isMounted) {
+          return;
+        }
+
+        const stage = snapshot.meta?.stage;
+        const checkpoint = snapshot.meta?.lastCheckpointAt;
+
+        if (stage === 'welcome') {
+          setResumeHint('Resume from welcome checkpoint.');
+          return;
+        }
+
+        if (stage === 'consent') {
+          setResumeHint('Resume from consent checkpoint.');
+          return;
+        }
+
+        if (stage === 'review') {
+          setResumeHint('Resume from final review checkpoint.');
+          return;
+        }
+
+        if (typeof snapshot.currentStep === 'number' && snapshot.currentStep >= 0) {
+          setResumeHint(`Resume from onboarding step ${snapshot.currentStep + 1}.${checkpoint ? ` Last update: ${checkpoint}` : ''}`);
+          return;
+        }
+
+        setResumeHint('Resume your onboarding progress.');
+      } catch {
+        if (isMounted) {
+          setResumeHint('Resume your onboarding progress.');
+        }
+      }
+    };
+
+    void loadResumeHint();
+    return () => {
+      isMounted = false;
+    };
+  }, [session.onboardingStatus]);
 
   const isLevel0Path = (path: string): boolean => topLevelPaths.has(path);
 
@@ -221,7 +282,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
                 </Button>
               }
             >
-              {literal['preview.banner.body']}
+              {resumeHint || literal['preview.banner.body']}
             </Alert>
           )}
 

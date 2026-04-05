@@ -24,6 +24,8 @@ import {
   DynamicFieldRecord,
   FieldValidationStatus,
   ModelAccessDraft,
+  OnboardingConsentState,
+  OnboardingFlowStage,
   ModelProviderDraft,
   OnboardingStepConfig,
   PhaseTrackerStatus,
@@ -44,6 +46,9 @@ const getLiteralWithFallback = (literal: Record<string, string>, key: string, fa
 
 interface OnboardingViewProps {
   steps: OnboardingStepConfig[];
+  flowStage: OnboardingFlowStage;
+  consentState: OnboardingConsentState;
+  lastCheckpointAt: string | null;
   stepStatusById: Record<string, 'PENDING' | 'DRAFT' | 'APPROVED'>;
   phaseTrackerById: Record<string, PhaseTrackerStatus>;
   currentStep: number;
@@ -87,6 +92,8 @@ interface OnboardingViewProps {
   onBack: () => void;
   onGoHome: () => void;
   onApproveAndCommit: () => void;
+  onUpdateConsent: (key: keyof OnboardingConsentState, accepted: boolean) => void;
+  onFinishOnboarding: () => void;
 }
 
 const providerOrder: Array<keyof ModelAccessDraft> = ['lmstudio', 'openrouter', 'gemini'];
@@ -149,6 +156,9 @@ const renderFieldRows = (
 
 export const OnboardingView: FC<OnboardingViewProps> = ({
   steps,
+  flowStage,
+  consentState,
+  lastCheckpointAt,
   stepStatusById,
   phaseTrackerById,
   currentStep,
@@ -184,6 +194,8 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
   onBack,
   onGoHome,
   onApproveAndCommit,
+  onUpdateConsent,
+  onFinishOnboarding,
 }) => {
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
@@ -201,6 +213,54 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
   const selectedVirtualProfile =
     virtualProfiles.find((entry) => entry.agentId === selectedVirtualProfileId) ?? virtualProfiles[0] ?? null;
 
+  const stageTitle = (() => {
+    if (flowStage === 'welcome') {
+      return getLiteralWithFallback(literal as Record<string, string>, 'onboarding.flow.welcome.title', 'Welcome To Onboarding');
+    }
+    if (flowStage === 'consent') {
+      return getLiteralWithFallback(literal as Record<string, string>, 'onboarding.flow.consent.title', 'Policy & Consent Checkpoint');
+    }
+    if (flowStage === 'review') {
+      return getLiteralWithFallback(literal as Record<string, string>, 'onboarding.flow.review.title', 'Final Review Before Commit');
+    }
+    if (flowStage === 'completion') {
+      return getLiteralWithFallback(literal as Record<string, string>, 'onboarding.flow.completion.title', 'Onboarding Completed');
+    }
+    return literal[currentStepConfig.titleKey];
+  })();
+
+  const stageBody = (() => {
+    if (flowStage === 'welcome') {
+      return getLiteralWithFallback(
+        literal as Record<string, string>,
+        'onboarding.flow.welcome.body',
+        'This guided flow will configure your runtime in a deterministic seven-step sequence.',
+      );
+    }
+    if (flowStage === 'consent') {
+      return getLiteralWithFallback(
+        literal as Record<string, string>,
+        'onboarding.flow.consent.body',
+        'Confirm governance and data-handling checkpoints before final review.',
+      );
+    }
+    if (flowStage === 'review') {
+      return getLiteralWithFallback(
+        literal as Record<string, string>,
+        'onboarding.flow.review.body',
+        'Verify all approved stages and runtime configuration before committing onboarding state.',
+      );
+    }
+    if (flowStage === 'completion') {
+      return getLiteralWithFallback(
+        literal as Record<string, string>,
+        'onboarding.flow.completion.body',
+        'Your onboarding snapshot has been committed. Continue to triage to begin operations.',
+      );
+    }
+    return literal[currentStepConfig.bodyKey];
+  })();
+
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', py: spacing.xl }}>
       <Card
@@ -215,14 +275,17 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
           gap: spacing.lg,
         }}
       >
-        <Stepper activeStep={currentStep} alternativeLabel>
-          {steps.map((step) => (
-            <Step key={step.id}>
-              <StepLabel>{literal[step.titleKey]}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
+        {(flowStage === 'steps' || flowStage === 'consent' || flowStage === 'review') && (
+          <Stepper activeStep={currentStep} alternativeLabel>
+            {steps.map((step) => (
+              <Step key={step.id}>
+                <StepLabel>{literal[step.titleKey]}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+        )}
 
+        {(flowStage === 'steps' || flowStage === 'consent' || flowStage === 'review') && (
         <Card sx={{ p: spacing.md, border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: 'transparent' }}>
           <Typography variant="body2Bold" sx={{ mb: spacing.sm }}>
             {literal['onboarding.dashboard.phaseTracker']}
@@ -280,14 +343,20 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
             })}
           </Box>
         </Card>
+        )}
 
         <Box>
           <Typography variant="h5" sx={{ color: muiTheme.palette.text.primary, mb: spacing.xs }}>
-            {literal[currentStepConfig.titleKey]}
+            {stageTitle}
           </Typography>
           <Typography variant="body2" sx={{ color: muiTheme.palette.text.secondary }}>
-            {literal[currentStepConfig.bodyKey]}
+            {stageBody}
           </Typography>
+          {lastCheckpointAt && (
+            <Typography variant="micro" sx={{ color: muiTheme.palette.text.secondary, mt: spacing.xs }}>
+              {`Last checkpoint: ${lastCheckpointAt}`}
+            </Typography>
+          )}
         </Box>
 
         {jsonError && (
@@ -298,7 +367,39 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
           <Alert severity="error">{literal[commitError] ?? commitError}</Alert>
         )}
 
-        {currentStepConfig.kind === 'dynamic-form' && currentStepConfig.id === 'agent-profile-persona' && selectedVirtualProfile && (
+        {flowStage === 'welcome' && (
+          <Card sx={{ p: spacing.md, border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: 'transparent' }}>
+            <Typography variant="body2Bold" sx={{ mb: spacing.sm }}>
+              {getLiteralWithFallback(
+                literal as Record<string, string>,
+                'onboarding.flow.welcome.overviewTitle',
+                'What this onboarding covers',
+              )}
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: spacing.sm }}>
+              {steps.map((step) => (
+                <Card
+                  key={`welcome-${step.id}`}
+                  sx={{ p: spacing.sm, border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: 'transparent' }}
+                >
+                  <Typography variant="body2Bold">{literal[step.titleKey]}</Typography>
+                  <Typography variant="micro" sx={{ color: muiTheme.palette.text.secondary }}>
+                    {literal[step.bodyKey]}
+                  </Typography>
+                </Card>
+              ))}
+            </Box>
+            <Alert severity="info" sx={{ mt: spacing.sm }}>
+              {getLiteralWithFallback(
+                literal as Record<string, string>,
+                'onboarding.flow.welcome.estimatedTime',
+                'Estimated completion time: 10-20 minutes depending on configuration depth.',
+              )}
+            </Alert>
+          </Card>
+        )}
+
+        {flowStage === 'steps' && currentStepConfig.kind === 'dynamic-form' && currentStepConfig.id === 'agent-profile-persona' && selectedVirtualProfile && (
           <DynamicProfileRenderer
             mode="WIZARD"
             profile={selectedVirtualProfile}
@@ -311,7 +412,7 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
           />
         )}
 
-        {currentStepConfig.kind === 'dynamic-form' && currentStepConfig.id !== 'agent-profile-persona' && (
+        {flowStage === 'steps' && currentStepConfig.kind === 'dynamic-form' && currentStepConfig.id !== 'agent-profile-persona' && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
             <Alert severity="info">{literal['onboarding.dynamic.modeHelp']}</Alert>
 
@@ -344,13 +445,10 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
               </Alert>
             )}
 
-            {!canGoNext && (
-              <Alert severity="warning">{literal['onboarding.guard.missingInput']}</Alert>
-            )}
           </Box>
         )}
 
-        {currentStepConfig.kind === 'infrastructure-finalization' && (
+        {flowStage === 'steps' && currentStepConfig.kind === 'infrastructure-finalization' && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
             <Alert severity="info">{literal['onboarding.modelAccess.volatileNotice']}</Alert>
             {providerOrder.map((providerId) => {
@@ -449,7 +547,69 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
           </Box>
         )}
 
-        {currentStepConfig.kind === 'infrastructure-finalization' && (
+        {flowStage === 'consent' && (
+          <Card sx={{ p: spacing.md, border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: 'transparent' }}>
+            <Typography variant="body2Bold" sx={{ mb: spacing.sm }}>
+              {getLiteralWithFallback(
+                literal as Record<string, string>,
+                'onboarding.flow.consent.checklistTitle',
+                'Required confirmations',
+              )}
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing.xs }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={consentState.dataHandling}
+                  onChange={(event) => onUpdateConsent('dataHandling', event.target.checked)}
+                />
+                <Typography variant="body2">
+                  {getLiteralWithFallback(
+                    literal as Record<string, string>,
+                    'onboarding.flow.consent.dataHandling',
+                    'I confirm that onboarding data handling follows my organization policy.',
+                  )}
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={consentState.runtimePolicy}
+                  onChange={(event) => onUpdateConsent('runtimePolicy', event.target.checked)}
+                />
+                <Typography variant="body2">
+                  {getLiteralWithFallback(
+                    literal as Record<string, string>,
+                    'onboarding.flow.consent.runtimePolicy',
+                    'I confirm runtime policy and guardrail acceptance before activation.',
+                  )}
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={consentState.externalChannels}
+                  onChange={(event) => onUpdateConsent('externalChannels', event.target.checked)}
+                />
+                <Typography variant="body2">
+                  {getLiteralWithFallback(
+                    literal as Record<string, string>,
+                    'onboarding.flow.consent.externalChannels',
+                    'I confirm external channel usage and operator authorization policy.',
+                  )}
+                </Typography>
+              </Box>
+            </Box>
+            {!canGoNext && (
+              <Alert severity="warning" sx={{ mt: spacing.sm }}>
+                {getLiteralWithFallback(
+                  literal as Record<string, string>,
+                  'onboarding.flow.consent.incomplete',
+                  'All confirmations are required to proceed.',
+                )}
+              </Alert>
+            )}
+          </Card>
+        )}
+
+        {flowStage === 'review' && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
             <Alert severity="success">{literal['onboarding.final.summaryHelp']}</Alert>
 
@@ -525,9 +685,28 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
           </Box>
         )}
 
+        {flowStage === 'completion' && (
+          <Card sx={{ p: spacing.md, border: `1px solid ${muiTheme.palette.divider}`, backgroundColor: 'transparent' }}>
+            <Alert severity="success" sx={{ mb: spacing.sm }}>
+              {getLiteralWithFallback(
+                literal as Record<string, string>,
+                'onboarding.flow.completion.success',
+                'Onboarding state committed successfully. Runtime configuration is now active.',
+              )}
+            </Alert>
+            <Typography variant="body2" sx={{ color: muiTheme.palette.text.secondary }}>
+              {getLiteralWithFallback(
+                literal as Record<string, string>,
+                'onboarding.flow.completion.next',
+                'Continue to triage to start operating with approved onboarding context.',
+              )}
+            </Typography>
+          </Card>
+        )}
+
         <Divider />
 
-        {currentStepConfig.id !== 'infrastructure-finalization' && (
+        {flowStage === 'steps' && currentStepConfig.id !== 'infrastructure-finalization' && (
           <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button variant="outlined" onClick={onApproveStep} disabled={isCommitting || !canApproveCurrentStep}>
               {literal['onboarding.action.approveStep']}
@@ -535,7 +714,7 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
           </Box>
         )}
 
-        {currentStepConfig.id === 'infrastructure-finalization' && (
+        {flowStage === 'steps' && currentStepConfig.id === 'infrastructure-finalization' && (
           <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button variant="outlined" onClick={onApproveStep} disabled={isCommitting || !canApproveCurrentStep}>
               {literal['onboarding.action.approveStep']}
@@ -553,7 +732,11 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
             </Button>
           </Box>
 
-          {currentStep === totalSteps - 1 ? (
+          {flowStage === 'completion' ? (
+            <Button variant="contained" onClick={onFinishOnboarding}>
+              {getLiteralWithFallback(literal as Record<string, string>, 'onboarding.flow.completion.cta', 'Go To Triage')}
+            </Button>
+          ) : flowStage === 'review' ? (
             <Button variant="contained" onClick={onApproveAndCommit} disabled={isCommitting || !canDirectorApproveAll}>
               {isCommitting ? <CircularProgress size={18} color="inherit" /> : literal['onboarding.action.directorApproveAll']}
             </Button>

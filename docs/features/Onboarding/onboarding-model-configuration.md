@@ -9,6 +9,23 @@
 
 ---
 
+## 0. Runtime Implementation Update (2026-04-06)
+
+Model configuration is now surfaced in an explicit onboarding review checkpoint before commit.
+
+### 0.1 Implemented Gap Closures (Model-Adjacent UX)
+
+| Gap (Prior) | Runtime Status | Notes |
+| :---------- | :------------- | :---- |
+| No final holistic review before onboarding commit | Implemented | Review stage now includes model provider enablement, selected model identifiers, context windows, and output token reserve summary before commit. |
+| Weak onboarding resume clarity for model setup progress | Implemented | Resume hint and stage metadata now restore/checkpoint model-stage progress through staged onboarding flow state. |
+
+### 0.2 Remaining Model-System Gaps
+
+Known gaps in this module still apply to model-system depth work (latency testing, advanced routing, and centralized capability registry) and are independent of the onboarding UX closures above.
+
+---
+
 ## 1. Tactical Purpose
 
 This feature is the **Cognitive Boundary Definition Layer** of the Prana runtime.
