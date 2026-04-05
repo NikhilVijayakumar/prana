@@ -170,5 +170,55 @@ contextBridge.exposeInMainWorld('api', {
     list: () => ipcRenderer.invoke('work-orders:list'),
     get: (payload: { id: string }) => ipcRenderer.invoke('work-orders:get', payload),
     listQueue: () => ipcRenderer.invoke('work-orders:queue-list')
+  },
+  context: {
+    bootstrapSession: (payload: {
+      sessionId: string
+      budget?: {
+        maxTokens?: number
+        reservedOutputTokens?: number
+        compactThresholdTokens?: number
+        highWaterMarkRatio?: number
+      }
+      modelConfig?: {
+        provider: 'lmstudio' | 'openrouter' | 'gemini' | 'custom'
+        model?: string
+        contextWindow?: number
+        reservedOutputTokens?: number
+      }
+    }) => ipcRenderer.invoke('context:bootstrap-session', payload),
+    ingest: (payload: { sessionId: string; role: 'system' | 'user' | 'assistant' | 'tool'; content: string }) =>
+      ipcRenderer.invoke('context:ingest', payload),
+    ingestBatch: (payload: {
+      sessionId: string
+      messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }>
+    }) => ipcRenderer.invoke('context:ingest-batch', payload),
+    assemble: (payload: { sessionId: string; maxTokensOverride?: number }) =>
+      ipcRenderer.invoke('context:assemble', payload),
+    compact: (payload: { sessionId: string; reason?: string }) =>
+      ipcRenderer.invoke('context:compact', payload),
+    afterTurn: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('context:after-turn', payload),
+    prepareNewContext: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('context:prepare-new-context', payload),
+    startNewWithContext: (payload: {
+      sourceSessionId: string
+      targetSessionId: string
+      summaryOverride?: string
+    }) => ipcRenderer.invoke('context:start-new-with-context', payload),
+    getLatestDigest: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('context:get-latest-digest', payload),
+    listDigests: (payload: { sessionId: string; limit?: number }) =>
+      ipcRenderer.invoke('context:list-digests', payload),
+    getSessionSnapshot: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('context:get-session-snapshot', payload),
+    listSessions: () => ipcRenderer.invoke('context:list-sessions'),
+    getTelemetry: () => ipcRenderer.invoke('context:get-telemetry'),
+    disposeSession: (payload: { sessionId: string }) =>
+      ipcRenderer.invoke('context:dispose-session', payload),
+    prepareSubagentSpawn: (payload: { parentSessionId: string; childSessionId: string }) =>
+      ipcRenderer.invoke('context:prepare-subagent-spawn', payload),
+    onSubagentEnded: (payload: { parentSessionId: string; childSessionId: string; summary: string }) =>
+      ipcRenderer.invoke('context:on-subagent-ended', payload)
   }
-})
+  })
