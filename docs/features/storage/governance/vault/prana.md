@@ -1,49 +1,62 @@
 # Vault Storage Contract: Prana
 
 ## Scope
-Defines the durable archive domains for the Prana app in vault storage.
+Defines which Prana data is durably archived in vault storage.
 
-## Contract State
-This file defines structure and intended mapping. Domains can remain planned until implementation is approved.
+## Implementation Baseline
+This contract reflects current implementation and active persistence behavior.
 
 ## Tree Contract
-Vault is treated as git-tree documentation.
+Vault is documented as git-tree shape rooted by app name.
 
 ```text
-vault/
-	prana/
-		registry/
-			runtime/
-			approvals/
-		knowledge/
-			documents/
-			indexes/
-		email/
-			artifacts/
-			review/
-		audit/
-			exports/
-			compliance/
+<vault-working-root>/
+  global.metadata.json
+  apps/
+    <app-key>/
+      .metadata.json
+  global_metadata/
+    app_registry.json
+    app_vault_blueprint.json
 ```
 
-Large branches may be split into additional subtrees as the app grows.
-
-## Required Mirror Rule
-Every domain listed here must also exist in `../cache/prana.md` with the same domain key.
+Notes:
+- `global.metadata.json` is the global registry index file managed by vault registry service.
+- `apps/<app-key>/.metadata.json` is the per-app metadata snapshot managed by vault metadata service.
 
 ## Domain Map
-| Domain Key | Vault Path Pattern | Purpose | Cache Mirror Required |
+| Domain Key | Vault Path Pattern | What Must Be Saved In Vault | Cache Mirror Required |
 | --- | --- | --- | --- |
-| `registry` | `vault/prana/registry/**` | Approved runtime registry snapshots and promoted definitions | Yes |
-| `knowledge_documents` | `vault/prana/knowledge/**` | Durable knowledge artifacts approved for archive | Yes |
-| `email_artifacts` | `vault/prana/email/**` | Approved email intelligence artifacts retained long-term | Yes |
-| `audit_exports` | `vault/prana/audit/**` | Durable audit bundles and compliance exports | Yes |
+| `global_metadata` | `<vault-working-root>/global.metadata.json`, `<vault-working-root>/apps/<app-key>/.metadata.json`, `<vault-working-root>/global_metadata/**` | Durable app registration and blueprint metadata snapshots used for archive/sync identity | Yes |
+| `cron_scheduler_state` | Mirror key only (no required materialized files) | No authoritative scheduler rows in vault; key exists for governance mirror invariants | Yes |
 
-## Implementation Hints
-- Expected integration points include vault publish/read paths and sync providers.
-- Paths are logical patterns; physical archive layout can evolve without changing domain keys.
+## Domain: global_metadata
+This is the only domain that must be materially persisted to vault in current implementation.
+
+Required durable artifacts:
+- Global app registry snapshot (`global.metadata.json`)
+- Per-app metadata snapshot (`apps/<app-key>/.metadata.json`)
+
+Contracted durable artifacts for export/archive flows:
+- Domain ownership blueprint snapshot (`global_metadata/app_vault_blueprint.json`)
+- App registry projection snapshot (`global_metadata/app_registry.json`)
+
+## Domain: cron_scheduler_state
+This domain key is mirrored for governance consistency with cache contracts.
+
+Current policy:
+- Authoritative scheduler state remains in cache (`cron_jobs`, `cron_execution_log`, `cron_locks`).
+- Vault materialization is optional and not required for runtime semantics.
+
+## What Is Not Saved In Vault (Current Contract)
+The following domains are cache-only and intentionally not vault-backed:
+- `runtime_config`
+- `sync_state`
+- `llm_cache_index`
+- `governance_lifecycle`
+- `conversation_state`
 
 ## Change Rules
-- Do not add a new vault domain unless the same domain key is added in cache contract.
-- If a vault domain is deprecated, update cache mapping in the same PR.
-- Keep the app root folder (`vault/prana`) stable unless a migration plan is approved.
+- Any new vault domain must be added to `../cache/prana.md` with the same domain key.
+- If vault durable artifacts change path shape, keep domain key stable and update mapping notes in the same PR.
+- Keep app-key metadata under `apps/<app-key>` stable unless a migration contract is approved.
