@@ -1,6 +1,7 @@
 import { v4 as generateUUID } from 'uuid';
 import {
   DataClassification,
+  ChannelType,
   InterceptionAction,
   InterceptionContext,
 } from './types/orchestrationTypes';
@@ -10,6 +11,12 @@ import { protocolInterceptor } from './protocolInterceptor';
 import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
 import { registryRuntimeStoreService, RuntimeChannelDetails } from './registryRuntimeStoreService';
 import { agentRegistryService } from './agentRegistryService';
+import { commandRouterService } from './commandRouterService';
+import { conversationStoreService, ConversationChannel, ConversationMessageRecord, ConversationRecord } from './conversationStoreService';
+import { contextEngineService } from './contextEngineService';
+import { getRuntimeBootstrapConfig } from './runtimeConfigService';
+import { ChannelCapabilityProfile, ChannelMessageEnvelope } from './types/channelAdapterTypes';
+import { channelRegistryService } from './channelRegistryService';
 
 export interface TelegramIngressPayload {
   message: string;
@@ -35,26 +42,51 @@ export interface ChannelRoutingResult {
   responsePreview?: string;
   auditTrailRef?: string;
   violations?: string[];
+  conversationId?: string;
+  conversationKey?: string;
+  sessionId?: string;
+}
+
+export interface InternalChatPayload {
+  message: string;
+  senderId: string;
+  senderName?: string;
+  moduleRoute: string;
+  targetPersonaId?: string;
+  roomId?: string;
+  sessionId?: string;
+  timestampIso?: string;
+  isDirector?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChatConversationSnapshot {
+  conversation: ConversationRecord;
+  messages: ConversationMessageRecord[];
 }
 
 interface ChannelRouterDependencies {
   getRuntimeConfig: typeof getPublicRuntimeConfig;
+  getRuntimeBootstrapConfig: typeof getRuntimeBootstrapConfig;
   getRuntimeChannelDetails: () => Promise<RuntimeChannelDetails | null>;
   createId: () => string;
   nowIso: () => string;
   audit: Pick<typeof auditLogService, 'createTransaction' | 'appendTransaction'>;
   orchestrator: Pick<typeof orchestrationManager, 'orchestrateIntent'>;
   interceptor: Pick<typeof protocolInterceptor, 'interceptAndValidate'>;
+  submitDirectorRequest: typeof commandRouterService.submitDirectorRequest;
 }
 
 const createDefaultDependencies = (): ChannelRouterDependencies => ({
   getRuntimeConfig: getPublicRuntimeConfig,
+  getRuntimeBootstrapConfig,
   getRuntimeChannelDetails: () => registryRuntimeStoreService.getRuntimeChannelDetails(),
   createId: () => generateUUID(),
   nowIso: () => new Date().toISOString(),
   audit: auditLogService,
   orchestrator: orchestrationManager,
   interceptor: protocolInterceptor,
+  submitDirectorRequest: commandRouterService.submitDirectorRequest.bind(commandRouterService),
 });
 
 let dependencies: ChannelRouterDependencies = createDefaultDependencies();
@@ -78,6 +110,35 @@ const normalize = (value: string | undefined): string => {
   return (value ?? '').trim().toLowerCase();
 };
 
+const normalizeKey = (value: string): string => {
+  return value.trim().toLowerCase().replace(/[^a-z0-9:_-]+/g, '-');
+};
+
+const toConversationKey = (input: {
+  channel: ConversationChannel;
+  roomId: string;
+  operatorCanonicalId: string;
+  targetPersonaId?: string;
+}): string => {
+  return [
+    input.channel,
+    normalizeKey(input.roomId),
+    normalizeKey(input.operatorCanonicalId),
+    normalizeKey(input.targetPersonaId ?? 'switchboard'),
+  ].join(':');
+};
+
+const resolveAppId = (): string => {
+  try {
+    const runtime = dependencies.getRuntimeBootstrapConfig();
+    return runtime.vault.appKey?.trim()
+      || runtime.branding.appBrandName?.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      || 'prana-runtime';
+  } catch {
+    return 'prana-runtime';
+  }
+};
+
 const buildResponderHeader = (personaName?: string, personaRole?: string): string => {
   const name = (personaName ?? '').trim() || 'System Router';
   const role = (personaRole ?? '').trim();
@@ -92,6 +153,115 @@ const withResponderMessage = (
   return `${buildResponderHeader(personaName, personaRole)}\n${body}`;
 };
 
+const isAuthorizedDirector = (
+  senderId: string,
+  runtimeConfig: ReturnType<typeof getPublicRuntimeConfig>,
+  explicitFlag?: boolean,
+): boolean => {
+  const senderIdentity = normalize(senderId);
+  const directorIdentity = normalize(runtimeConfig.directorEmail);
+  return explicitFlag === true || senderIdentity === directorIdentity;
+};
+
+const persistConversationTurn = async (input: {
+  channel: ConversationChannel;
+  roomId: string;
+  providerRoomId?: string;
+  operatorExternalId: string;
+  operatorDisplayName?: string;
+  targetPersonaId?: string;
+  sessionId: string;
+  incomingText: string;
+  responseText: string;
+  responseStatus: ChannelRoutingResult['status'];
+  responseAccepted: boolean;
+  messageTimestamp: string;
+  responseWorkOrderId?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<{ conversation: ConversationRecord; operatorMessage: ConversationMessageRecord; responseMessage: ConversationMessageRecord }> => {
+  const identity = await conversationStoreService.resolveOperatorIdentity({
+    appId: resolveAppId(),
+    channel: input.channel,
+    externalUserId: input.operatorExternalId,
+    canonicalOperatorId: input.operatorExternalId,
+    displayName: input.operatorDisplayName,
+    metadata: {
+      channel: input.channel,
+    },
+  });
+
+  const conversationKey = toConversationKey({
+    channel: input.channel,
+    roomId: input.roomId,
+    operatorCanonicalId: identity.canonicalOperatorId,
+    targetPersonaId: input.targetPersonaId,
+  });
+
+  const conversation = await conversationStoreService.ensureConversation({
+    conversationKey,
+    roomKey: input.roomId,
+    appId: resolveAppId(),
+    channel: input.channel,
+    mode: 'INDIVIDUAL',
+    operatorCanonicalId: identity.canonicalOperatorId,
+    operatorDisplayName: input.operatorDisplayName,
+    targetPersonaId: input.targetPersonaId,
+    participantAgentIds: input.targetPersonaId ? [input.targetPersonaId] : [],
+    providerRoomId: input.providerRoomId ?? null,
+    metadata: input.metadata,
+  });
+
+  contextEngineService.bootstrapSession(input.sessionId);
+  await contextEngineService.ingest(input.sessionId, 'user', input.incomingText);
+
+  const operatorMessage = await conversationStoreService.appendMessage({
+    conversationId: conversation.conversationId,
+    sessionKey: input.sessionId,
+    role: 'operator',
+    actorId: identity.canonicalOperatorId,
+    actorName: input.operatorDisplayName ?? null,
+    content: input.incomingText,
+    channel: input.channel,
+    status: 'RECEIVED',
+    metadata: input.metadata,
+    workOrderId: input.responseWorkOrderId,
+  });
+
+  await contextEngineService.ingest(input.sessionId, 'assistant', input.responseText);
+  await contextEngineService.afterTurn(input.sessionId);
+
+  const statusMap: Record<ChannelRoutingResult['status'], ConversationMessageRecord['status']> = {
+    accepted: 'ROUTED',
+    blocked: 'BLOCKED',
+    escalated: 'ESCALATED',
+    rejected: 'FAILED',
+    failed: 'FAILED',
+  };
+
+  const responseMessage = await conversationStoreService.appendMessage({
+    conversationId: conversation.conversationId,
+    sessionKey: input.sessionId,
+    role: 'assistant',
+    actorId: input.targetPersonaId ?? 'system-router',
+    actorName: input.targetPersonaId ? agentRegistryService.getAgent(input.targetPersonaId)?.name ?? input.targetPersonaId : 'System Router',
+    content: input.responseText,
+    channel: input.channel,
+    status: statusMap[input.responseStatus],
+    replyToMessageId: operatorMessage.messageId,
+    workOrderId: input.responseWorkOrderId,
+    metadata: {
+      accepted: input.responseAccepted,
+      ...(input.metadata ?? {}),
+    },
+  });
+
+  return { conversation, operatorMessage, responseMessage };
+};
+
+const getChannelAllowlist = (runtimeChannelDetails: RuntimeChannelDetails | null): Set<string> => {
+  return new Set((runtimeChannelDetails?.allowedChannels ?? []).map((channel) => channel.toLowerCase()));
+};
+
 export const channelRouterService = {
   __setDependenciesForTesting(partial: Partial<ChannelRouterDependencies>): void {
     dependencies = {
@@ -102,6 +272,157 @@ export const channelRouterService = {
 
   __resetDependenciesForTesting(): void {
     dependencies = createDefaultDependencies();
+  },
+
+  async __resetStateForTesting(): Promise<void> {
+    await conversationStoreService.__resetForTesting();
+    contextEngineService.__resetForTesting();
+    dependencies = createDefaultDependencies();
+  },
+
+  async routeChannelMessage(envelope: ChannelMessageEnvelope): Promise<ChannelRoutingResult> {
+    const adapter = channelRegistryService.get(envelope.channelId);
+    if (!adapter) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: `Channel '${envelope.channelId}' is not registered.`,
+      };
+    }
+
+    const capability = await adapter.getCapabilities();
+    if (!capability.isEnabled) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: `Channel '${envelope.channelId}' is disabled.`,
+      };
+    }
+
+    if (envelope.channelId === 'internal-chat') {
+      const moduleRoute = typeof envelope.metadata?.moduleRoute === 'string'
+        ? envelope.metadata.moduleRoute
+        : envelope.roomId;
+
+      return this.routeInternalMessage({
+        message: envelope.messageText,
+        senderId: envelope.senderId,
+        senderName: envelope.senderName,
+        moduleRoute,
+        targetPersonaId: envelope.explicitTargetPersonaId,
+        roomId: envelope.roomId,
+        sessionId: envelope.sessionId,
+        timestampIso: envelope.timestampIso,
+        isDirector: envelope.isDirector,
+        metadata: envelope.metadata,
+      });
+    }
+
+    if (envelope.channelId === 'telegram') {
+      return this.routeTelegramMessage({
+        message: envelope.messageText,
+        senderId: envelope.senderId,
+        senderName: envelope.senderName,
+        chatId: envelope.roomId,
+        timestampIso: envelope.timestampIso,
+        sessionId: envelope.sessionId,
+        explicitTargetPersonaId: envelope.explicitTargetPersonaId,
+        isDirector: envelope.isDirector,
+        dataClassification: envelope.dataClassification,
+        metadata: envelope.metadata,
+      });
+    }
+
+    return {
+      accepted: false,
+      status: 'rejected',
+      message: `Channel '${envelope.channelId}' is registered but does not have a routing strategy yet.`,
+    };
+  },
+
+  async getChannelCapabilities(): Promise<ChannelCapabilityProfile[]> {
+    return channelRegistryService.listCapabilities();
+  },
+
+  async routeInternalMessage(payload: InternalChatPayload): Promise<ChannelRoutingResult> {
+    const trimmedMessage = payload.message.trim();
+    if (!trimmedMessage) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: 'Internal message cannot be empty.',
+      };
+    }
+
+    const runtimeConfig = dependencies.getRuntimeConfig();
+    const runtimeChannelDetails = await dependencies.getRuntimeChannelDetails();
+    const allowedChannels = getChannelAllowlist(runtimeChannelDetails);
+    if (allowedChannels.size > 0 && !allowedChannels.has('internal-chat')) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: 'Internal chat is disabled in onboarding runtime policy.',
+      };
+    }
+
+    if (!isAuthorizedDirector(payload.senderId, runtimeConfig, payload.isDirector)) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: 'Sender is not authorized to dispatch internal chat intents.',
+      };
+    }
+
+    const result = await dependencies.submitDirectorRequest({
+      moduleRoute: payload.moduleRoute,
+      targetEmployeeId: payload.targetPersonaId,
+      message: trimmedMessage,
+      timestampIso: payload.timestampIso ?? dependencies.nowIso(),
+    });
+
+    const accepted = Boolean(result.queueAccepted);
+    const status: ChannelRoutingResult['status'] = accepted ? 'accepted' : 'failed';
+    const persona = agentRegistryService.getAgent(result.workOrder.targetEmployeeId);
+    const responseText = accepted
+      ? withResponderMessage(`Work order ${result.workOrder.id} queued for ${result.workOrder.targetEmployeeId}.`, persona?.name, persona?.role)
+      : withResponderMessage(`Queue rejected request: ${result.queueReason}.`, persona?.name, persona?.role);
+    const sessionId =
+      payload.sessionId
+      ?? `internal-${normalizeKey(payload.moduleRoute)}-${normalizeKey(payload.targetPersonaId ?? result.workOrder.targetEmployeeId)}`;
+
+    const persisted = await persistConversationTurn({
+      channel: 'internal-chat',
+      roomId: payload.roomId ?? payload.moduleRoute,
+      operatorExternalId: payload.senderId,
+      operatorDisplayName: payload.senderName,
+      targetPersonaId: result.workOrder.targetEmployeeId,
+      sessionId,
+      incomingText: trimmedMessage,
+      responseText,
+      responseStatus: status,
+      responseAccepted: accepted,
+      messageTimestamp: payload.timestampIso ?? dependencies.nowIso(),
+      responseWorkOrderId: result.workOrder.id,
+      metadata: {
+        moduleRoute: payload.moduleRoute,
+        queueReason: result.queueReason,
+        ...(payload.metadata ?? {}),
+      },
+    });
+
+    return {
+      accepted,
+      status,
+      message: responseText,
+      workOrderId: result.workOrder.id,
+      personaId: result.workOrder.targetEmployeeId,
+      personaName: persona?.name,
+      personaRole: persona?.role,
+      responsePreview: trimmedMessage.slice(0, 220),
+      conversationId: persisted.conversation.conversationId,
+      conversationKey: persisted.conversation.conversationKey,
+      sessionId,
+    };
   },
 
   async routeTelegramMessage(payload: TelegramIngressPayload): Promise<ChannelRoutingResult> {
@@ -129,9 +450,7 @@ export const channelRouterService = {
       };
     }
 
-    const globallyAllowedChannels = new Set(
-      (runtimeChannelDetails?.allowedChannels ?? []).map((channel) => channel.toLowerCase()),
-    );
+    const globallyAllowedChannels = getChannelAllowlist(runtimeChannelDetails);
     if (globallyAllowedChannels.size > 0 && !globallyAllowedChannels.has('telegram')) {
       return {
         accepted: false,
@@ -140,11 +459,7 @@ export const channelRouterService = {
       };
     }
 
-    const senderIdentity = normalize(payload.senderId);
-    const directorIdentity = normalize(runtimeConfig.directorEmail);
-    const isAuthorizedDirector = payload.isDirector === true || senderIdentity === directorIdentity;
-
-    if (!isAuthorizedDirector) {
+    if (!isAuthorizedDirector(payload.senderId, runtimeConfig, payload.isDirector)) {
       return {
         accepted: false,
         status: 'rejected',
@@ -185,11 +500,31 @@ export const channelRouterService = {
         correlationId: intent.id,
       });
 
+      const persisted = await persistConversationTurn({
+        channel: 'telegram',
+        roomId: payload.chatId ?? 'telegram-direct',
+        providerRoomId: payload.chatId,
+        operatorExternalId: payload.senderId,
+        operatorDisplayName: payload.senderName,
+        targetPersonaId: payload.explicitTargetPersonaId,
+        sessionId: intent.sessionId,
+        incomingText: trimmedMessage,
+        responseText: systemMessage,
+        responseStatus: 'failed',
+        responseAccepted: false,
+        messageTimestamp: intent.timestamp,
+        responseWorkOrderId: orchestration.workOrderId,
+        metadata: payload.metadata,
+      });
+
       return {
         accepted: false,
         status: 'failed',
         message: systemMessage,
         auditTrailRef: orchestration.auditTrailRef,
+        conversationId: persisted.conversation.conversationId,
+        conversationKey: persisted.conversation.conversationKey,
+        sessionId: intent.sessionId,
       };
     }
 
@@ -224,6 +559,26 @@ export const channelRouterService = {
         correlationId: intent.id,
       });
 
+      const persisted = await persistConversationTurn({
+        channel: 'telegram',
+        roomId: payload.chatId ?? 'telegram-direct',
+        providerRoomId: payload.chatId,
+        operatorExternalId: payload.senderId,
+        operatorDisplayName: payload.senderName,
+        targetPersonaId: orchestration.personaId,
+        sessionId: intent.sessionId,
+        incomingText: trimmedMessage,
+        responseText: blockedMessage,
+        responseStatus: 'blocked',
+        responseAccepted: false,
+        messageTimestamp: intent.timestamp,
+        responseWorkOrderId: orchestration.workOrderId,
+        metadata: {
+          violations: intercept.violations.map((violation) => violation.description),
+          ...(payload.metadata ?? {}),
+        },
+      });
+
       return {
         accepted: false,
         status: 'blocked',
@@ -235,6 +590,9 @@ export const channelRouterService = {
         responsePreview: `Routing blocked before ${blockedPersona?.name ?? orchestration.personaId} could execute.`,
         auditTrailRef: orchestration.auditTrailRef,
         violations: intercept.violations.map((violation) => violation.description),
+        conversationId: persisted.conversation.conversationId,
+        conversationKey: persisted.conversation.conversationKey,
+        sessionId: intent.sessionId,
       };
     }
 
@@ -253,6 +611,26 @@ export const channelRouterService = {
         correlationId: intent.id,
       });
 
+      const persisted = await persistConversationTurn({
+        channel: 'telegram',
+        roomId: payload.chatId ?? 'telegram-direct',
+        providerRoomId: payload.chatId,
+        operatorExternalId: payload.senderId,
+        operatorDisplayName: payload.senderName,
+        targetPersonaId: orchestration.personaId,
+        sessionId: intent.sessionId,
+        incomingText: trimmedMessage,
+        responseText: escalatedMessage,
+        responseStatus: 'escalated',
+        responseAccepted: false,
+        messageTimestamp: intent.timestamp,
+        responseWorkOrderId: orchestration.workOrderId,
+        metadata: {
+          violations: intercept.violations.map((violation) => violation.description),
+          ...(payload.metadata ?? {}),
+        },
+      });
+
       return {
         accepted: false,
         status: 'escalated',
@@ -264,6 +642,9 @@ export const channelRouterService = {
         responsePreview: `Policy escalated execution request from ${escalatedPersona?.name ?? orchestration.personaId}.`,
         auditTrailRef: orchestration.auditTrailRef,
         violations: intercept.violations.map((violation) => violation.description),
+        conversationId: persisted.conversation.conversationId,
+        conversationKey: persisted.conversation.conversationKey,
+        sessionId: intent.sessionId,
       };
     }
 
@@ -281,6 +662,27 @@ export const channelRouterService = {
       correlationId: intent.id,
     });
 
+    const sessionId = intent.sessionId;
+    const persisted = await persistConversationTurn({
+      channel: 'telegram',
+      roomId: payload.chatId ?? 'telegram-direct',
+      providerRoomId: payload.chatId,
+      operatorExternalId: payload.senderId,
+      operatorDisplayName: payload.senderName,
+      targetPersonaId: orchestration.personaId,
+      sessionId,
+      incomingText: trimmedMessage,
+      responseText: acceptedMessage,
+      responseStatus: 'accepted',
+      responseAccepted: true,
+      messageTimestamp: intent.timestamp,
+      responseWorkOrderId: orchestration.workOrderId,
+      metadata: {
+        chatId: payload.chatId,
+        ...(payload.metadata ?? {}),
+      },
+    });
+
     return {
       accepted: true,
       status: 'accepted',
@@ -292,6 +694,26 @@ export const channelRouterService = {
       responsePreview: `${acceptedPersona?.name ?? orchestration.personaId}: ${trimmedMessage.slice(0, 220)}`,
       auditTrailRef: orchestration.auditTrailRef,
       violations: intercept.violations.map((violation) => violation.description),
+      conversationId: persisted.conversation.conversationId,
+      conversationKey: persisted.conversation.conversationKey,
+      sessionId,
     };
+  },
+
+  async listConversations(channel?: ChannelType, limit?: number): Promise<ConversationRecord[]> {
+    return conversationStoreService.listConversations(limit ?? 100, (channel as ConversationChannel | undefined));
+  },
+
+  async getConversationHistory(conversationKey: string, limit?: number): Promise<ChatConversationSnapshot | null> {
+    const conversation = await conversationStoreService.getConversationByKey(conversationKey);
+    if (!conversation) {
+      return null;
+    }
+    const messages = await conversationStoreService.listConversationMessages(conversation.conversationId, limit ?? 200);
+    return { conversation, messages };
+  },
+
+  async getConversationByKey(conversationKey: string): Promise<ConversationRecord | null> {
+    return conversationStoreService.getConversationByKey(conversationKey);
   },
 };

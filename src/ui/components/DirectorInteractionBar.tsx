@@ -1,4 +1,4 @@
-import { FC, useMemo, useState } from 'react';
+import { FC, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Avatar,
@@ -36,6 +36,39 @@ interface LocalMessage {
   queueAccepted: boolean;
   queueReason: 'ok' | 'queue_full' | 'crisis_reserve' | 'unknown' | 'accepted' | 'blocked' | 'escalated' | 'rejected' | 'failed';
 }
+
+interface ConversationRecordShape {
+  conversationKey: string;
+  roomKey: string;
+  targetPersonaId: string | null;
+}
+
+interface ConversationMessageShape {
+  messageId: string;
+  role: 'operator' | 'assistant' | 'system';
+  actorId: string | null;
+  content: string;
+  status: LocalMessage['queueReason'];
+  replyToMessageId: string | null;
+}
+
+interface ConversationSnapshotShape {
+  conversation: ConversationRecordShape;
+  messages: ConversationMessageShape[];
+}
+
+interface ChannelCapabilityShape {
+  channelId: string;
+  label: string;
+  isEnabled: boolean;
+}
+
+const resolveRoomKey = (channelId: string, moduleRoute: string): string => {
+  if (channelId === 'telegram') {
+    return 'telegram-direct';
+  }
+  return moduleRoute;
+};
 
 const EmployeeCard: FC<{
   title: string;
@@ -100,7 +133,9 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   const [targetEmployeeId, setTargetEmployeeId] = useState<string>(secretaryId);
   const [messageText, setMessageText] = useState('');
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
-  const [channelMode, setChannelMode] = useState<'internal' | 'telegram'>('internal');
+  const [activeConversationKey, setActiveConversationKey] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string>('internal-chat');
+  const [availableChannels, setAvailableChannels] = useState<ChannelCapabilityShape[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const directorSenderEmail = branding.directorSenderEmail as string;
@@ -112,6 +147,121 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
 
   const mentionList = useMemo(() => EMPLOYEE_LIST, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadChannelCapabilities = async () => {
+      try {
+        const capabilities = await safeIpcCall(
+          'channels.getCapabilities',
+          () => window.api.channels.getCapabilities(),
+          (value) => Array.isArray(value),
+        ) as ChannelCapabilityShape[];
+
+        if (cancelled) {
+          return;
+        }
+
+        const enabled = capabilities.filter((entry) => entry.isEnabled);
+        setAvailableChannels(enabled);
+
+        if (enabled.length > 0 && !enabled.some((entry) => entry.channelId === selectedChannelId)) {
+          setSelectedChannelId(enabled[0].channelId);
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableChannels([]);
+          setSelectedChannelId('internal-chat');
+        }
+      }
+    };
+
+    void loadChannelCapabilities();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChannelId]);
+
+  const loadConversationPreview = async (conversationKey?: string | null) => {
+    const resolvedKey = conversationKey ?? activeConversationKey;
+    if (!resolvedKey) {
+      setLocalMessages([]);
+      return;
+    }
+
+    try {
+      const snapshot = await safeIpcCall(
+        'channels.getConversationHistory',
+        () => window.api.channels.getConversationHistory({ conversationKey: resolvedKey, limit: 20 }),
+        (value) => value === null || (typeof value === 'object' && value !== null),
+      ) as ConversationSnapshotShape | null;
+
+      if (!snapshot) {
+        setLocalMessages([]);
+        return;
+      }
+
+      const mapped = snapshot.messages
+        .filter((message) => message.role === 'assistant')
+        .slice(-4)
+        .reverse()
+        .map((message) => ({
+          id: message.messageId,
+          targetEmployeeId: message.actorId ?? targetEmployeeId,
+          text: message.content,
+          responseText: message.content,
+          queueAccepted: message.status === 'accepted',
+          queueReason: message.status ?? 'unknown',
+        }));
+
+      setLocalMessages(mapped);
+    } catch {
+      setLocalMessages([]);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateConversation = async () => {
+      try {
+        const channel = selectedChannelId;
+        const conversations = await safeIpcCall(
+          'channels.listConversations',
+          () => window.api.channels.listConversations({ channel, limit: 100 }),
+          (value) => Array.isArray(value),
+        ) as ConversationRecordShape[];
+
+        const roomKey = resolveRoomKey(selectedChannelId, moduleRoute);
+        const match = conversations.find(
+          (entry) => entry.roomKey === roomKey && (entry.targetPersonaId ?? secretaryId) === targetEmployeeId,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setActiveConversationKey(match?.conversationKey ?? null);
+        if (match?.conversationKey) {
+          await loadConversationPreview(match.conversationKey);
+        } else {
+          setLocalMessages([]);
+        }
+      } catch {
+        if (!cancelled) {
+          setLocalMessages([]);
+        }
+      }
+    };
+
+    void hydrateConversation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChannelId, moduleRoute, secretaryId, targetEmployeeId]);
+
   const sendMessage = async () => {
     const trimmed = messageText.trim();
     if (!trimmed || isSending) return;
@@ -121,59 +271,41 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
 
     try {
       let message: LocalMessage;
+      let latestConversationKey: string | null = null;
 
-      if (channelMode === 'telegram') {
-        const telegramResult = await safeIpcCall(
-          'channels.routeTelegramMessage',
-          () =>
-            window.api.channels.routeTelegramMessage({
-              message: trimmed,
-              senderId: directorSenderEmail,
-              senderName: directorSenderName,
-              isDirector: true,
-              explicitTargetPersonaId: targetEmployeeId,
-              timestampIso: new Date().toISOString(),
-              metadata: { moduleRoute },
-            }),
-          (value) => typeof value === 'object' && value !== null,
-        );
+      const result = await safeIpcCall(
+        'channels.routeMessage',
+        () =>
+          window.api.channels.routeMessage({
+            senderId: directorSenderEmail,
+            senderName: directorSenderName,
+            channelId: selectedChannelId,
+            roomId: resolveRoomKey(selectedChannelId, moduleRoute),
+            messageText: trimmed,
+            isDirector: true,
+            explicitTargetPersonaId: targetEmployeeId,
+            timestampIso: new Date().toISOString(),
+            metadata: { moduleRoute },
+          }),
+        (value) => typeof value === 'object' && value !== null,
+      );
 
-        message = {
-          id: (telegramResult as { workOrderId?: string }).workOrderId ?? `${Date.now()}`,
-          targetEmployeeId,
-          text: trimmed,
-          responseText: (telegramResult as { message?: string }).message,
-          queueAccepted: Boolean((telegramResult as { accepted?: boolean }).accepted),
-          queueReason:
-            ((telegramResult as { status?: LocalMessage['queueReason'] }).status as LocalMessage['queueReason']) ??
-            'unknown',
-        };
-      } else {
-        const result = await safeIpcCall(
-          'workOrders.submitDirectorRequest',
-          () =>
-            window.api.workOrders.submitDirectorRequest({
-              moduleRoute,
-              targetEmployeeId,
-              message: trimmed,
-              timestampIso: new Date().toISOString(),
-            }),
-          (value) => typeof value === 'object' && value !== null,
-        );
-
-        message = {
-          id: (result as { workOrder?: { id?: string } }).workOrder?.id ?? `${Date.now()}`,
-          targetEmployeeId,
-          text: trimmed,
-          queueAccepted: Boolean((result as { queueAccepted?: boolean }).queueAccepted),
-          queueReason:
-            ((result as { queueReason?: LocalMessage['queueReason'] }).queueReason as LocalMessage['queueReason']) ??
-            'unknown',
-        };
-      }
+      message = {
+        id: (result as { workOrderId?: string }).workOrderId ?? `${Date.now()}`,
+        targetEmployeeId,
+        text: trimmed,
+        responseText: (result as { message?: string }).message,
+        queueAccepted: Boolean((result as { accepted?: boolean }).accepted),
+        queueReason:
+          ((result as { status?: LocalMessage['queueReason'] }).status as LocalMessage['queueReason']) ??
+          'unknown',
+      };
+      latestConversationKey = (result as { conversationKey?: string }).conversationKey ?? null;
+      setActiveConversationKey(latestConversationKey);
 
       setLocalMessages((prev) => [message, ...prev].slice(0, 4));
       setMessageText('');
+      await loadConversationPreview(latestConversationKey);
     } catch {
       setSendError(literal['interaction.sendFailed']);
     } finally {
@@ -256,12 +388,25 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
           {isSending ? literal['interaction.sending'] : literal['interaction.send']}
         </Button>
 
-        <Button
-          variant={channelMode === 'telegram' ? 'contained' : 'outlined'}
-          onClick={() => setChannelMode((prev) => (prev === 'internal' ? 'telegram' : 'internal'))}
-        >
-          {channelMode === 'telegram' ? literal['interaction.channelTelegram'] : literal['interaction.channelInternal']}
-        </Button>
+        <Box sx={{ display: 'flex', gap: spacing.xs, alignItems: 'center' }}>
+          <Typography variant="caption" sx={{ color: muiTheme.palette.text.secondary }}>
+            {literal['interaction.channel'] ?? 'Channel'}
+          </Typography>
+          <TextField
+            select
+            size="small"
+            value={selectedChannelId}
+            onChange={(event) => setSelectedChannelId(event.target.value)}
+            SelectProps={{ native: true }}
+            sx={{ minWidth: '160px' }}
+          >
+            {availableChannels.map((channel) => (
+              <option key={channel.channelId} value={channel.channelId}>
+                {channel.label}
+              </option>
+            ))}
+          </TextField>
+        </Box>
 
         <Button
           variant="outlined"

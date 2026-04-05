@@ -28,6 +28,7 @@ import { localExecutionProviderService, ModelProviderType } from './localExecuti
 import { skillRegistryService, SkillType } from './skillRegistry'
 import { coreRegistryService } from './coreRegistryService'
 import { channelRouterService } from './channelRouterService'
+import { ChannelMessageEnvelope } from './types/channelAdapterTypes'
 import { syncProviderService } from './syncProviderService'
 import { runtimeModelAccessService } from './runtimeModelAccessService'
 import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRuntimeService'
@@ -1535,6 +1536,38 @@ export const registerIpcHandlers = (options?: {
   })
 
   ipcMain.handle(
+    'channels:route-message',
+    async (_event, payload: ChannelMessageEnvelope) => {
+      return channelRouterService.routeChannelMessage(payload)
+    }
+  )
+
+  ipcMain.handle('channels:get-capabilities', async () => {
+    return channelRouterService.getChannelCapabilities()
+  })
+
+  ipcMain.handle(
+    'channels:route-internal-message',
+    async (
+      _event,
+      payload: {
+        message: string
+        senderId: string
+        senderName?: string
+        moduleRoute: string
+        targetPersonaId?: string
+        roomId?: string
+        sessionId?: string
+        timestampIso?: string
+        isDirector?: boolean
+        metadata?: Record<string, unknown>
+      }
+    ) => {
+      return channelRouterService.routeInternalMessage(payload)
+    }
+  )
+
+  ipcMain.handle(
     'channels:route-telegram-message',
     async (
       _event,
@@ -1552,6 +1585,20 @@ export const registerIpcHandlers = (options?: {
       }
     ) => {
       return channelRouterService.routeTelegramMessage(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'channels:list-conversations',
+    async (_event, payload?: { channel?: 'internal-chat' | 'telegram' | 'whatsapp' | 'webhook' | 'api' | string; limit?: number }) => {
+      return channelRouterService.listConversations(payload?.channel, payload?.limit)
+    }
+  )
+
+  ipcMain.handle(
+    'channels:get-conversation-history',
+    async (_event, payload: { conversationKey: string; limit?: number }) => {
+      return channelRouterService.getConversationHistory(payload.conversationKey, payload.limit)
     }
   )
 

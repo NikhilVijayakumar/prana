@@ -268,7 +268,7 @@ export interface AuditTrail {
  * ============================================================================
  */
 
-export type ChannelType = 'internal-chat' | 'telegram' | 'webhook' | 'api';
+export type ChannelType = 'internal-chat' | 'telegram' | 'whatsapp' | 'webhook' | 'api' | (string & {});
 
 export enum ChannelTransmissionMode {
   NOTIFY_ONLY = 'notify-only',

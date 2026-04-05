@@ -102,5 +102,73 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('email:browser-session-snapshot', payload),
     stopBrowserSession: (payload: { sessionId: string }) =>
       ipcRenderer.invoke('email:browser-session-stop', payload)
+  },
+  channels: {
+    routeMessage: (payload: {
+      senderId: string
+      senderName?: string
+      channelId: string
+      roomId: string
+      accountId?: string
+      messageText: string
+      timestampIso?: string
+      sessionId?: string
+      explicitTargetPersonaId?: string
+      isDirector?: boolean
+      dataClassification?: 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED'
+      metadata?: Record<string, unknown>
+    }) => ipcRenderer.invoke('channels:route-message', payload),
+    getCapabilities: () => ipcRenderer.invoke('channels:get-capabilities'),
+    routeInternalMessage: (payload: {
+      message: string
+      senderId: string
+      senderName?: string
+      moduleRoute: string
+      targetPersonaId?: string
+      roomId?: string
+      sessionId?: string
+      timestampIso?: string
+      isDirector?: boolean
+      metadata?: Record<string, unknown>
+    }) => ipcRenderer.invoke('channels:route-internal-message', payload),
+    routeTelegramMessage: (payload: {
+      message: string
+      senderId: string
+      senderName?: string
+      chatId?: string
+      timestampIso?: string
+      sessionId?: string
+      explicitTargetPersonaId?: string
+      isDirector?: boolean
+      dataClassification?: 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED'
+      metadata?: Record<string, unknown>
+    }) => ipcRenderer.invoke('channels:route-telegram-message', payload),
+    listConversations: (payload?: {
+      channel?: 'internal-chat' | 'telegram' | 'whatsapp' | 'webhook' | 'api' | string
+      limit?: number
+    }) => ipcRenderer.invoke('channels:list-conversations', payload),
+    getConversationHistory: (payload: { conversationKey: string; limit?: number }) =>
+      ipcRenderer.invoke('channels:get-conversation-history', payload)
+  },
+  workOrders: {
+    submitDirectorRequest: (payload: {
+      moduleRoute: string
+      targetEmployeeId?: string
+      message: string
+      timestampIso?: string
+    }) => ipcRenderer.invoke('work-orders:submit-director-request', payload),
+    startNext: () => ipcRenderer.invoke('work-orders:start-next'),
+    processNextToReview: () => ipcRenderer.invoke('work-orders:process-next'),
+    complete: (payload: { workOrderId: string; summary?: string }) =>
+      ipcRenderer.invoke('work-orders:complete', payload),
+    fail: (payload: { workOrderId: string; error?: string }) =>
+      ipcRenderer.invoke('work-orders:fail', payload),
+    approve: (payload: { workOrderId: string; summary?: string }) =>
+      ipcRenderer.invoke('work-orders:approve', payload),
+    reject: (payload: { workOrderId: string; error?: string }) =>
+      ipcRenderer.invoke('work-orders:reject', payload),
+    list: () => ipcRenderer.invoke('work-orders:list'),
+    get: (payload: { id: string }) => ipcRenderer.invoke('work-orders:get', payload),
+    listQueue: () => ipcRenderer.invoke('work-orders:queue-list')
   }
 })
