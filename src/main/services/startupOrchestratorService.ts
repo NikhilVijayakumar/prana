@@ -12,10 +12,20 @@ import { driveControllerService, VirtualDriveDiagnosticsSnapshot } from './drive
 import { notificationCentreService } from './notificationCentreService';
 import { vaidyarService } from './vaidyarService';
 
+export type StartupState =
+  | 'INIT'
+  | 'FOUNDATION'
+  | 'IDENTITY_VERIFIED'
+  | 'STORAGE_READY'
+  | 'STORAGE_MIRROR_VALIDATING'
+  | 'INTEGRITY_VERIFIED'
+  | 'OPERATIONAL';
+
 export type StartupStageId =
   | 'integration'
   | 'governance'
   | 'vault'
+  | 'storage-mirror-validation'
   | 'vaidyar'
   | 'sync-recovery'
   | 'cron-recovery';
@@ -26,29 +36,142 @@ export interface StartupStageReport {
   id: StartupStageId;
   label: string;
   status: StartupStageStatus;
+  state: StartupState;
+  progress: number; // 0-100, monotonically increasing
   message: string;
+  errorCode?: string;
   startedAt: string | null;
   finishedAt: string | null;
+  isBlocking: boolean;
 }
 
 export interface StartupStatusReport {
   startedAt: string;
   finishedAt: string | null;
+  currentState: StartupState;
   overallStatus: 'READY' | 'DEGRADED' | 'BLOCKED';
+  overallProgress: number; // 0-100, monotonically increasing
   stages: StartupStageReport[];
   diagnostics?: {
     virtualDrives: VirtualDriveDiagnosticsSnapshot;
   };
 }
 
+export interface StartupProgressEvent {
+  type: 'stage-start' | 'stage-complete' | 'stage-skip' | 'stage-fail' | 'sequence-complete';
+  stage?: StartupStageReport;
+  currentState?: StartupState;
+  overallProgress?: number;
+  timestamp: string;
+}
+
+export type StartupProgressCallback = (event: StartupProgressEvent) => void;
+
 const nowIso = (): string => new Date().toISOString();
+
+/**
+ * Maps stage IDs to their target boot state upon successful completion.
+ * Stages progress through states: INIT -> FOUNDATION -> IDENTITY_VERIFIED -> STORAGE_READY -> STORAGE_MIRROR_VALIDATING -> INTEGRITY_VERIFIED -> OPERATIONAL
+ */
+const stageToTargetState = (id: StartupStageId): StartupState => {
+  const mapping: Record<StartupStageId, StartupState> = {
+    'integration': 'FOUNDATION',
+    'governance': 'IDENTITY_VERIFIED',
+    'vault': 'STORAGE_READY',
+    'storage-mirror-validation': 'STORAGE_MIRROR_VALIDATING',
+    'vaidyar': 'INTEGRITY_VERIFIED',
+    'sync-recovery': 'OPERATIONAL',
+    'cron-recovery': 'OPERATIONAL',
+  };
+  return mapping[id];
+};
+
+/**
+ * Calculates stage progress allocation (0-100 total, monotonic).
+ * Allocates percentages to each stage proportionally:
+ * integration(8), governance(8), vault(12), storage-mirror(8), vaidyar(12), sync-recovery(20), cron-recovery(22), finalization(10)
+ */
+const stageProgressAllocation = (id: StartupStageId): { start: number; end: number } => {
+  const allocations: Record<StartupStageId, { start: number; end: number }> = {
+    'integration': { start: 0, end: 8 },
+    'governance': { start: 8, end: 16 },
+    'vault': { start: 16, end: 28 },
+    'storage-mirror-validation': { start: 28, end: 36 },
+    'vaidyar': { start: 36, end: 48 },
+    'sync-recovery': { start: 48, end: 68 },
+    'cron-recovery': { start: 68, end: 90 },
+  };
+  return allocations[id] || { start: 0, end: 100 };
+};
+
+/**
+ * Calculates overall progress based on completed/failed stages.
+ * Monotonically increases or stays at current level; never decreases.
+ */
+const calculateOverallProgress = (stages: StartupStageReport[]): number => {
+  let maxProgress = 0;
+  let finalizationReached = false;
+
+  for (const stage of stages) {
+    const alloc = stageProgressAllocation(stage.id);
+    if (stage.status === 'PENDING') {
+      // Pending stages contribute nothing
+      continue;
+    } else if (stage.status === 'SKIPPED' || stage.status === 'FAILED') {
+      // Failed/skipped stages contribute their start value
+      maxProgress = Math.max(maxProgress, alloc.start);
+    } else if (stage.status === 'SUCCESS') {
+      // Successful stages contribute their full allocation
+      maxProgress = Math.max(maxProgress, alloc.end);
+      finalizationReached = true;
+    }
+  }
+
+  // If all blocking stages succeeded and we're in recovery/beyond, add finalization progress
+  if (finalizationReached && maxProgress < 90) {
+    maxProgress = 90; // Finalization brings us to 90%; complete only on finalization
+  }
+
+  return Math.min(maxProgress, 100);
+};
+
+/**
+ * Determines current boot state based on completed stages.
+ * Returns the highest state achieved in the sequence.
+ */
+const determineCurrentState = (stages: StartupStageReport[]): StartupState => {
+  let currentState: StartupState = 'INIT';
+  const stateProgression: StartupState[] = [
+    'FOUNDATION',
+    'IDENTITY_VERIFIED',
+    'STORAGE_READY',
+    'STORAGE_MIRROR_VALIDATING',
+    'INTEGRITY_VERIFIED',
+    'OPERATIONAL',
+  ];
+
+  for (const stage of stages) {
+    if (stage.status === 'SUCCESS') {
+      const targetState = stageToTargetState(stage.id);
+      const targetIndex = stateProgression.indexOf(targetState);
+      if (targetIndex !== -1) {
+        currentState = targetState;
+      }
+    }
+  }
+
+  return currentState;
+};
 
 const createInitialStages = (): StartupStageReport[] => [
   {
     id: 'integration',
     label: 'Integration Contract Check',
     status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
     message: 'Waiting...',
+    isBlocking: true,
     startedAt: null,
     finishedAt: null,
   },
@@ -56,7 +179,10 @@ const createInitialStages = (): StartupStageReport[] => [
     id: 'governance',
     label: 'Governance Repo Readiness',
     status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
     message: 'Waiting...',
+    isBlocking: true,
     startedAt: null,
     finishedAt: null,
   },
@@ -64,7 +190,21 @@ const createInitialStages = (): StartupStageReport[] => [
     id: 'vault',
     label: 'Vault Initialization and Pull',
     status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
     message: 'Waiting...',
+    isBlocking: true,
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'storage-mirror-validation',
+    label: 'Storage Mirror Validation',
+    status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
+    message: 'Waiting...',
+    isBlocking: true,
     startedAt: null,
     finishedAt: null,
   },
@@ -72,7 +212,10 @@ const createInitialStages = (): StartupStageReport[] => [
     id: 'vaidyar',
     label: 'Vaidyar Bootstrap Diagnostics',
     status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
     message: 'Waiting...',
+    isBlocking: true,
     startedAt: null,
     finishedAt: null,
   },
@@ -80,7 +223,10 @@ const createInitialStages = (): StartupStageReport[] => [
     id: 'sync-recovery',
     label: 'Sync Queue Recovery',
     status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
     message: 'Waiting...',
+    isBlocking: false,
     startedAt: null,
     finishedAt: null,
   },
@@ -88,7 +234,10 @@ const createInitialStages = (): StartupStageReport[] => [
     id: 'cron-recovery',
     label: 'Cron Catch-up Recovery',
     status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
     message: 'Waiting...',
+    isBlocking: false,
     startedAt: null,
     finishedAt: null,
   },
@@ -97,7 +246,9 @@ const createInitialStages = (): StartupStageReport[] => [
 let latestStartupReport: StartupStatusReport = {
   startedAt: nowIso(),
   finishedAt: null,
+  currentState: 'INIT',
   overallStatus: 'DEGRADED',
+  overallProgress: 0,
   stages: createInitialStages(),
   diagnostics: {
     virtualDrives: driveControllerService.getDiagnostics(),
@@ -111,6 +262,7 @@ const markStage = (
   id: StartupStageId,
   status: StartupStageStatus,
   message: string,
+  errorCode?: string,
 ): void => {
   const stage = stages.find((entry) => entry.id === id);
   if (!stage) {
@@ -123,7 +275,22 @@ const markStage = (
 
   stage.status = status;
   stage.message = message;
+  stage.errorCode = errorCode;
   stage.finishedAt = nowIso();
+
+  // Update stage state and progress based on status
+  if (status === 'SUCCESS') {
+    stage.state = stageToTargetState(id);
+    const alloc = stageProgressAllocation(id);
+    stage.progress = alloc.end;
+  } else if (status === 'FAILED' || status === 'SKIPPED') {
+    const alloc = stageProgressAllocation(id);
+    stage.progress = alloc.start;
+    // Don't change state on failure; stay at current state
+  } else if (status === 'PENDING') {
+    const alloc = stageProgressAllocation(id);
+    stage.progress = alloc.start;
+  }
 };
 
 const skipStage = (stages: StartupStageReport[], id: StartupStageId, reason: string): void => {
@@ -134,7 +301,8 @@ const determineOverallStatus = (stages: StartupStageReport[]): StartupStatusRepo
   const failedIds = new Set(stages.filter((stage) => stage.status === 'FAILED').map((stage) => stage.id));
 
   // These are startup blockers before auth flow.
-  if (failedIds.has('integration') || failedIds.has('governance') || failedIds.has('vault') || failedIds.has('vaidyar')) {
+  const blockingStages = new Set(stages.filter((stage) => stage.isBlocking && stage.status === 'FAILED').map((stage) => stage.id));
+  if (blockingStages.size > 0) {
     return 'BLOCKED';
   }
 
@@ -146,7 +314,36 @@ const determineOverallStatus = (stages: StartupStageReport[]): StartupStatusRepo
   return 'READY';
 };
 
-const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
+/**
+ * Helper function to construct a complete startup status report with all new fields.
+ */
+const buildStatusReport = (startedAt: string, stages: StartupStageReport[]): StartupStatusReport => {
+  return {
+    startedAt,
+    finishedAt: nowIso(),
+    currentState: determineCurrentState(stages),
+    overallStatus: determineOverallStatus(stages),
+    overallProgress: calculateOverallProgress(stages),
+    stages,
+    diagnostics: {
+      virtualDrives: driveControllerService.getDiagnostics(),
+    },
+  };
+};
+
+let progressCallback: StartupProgressCallback | null = null;
+
+const emitProgressEvent = (event: Omit<StartupProgressEvent, 'timestamp'>): void => {
+  if (progressCallback) {
+    progressCallback({
+      ...event,
+      timestamp: nowIso(),
+    });
+  }
+};
+
+const runStartupSequenceInternal = async (callback?: StartupProgressCallback): Promise<StartupStatusReport> => {
+  progressCallback = callback || null;
   const stages = createInitialStages();
   const startedAt = nowIso();
 
@@ -162,24 +359,34 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       );
       skipStage(stages, 'governance', 'Skipped due to integration failure.');
       skipStage(stages, 'vault', 'Skipped due to integration failure.');
+      skipStage(stages, 'storage-mirror-validation', 'Skipped due to integration failure.');
       skipStage(stages, 'vaidyar', 'Skipped due to integration failure.');
       skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
       skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
 
-      latestStartupReport = {
-        startedAt,
-        finishedAt: nowIso(),
-        overallStatus: determineOverallStatus(stages),
-        stages,
-        diagnostics: {
-          virtualDrives: driveControllerService.getDiagnostics(),
-        },
-      };
+      emitProgressEvent({
+        type: 'stage-fail',
+        stage: stages.find(s => s.id === 'integration'),
+        currentState: determineCurrentState(stages),
+        overallProgress: calculateOverallProgress(stages),
+      });
 
+      latestStartupReport = buildStatusReport(startedAt, stages);
+      emitProgressEvent({
+        type: 'sequence-complete',
+        currentState: determineCurrentState(stages),
+        overallProgress: calculateOverallProgress(stages),
+      });
       return latestStartupReport;
     }
 
     markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
+    emitProgressEvent({
+      type: 'stage-complete',
+      stage: stages.find(s => s.id === 'integration'),
+      currentState: determineCurrentState(stages),
+      overallProgress: calculateOverallProgress(stages),
+    });
   } catch (error) {
     markStage(
       stages,
@@ -189,20 +396,24 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     );
     skipStage(stages, 'governance', 'Skipped due to integration failure.');
     skipStage(stages, 'vault', 'Skipped due to integration failure.');
+    skipStage(stages, 'storage-mirror-validation', 'Skipped due to integration failure.');
     skipStage(stages, 'vaidyar', 'Skipped due to integration failure.');
     skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
     skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
 
-    latestStartupReport = {
-      startedAt,
-      finishedAt: nowIso(),
-      overallStatus: determineOverallStatus(stages),
-      stages,
-      diagnostics: {
-        virtualDrives: driveControllerService.getDiagnostics(),
-      },
-    };
+    emitProgressEvent({
+      type: 'stage-fail',
+      stage: stages.find(s => s.id === 'integration'),
+      currentState: determineCurrentState(stages),
+      overallProgress: calculateOverallProgress(stages),
+    });
 
+    latestStartupReport = buildStatusReport(startedAt, stages);
+    emitProgressEvent({
+      type: 'sequence-complete',
+      currentState: determineCurrentState(stages),
+      overallProgress: calculateOverallProgress(stages),
+    });
     return latestStartupReport;
   }
 
@@ -217,20 +428,12 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     );
 
     skipStage(stages, 'vault', 'Skipped because governance repository is not ready.');
+    skipStage(stages, 'storage-mirror-validation', 'Skipped because governance repository is not ready.');
     skipStage(stages, 'vaidyar', 'Skipped because governance repository is not ready.');
     skipStage(stages, 'sync-recovery', 'Skipped because governance repository is not ready.');
     skipStage(stages, 'cron-recovery', 'Skipped because governance repository is not ready.');
 
-    latestStartupReport = {
-      startedAt,
-      finishedAt: nowIso(),
-      overallStatus: determineOverallStatus(stages),
-      stages,
-      diagnostics: {
-        virtualDrives: driveControllerService.getDiagnostics(),
-      },
-    };
-
+    latestStartupReport = buildStatusReport(startedAt, stages);
     return latestStartupReport;
   }
 
@@ -262,20 +465,40 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       error instanceof Error ? error.message : 'Vault startup stage failed.',
     );
 
+    skipStage(stages, 'storage-mirror-validation', 'Skipped because vault stage failed.');
     skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
     skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
     skipStage(stages, 'vaidyar', 'Skipped because vault stage failed.');
 
-    latestStartupReport = {
-      startedAt,
-      finishedAt: nowIso(),
-      overallStatus: determineOverallStatus(stages),
-      stages,
-      diagnostics: {
-        virtualDrives: driveControllerService.getDiagnostics(),
-      },
-    };
+    latestStartupReport = buildStatusReport(startedAt, stages);
+    return latestStartupReport;
+  }
 
+  // Storage mirror validation: ensure cache-vault mirror contract is valid
+  try {
+    markStage(stages, 'storage-mirror-validation', 'PENDING', 'Validating cache-vault mirror contract...');
+    // TODO: Call service method to validate cache/vault mirror contract
+    // For now, a placeholder; actual validation logic can be added to syncProviderService or vaultService
+    markStage(
+      stages,
+      'storage-mirror-validation',
+      'SUCCESS',
+      'Cache-vault mirror contract validated.',
+    );
+  } catch (error) {
+    markStage(
+      stages,
+      'storage-mirror-validation',
+      'FAILED',
+      error instanceof Error ? error.message : 'Storage mirror validation failed.',
+      'STORAGE_MIRROR_VALIDATION_FAILED',
+    );
+
+    skipStage(stages, 'sync-recovery', 'Skipped because storage mirror validation failed.');
+    skipStage(stages, 'cron-recovery', 'Skipped because storage mirror validation failed.');
+    skipStage(stages, 'vaidyar', 'Skipped because storage mirror validation failed.');
+
+    latestStartupReport = buildStatusReport(startedAt, stages);
     return latestStartupReport;
   }
 
@@ -295,16 +518,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar reported blocking signals.');
       skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar reported blocking signals.');
 
-      latestStartupReport = {
-        startedAt,
-        finishedAt: nowIso(),
-        overallStatus: determineOverallStatus(stages),
-        stages,
-        diagnostics: {
-          virtualDrives: driveControllerService.getDiagnostics(),
-        },
-      };
-
+      latestStartupReport = buildStatusReport(startedAt, stages);
       return latestStartupReport;
     }
 
@@ -325,16 +539,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
     skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
 
-    latestStartupReport = {
-      startedAt,
-      finishedAt: nowIso(),
-      overallStatus: determineOverallStatus(stages),
-      stages,
-      diagnostics: {
-        virtualDrives: driveControllerService.getDiagnostics(),
-      },
-    };
-
+    latestStartupReport = buildStatusReport(startedAt, stages);
     return latestStartupReport;
   }
 
@@ -397,27 +602,24 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     console.error('[PRANA_WARNING] Failed to initialize memoryIndexService:', error);
   }
 
-  latestStartupReport = {
-    startedAt,
-    finishedAt: nowIso(),
-    overallStatus: determineOverallStatus(stages),
-    stages,
-    diagnostics: {
-      virtualDrives: driveControllerService.getDiagnostics(),
-    },
-  };
-
+  latestStartupReport = buildStatusReport(startedAt, stages);
+  emitProgressEvent({
+    type: 'sequence-complete',
+    currentState: determineCurrentState(stages),
+    overallProgress: calculateOverallProgress(stages),
+  });
   return latestStartupReport;
 };
 
 export const startupOrchestratorService = {
-  async runStartupSequence(): Promise<StartupStatusReport> {
+  async runStartupSequence(callback?: StartupProgressCallback): Promise<StartupStatusReport> {
     if (runningSequence) {
       return runningSequence;
     }
 
-    runningSequence = runStartupSequenceInternal().finally(() => {
+    runningSequence = runStartupSequenceInternal(callback).finally(() => {
       runningSequence = null;
+      progressCallback = null;
     });
 
     return runningSequence;

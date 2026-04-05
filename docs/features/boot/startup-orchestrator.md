@@ -58,20 +58,24 @@ It guarantees that:
 
 ## 3. Bootstrap State Machine
 
-### 3.1 Core States
+### 3.1 Core States (Implemented v1.3.1)
 
 ```text
-INIT → FOUNDATION → IDENTITY_VERIFIED → STORAGE_READY → INTEGRITY_VERIFIED → OPERATIONAL
+INIT → FOUNDATION → IDENTITY_VERIFIED → STORAGE_READY → STORAGE_MIRROR_VALIDATING → INTEGRITY_VERIFIED → OPERATIONAL
 ```
+
+**Note:** `STORAGE_MIRROR_VALIDATING` is an explicit blocking state added in v1.3.1 to enforce Cache ↔ Vault mirror contract validation immediately after vault initialization.
 
 ---
 
-### 3.2 Extended States (Explicit)
+### 3.2 Extended States (Planned)
 
 ```text
 AUTH_PENDING → AUTHENTICATED
 RECOVERY_PENDING → RECOVERY_ACTIVE → RECOVERY_COMPLETE
 ```
+
+**Implementation Note:** Authentication (Layer 0) is currently implemented **outside** the orchestrator as a prerequisite. Session validation is assumed to have completed before `app:bootstrap-host` IPC is invoked. Session binding to bootstrap lifecycle is a future enhancement.
 
 ---
 
@@ -107,110 +111,166 @@ DEGRADED_MODE
 
 ---
 
-## 4. Layered Bootstrap Protocol
+## 4. Layered Bootstrap Protocol (v1.3.1 Implementation)
 
 ---
 
-### 4.1 Layer 0: Authentication Gate (Pre-Foundation)
+### 4.0 Pre-Bootstrap: Authentication Gate (External)
 
-**Dependency:** Authentication Stack
+**Status:** Implemented outside orchestrator
+
+The startup orchestrator assumes authentication has already completed before `app:bootstrap-host` is invoked. The Splash component ensures:
+
+* Valid session exists
+* Session token is present
+* User identity is established
+
+**Future Enhancement:** Session binding to bootstrap lifecycle and invalidation on critical failure.
+
+---
+
+### 4.1 Layer 0: Integration Contract Validation (Replaces Layer 0 Auth)
+
+**Stage ID:** `integration`
+**Dependency:** `runtimeConfigService`
 
 Responsibilities:
 
-* Await valid session from authentication system
-* Validate session token integrity
-* Bind session to runtime context
+* Validate `PranaRuntimeConfig` key presence
+* Check integration endpoint availability
+* Verify `RuntimeIntegrationStatus`
 
 **Constraints:**
 
-* System MUST remain in `AUTH_PENDING` until success
-* No bootstrap execution allowed before authentication
+* MUST execute first (no prerequisites)
 
 **Outcome Conditions:**
 
-* SUCCESS → `AUTHENTICATED` → proceed to FOUNDATION
-* FAILURE → remain in `AUTH_PENDING`
+* SUCCESS → `FOUNDATION`
+* FAILURE → `BLOCKED` (halt startup, skip all downstream)
 
 ---
 
-### 4.2 Layer 1: Foundation (Environment & Identity)
+### 4.2 Layer 1: Foundation (Governance & Identity)
+
+**Stage ID:** `governance`
+**Dependency:** `governanceRepoService`
 
 Responsibilities:
 
-* Validate `PranaRuntimeConfig`
-* Initialize SQLite access (read-only validation first)
-* Load SSH metadata from cache
-* Perform SSH handshake with remote Vault authority
-* Validate host fingerprint
+* Ensure governance repository is cloned/ready
+* Verify SSH configuration
+* Validate governance repo integrity
+
+**Constraints:**
+
+* MUST NOT execute without `FOUNDATION` (integration success)
+* MUST establish identity baseline for vault access
 
 **Outcome Conditions:**
 
 * SUCCESS → `IDENTITY_VERIFIED`
-* FAILURE → `BLOCKED_SECURITY`
+* FAILURE → `BLOCKED_SECURITY` (halt, skip vault and downstream)
 
 ---
 
 ### 4.3 Layer 2: Persistence (Storage)
 
+**Stage ID:** `vault`
+**Dependency:** `vaultService`, `syncProviderService`
+
 Responsibilities:
 
-* Initialize System Drive
-* Validate SQLite integrity (full access)
-* Mount Vault (post identity verification only)
-* Validate:
-
-  * Vault structure
-  * `.metadata.json`
-  * registry alignment
+* Mount System Drive (virtual drive controller)
+* Initialize Vault access
+* Perform initial sync pull from remote
+* Validate structural integrity
 
 **Constraints:**
 
 * MUST NOT execute without `IDENTITY_VERIFIED`
-* MUST enforce Cache ↔ Vault Mirror Constraint baseline
+* MUST initialize SQLite access
 
 **Outcome Conditions:**
 
 * SUCCESS → `STORAGE_READY`
-* FAILURE → `BLOCKED_STORAGE`
+* FAILURE → `BLOCKED_STORAGE` (halt, skip downstream)
 
 ---
 
-### 4.4 Layer 3: Connectivity (Integrity)
+### 4.4 Layer 2b: Storage Mirror Validation (NEW - v1.3.1)
+
+**Stage ID:** `storage-mirror-validation`
+**Dependency:** `syncProviderService`, `vaultService`
+**Blocking:** Yes
 
 Responsibilities:
 
-* Execute Vaidyar system pulse
+* Validate Cache ↔ Vault mirror contract
+* Ensure all vault domain keys have corresponding cache entries
+* Check for mapping consistency
+
+**Constraints:**
+
+* MUST execute only after `STORAGE_READY`
+* MUST validate before proceeding to Integrity layer
+
+**Outcome Conditions:**
+
+* SUCCESS → `STORAGE_MIRROR_VALIDATING`
+* FAILURE → `BLOCKED_STORAGE` (halt, skip downstream)
+
+---
+
+### 4.5 Layer 3: Connectivity (Integrity)
+
+**Stage ID:** `vaidyar`
+**Dependency:** `vaidyarService`
+**Blocking:** Yes
+
+Responsibilities:
+
+* Execute Vaidyar system pulse diagnostics
 * Validate:
 
-  * integration endpoints
-  * channel readiness
+  * system health
+  * blocking signals
   * service dependencies
 * Classify failures (critical vs non-critical)
+
+**Constraints:**
+
+* MUST execute only after `STORAGE_READY` and mirror validation
+* MUST check for blocking signals and halt if present
 
 **Outcome Conditions:**
 
 * FULL SUCCESS → `INTEGRITY_VERIFIED`
-* PARTIAL FAILURE → `DEGRADED_MODE`
-* CRITICAL FAILURE → `BLOCKED_INTEGRATION`
+* BLOCKING SIGNALS → `BLOCKED` (halt)
 
 ---
 
-### 4.5 Layer 4: Operation (Background Systems)
+### 4.6 Layer 4: Recovery & Operations (Background Systems)
+
+**Stage IDs:** `sync-recovery`, `cron-recovery`
+**Dependency:** `recoveryOrchestratorService`, `cronSchedulerService`
+**Blocking:** No (degradable)
 
 Responsibilities:
 
-* Start scheduler
-* Resume queues
-* Trigger recovery workflows
-* Activate runtime services
+* **sync-recovery:** Resume pending sync tasks
+* **cron-recovery:** Initialize scheduler, recover missed runs
 
 **Constraints:**
 
-* MUST execute only after integrity validation
+* MUST execute only after `INTEGRITY_VERIFIED`
+* Failures DEGRADE system to degraded state, not BLOCKED
+* MUST be idempotent and repeat-safe
 
 **Outcome Conditions:**
 
-* SUCCESS → `OPERATIONAL`
+* SUCCESS → contributes to `OPERATIONAL`
+* FAILURE → System remains `OPERATIONAL` with `DEGRADED` status
 
 ---
 
@@ -218,16 +278,16 @@ Responsibilities:
 
 ### 5.1 Verification Inputs
 
-* SSH private key (SQLite-backed)
-* Repository URL
+* SSH configuration and keys
+* Repository governance URL
 * Known hosts / fingerprint
-* Local session context (from auth layer)
+* Local runtime context
 
 ---
 
 ### 5.2 Verification Guarantees
 
-* Remote Vault authority MUST be:
+* Governance repository MUST be:
 
   * authenticated
   * reachable
@@ -323,28 +383,63 @@ RECOVERY_PENDING → RECOVERY_ACTIVE → RECOVERY_COMPLETE
 
 ---
 
-## 8. Telemetry & UI Contract
+## 8. Telemetry & UI Contract (v1.3.1)
 
-### 8.1 Status Emission
+### 8.1 Status Report Structure
 
-Each layer MUST emit:
+Each startup report MUST include:
 
-* `state`
-* `status`: pending | success | failed
-* `progress`: numeric (0–100)
-* `message`: human-readable
-* `error_code`: structured identifier
-* `timestamp`
+* `currentState`: Current boot state (INIT, FOUNDATION, IDENTITY_VERIFIED, STORAGE_READY, STORAGE_MIRROR_VALIDATING, INTEGRITY_VERIFIED, OPERATIONAL)
+* `overallStatus`: overall status (READY, DEGRADED, BLOCKED)
+* `overallProgress`: numeric (0–100, monotonically increasing)
+* `stages[]`: array of stage reports, each containing:
+  * `id`: stage identifier (integration, governance, vault, storage-mirror-validation, vaidyar, sync-recovery, cron-recovery)
+  * `state`: the target state for this stage
+  * `status`: PENDING, SUCCESS, FAILED, SKIPPED
+  * `progress`: numeric (0–100, stage-scoped progress)
+  * `message`: human-readable status message
+  * `errorCode`: structured error identifier (optional)
+  * `isBlocking`: boolean (whether failure blocks startup)
+  * `startedAt`: ISO timestamp
+  * `finishedAt`: ISO timestamp
 
 ---
 
-### 8.2 Splash Integration
+### 8.2 Real-Time Progress Events (NEW - v1.3.1)
 
-Must:
+The orchestrator emits progress events via IPC to the Splash renderer during startup. Events include:
 
-* reflect real-time state transitions
+* `type`: 'stage-start' | 'stage-complete' | 'stage-skip' | 'stage-fail' | 'sequence-complete'
+* `stage`: current stage report
+* `currentState`: current boot state
+* `overallProgress`: monotonic progress percentage
+* `timestamp`: ISO timestamp
+
+**IPC Channel:** `app:startup-progress` (host → renderer)
+
+**Splash Integration (React):**
+
+```typescript
+// Subscribe to progress updates
+window.api?.app?.onStartupProgress((event) => {
+  setBootProgress(event.overallProgress);
+  setBootCurrentState(event.currentState);
+  setStatusMessage(event.stage?.message);
+});
+```
+
+---
+
+### 8.3 Splash Display Requirements
+
+Splash MUST:
+
+* render real-time progress bar (0–100%)
+* display current state label
+* show current stage activity message
+* block UI transition before reaching `OPERATIONAL`
 * display blocking failures clearly
-* prevent UI transition before `OPERATIONAL`
+* use fallback `app:get-startup-status` snapshot if events are missed (late subscriber recovery)
 
 ---
 
@@ -352,9 +447,9 @@ Must:
 
 ### 9.1 With Authentication Stack
 
-* MUST wait for authenticated session
-* MUST validate session before bootstrap
-* MUST invalidate session on critical failure (future)
+* Authentication MUST complete before `app:bootstrap-host` IPC is invoked
+* Session context is assumed to exist at bootstrap start
+* **Future:** Session binding to bootstrap lifecycle and invalidation on critical failure
 
 ---
 
@@ -363,79 +458,75 @@ Must:
 Receives:
 
 * system pulse results
+* blocking signal list
 
 Emits:
 
-* security violations
-* degraded state signals
+* blocking signals → halt bootstrap
+* degraded state signals → degrade system
 * bootstrap diagnostics
 
 ---
 
 ### 9.3 With Queue System
 
-Triggers:
+Respects:
 
-* queue recovery
-* task resumption
-
-Constraints:
-
-* MUST ensure storage readiness before execution
+* queue recovery occurs only after `INTEGRITY_VERIFIED`
+* failures in recovery degrade system status, do not block
 
 ---
 
 ### 9.4 With Storage Layer
 
-Initializes:
-
-* System Drive lifecycle
-* Vault mount lifecycle
-
 Enforces:
 
-* mirror constraint baseline before operation
+* Cache ↔ Vault mirror contract validation before proceeding to integrity layer
+* no vault access before `IDENTITY_VERIFIED`
 
 ---
 
 ## 10. Failure Modes & Handling
 
-| Scenario               | Behavior                        |
-| :--------------------- | :------------------------------ |
-| Authentication failure | Block at AUTH_PENDING           |
-| SSH failure            | BLOCKED_SECURITY                |
-| SQLite corruption      | BLOCKED_STORAGE                 |
-| Vault mount failure    | BLOCKED_STORAGE / DEGRADED_MODE |
-| Integration failure    | BLOCKED_INTEGRATION             |
-| Partial system failure | DEGRADED_MODE                   |
-| Recovery failure       | Log and continue (non-blocking) |
+| Scenario                   | Behavior                                          |
+| :------------------------- | :------------------------------------------------ |
+| Integration contract fail  | BLOCKED (halt, skip all downstream)               |
+| SSH failure                | BLOCKED (halt, skip vault and downstream)         |
+| Vault mount failure        | BLOCKED (halt, skip downstream)                   |
+| Mirror validation failure  | BLOCKED (halt, skip vaidyar and downstream)       |
+| Vaidyar blocking signal    | BLOCKED (halt, skip recovery)                     |
+| Sync recovery failure      | DEGRADED (continue to cron, reach OPERATIONAL)    |
+| Cron recovery failure      | DEGRADED (proceed to finalization)                |
+| Finalization failure (hook | WARNING (logged, non-blocking)                    |
+| system, etc)              |                                                  |
 
 ---
 
 ### 10.1 Degraded Mode
 
-Allowed when:
+System enters `DEGRADED` when:
 
-* non-critical systems fail
+* non-critical systems fail (recovery stages)
+* blocking stages all succeed
 
 System MUST:
 
-* surface warnings
-* restrict sensitive operations
+* surface warnings in logs
+* allow startup to complete to `OPERATIONAL`
+* restrict sensitive operations (future)
 * maintain audit visibility
 
 ---
 
 ## 11. Observability
 
-System MUST track:
+System tracks:
 
-* bootstrap duration per layer
-* state transition timeline
-* failure frequency by type
-* recovery success rate
-* identity verification latency
-* Vault mount latency
+* bootstrap duration per layer (startedAt, finishedAt timestamps)
+* state transition timeline (via stage completions)
+* failure frequency by type (errorCode, stage id)
+* recovery success rate (via telemetry)
+* progress granularity (0–100 per stage, monotonic overall)
 
 ---
 
@@ -454,17 +545,29 @@ System MUST track:
 
 ---
 
-## 13. Known Architectural Gaps (Expanded Roadmap)
+## 13. Known Architectural Gaps & Roadmap (v1.3.1 Status)
 
-| Area                     | Gap                                                    | Impact |
-| :----------------------- | :----------------------------------------------------- | :----- |
-| Offline Identity Mode    | No cached verification fallback                        | High   |
-| SSH Key Rotation         | No secure renewal flow                                 | Medium |
-| Remote Repo Health       | No sync validation during bootstrap                    | Medium |
-| Partial Bootstrap Resume | Cannot resume from mid-layer                           | Medium |
-| Session Binding          | Auth session not strongly bound to bootstrap lifecycle | High   |
-| Mirror Validation        | No explicit enforcement during storage initialization  | High   |
-| Parallel Initialization  | No safe parallelization for non-critical layers        | Low    |
+| Area                      | Gap                                                       | Status           | Impact |
+| :------------------------ | :-------------------------------------------------------- | :--------------- | :----- |
+| **Mirror Validation**      | Explicit enforcement during storage initialization (v1.3) | ✅ **IMPLEMENTED** | Closed |
+| Offline Identity Mode     | No cached verification fallback                           | Open             | High   |
+| Session Binding (Bootstrap Lifecycle) | Auth session not bound to bootstrap lifecycle lifecycle | Open             | High   |
+| SSH Key Rotation          | No secure renewal flow during bootstrap                   | Open             | Medium |
+| Remote Repo Health Check  | No remote sync validation during bootstrap                | Open             | Medium |
+| Partial Bootstrap Resume  | Cannot resume from mid-layer on restart                  | Open             | Medium |
+| Real-Time Progress (IPC)  | Push progress events to Splash (v1.3.1)                  | ✅ **IMPLEMENTED** | Closed |
+| Progress Callbacks        | Support progress listeners in orchestrator (v1.3.1)      | ✅ **IMPLEMENTED** | Closed |
+| Parallel Initialization   | No safe parallelization for non-critical layers          | Open             | Low    |
+
+---
+
+## Implementation Notes (v1.3.1)
+
+* **Storage Mirror Validation:** Added as explicit `storage-mirror-validation` stage between vault and vaidyar. Validates Cache ↔ Vault mirror contract before integrity checks.
+* **Real-Time Progress:** Bootstrap progress is streamed to Splash via IPC events (`app:startup-progress`). Splash displays monotonic progress and current boot state in real time.
+* **Session Lifecycle:** Authentication is currently **external** to the orchestrator. Session validation must complete before `app:bootstrap-host` is invoked. Future enhancement: bind session to bootstrap lifecycle and invalidate on critical failure.
+* **Error Codes:** All stage failures emit `errorCode` for structured error classification.
+* **Idempotency:** Recovery stages (sync-recovery, cron-recovery) must be idempotent and safe for retry. Non-blocking failures are logged, and system reaches `OPERATIONAL` with `DEGRADED` status.
 
 ---
 

@@ -35,6 +35,8 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
   // useDataState returns: [state, execute, setAppState]
   const [bootState, , setBootState] = useDataState<boolean>();
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [bootProgress, setBootProgress] = useState<number>(0);
+  const [bootCurrentState, setBootCurrentState] = useState<string>('INIT');
   const authRepo = new AuthRepo();
   const modelGatewayRepo = new ModelGatewayRepo();
   const { fatalError, clearFatalError, runSafely } = useFailFastAsync('viewmodel');
@@ -44,6 +46,27 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
 
     const runBootSequence = async () => {
       setBootState(prev => ({ ...prev, state: StateType.LOADING }));
+
+      // Subscribe to progress events
+      let unsubscribeProgress: (() => void) | null = null;
+      if (window.api?.app?.onStartupProgress) {
+        unsubscribeProgress = window.api.app.onStartupProgress((event: any) => {
+          if (!isMounted) return;
+          
+          // Update progress display
+          if (event.overallProgress !== undefined) {
+            setBootProgress(event.overallProgress);
+          }
+          if (event.currentState !== undefined) {
+            setBootCurrentState(event.currentState);
+          }
+          
+          // Update status message from stage
+          if (event.stage?.message) {
+            setStatusMessage(event.stage.message);
+          }
+        });
+      }
 
       const startupStatus = await runSafely(
         async () => {
@@ -61,6 +84,11 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
           swallow: true,
         },
       );
+
+      // Cleanup progress listener
+      if (unsubscribeProgress) {
+        unsubscribeProgress();
+      }
 
       if (!startupStatus) {
         setBootState(prev => ({ ...prev, state: StateType.COMPLETED, isSuccess: false }));
@@ -143,6 +171,8 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
   return {
     state: bootState,
     statusMessage,
+    bootProgress,
+    bootCurrentState,
     moduleError: fatalError,
     clearModuleError: clearFatalError,
   };

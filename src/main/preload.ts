@@ -13,7 +13,11 @@ contextBridge.exposeInMainWorld('api', {
     getVaidyarReport: () => ipcRenderer.invoke('app:get-vaidyar-report'),
     runVaidyarPulse: () => ipcRenderer.invoke('app:run-vaidyar-pulse'),
     runVaidyarOnDemand: () => ipcRenderer.invoke('app:run-vaidyar-on-demand'),
-    getVaidyarTelemetry: () => ipcRenderer.invoke('app:get-vaidyar-telemetry')
+    getVaidyarTelemetry: () => ipcRenderer.invoke('app:get-vaidyar-telemetry'),
+    onStartupProgress: (callback: (data: unknown) => void) => {
+      ipcRenderer.on('app:startup-progress', (_event, data) => callback(data))
+      return () => ipcRenderer.removeListener('app:startup-progress', (_event: any, data: any) => callback(data))
+    }
   },
   cron: {
     list: () => ipcRenderer.invoke('cron:list'),

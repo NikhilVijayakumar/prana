@@ -108,7 +108,7 @@ export const registerIpcHandlers = (options?: {
     }
   })
 
-  ipcMain.handle('app:bootstrap-host', async (_event, payload: { config: PranaRuntimeConfig }) => {
+  ipcMain.handle('app:bootstrap-host', async (event, payload: { config: PranaRuntimeConfig }) => {
     try {
       const validation = validatePranaRuntimeConfig(payload.config)
       if (!validation.valid) {
@@ -146,7 +146,16 @@ export const registerIpcHandlers = (options?: {
         }
       }
 
-      const startupStatus = await startupOrchestratorService.runStartupSequence()
+      // Create a progress callback that emits events to the renderer
+      const progressCallback = (progressEvent: any) => {
+        try {
+          event.sender.send('app:startup-progress', progressEvent)
+        } catch (error) {
+          console.warn('[PRANA] Failed to send startup progress event:', error)
+        }
+      }
+
+      const startupStatus = await startupOrchestratorService.runStartupSequence(progressCallback)
       if (startupStatus.overallStatus !== 'READY') {
         console.warn(
           '[PRANA] Startup orchestration completed with non-ready status:',
