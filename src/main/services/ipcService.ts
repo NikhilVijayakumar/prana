@@ -35,6 +35,8 @@ import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRunti
 import { emailOrchestratorService } from './emailOrchestratorService'
 import { templateService, VisualTemplateFormat, VisualTemplateType } from './templateService'
 import { visualIdentityService } from './visualIdentityService'
+import { notificationCentreService } from './notificationCentreService'
+import { NotificationListFilters } from './notificationStoreService'
 
 const enforceToolPolicy = (payload: {
   actor: string
@@ -1202,6 +1204,102 @@ export const registerIpcHandlers = (options?: {
 
   ipcMain.handle('hooks:events', async () => {
     return hookSystemService.getEventCatalog()
+  })
+
+  // Notification centre handlers
+  ipcMain.handle(
+    'notifications:list',
+    async (
+      _event,
+      payload?: { filters?: NotificationListFilters; limit?: number; offset?: number }
+    ) => {
+      try {
+        return await notificationCentreService.getNotifications(
+          payload?.filters,
+          payload?.limit ?? 50,
+          payload?.offset ?? 0
+        )
+      } catch (error) {
+        throw new Error(
+          error instanceof Error ? error.message : 'Failed to list notifications'
+        )
+      }
+    }
+  )
+
+  ipcMain.handle('notifications:get-unread-count', async () => {
+    try {
+      return await notificationCentreService.getUnreadCount()
+    } catch (error) {
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to get unread count'
+      )
+    }
+  })
+
+  ipcMain.handle(
+    'notifications:mark-read',
+    async (_event, payload: { notificationIds: string[] }) => {
+      try {
+        return await notificationCentreService.markRead(payload.notificationIds)
+      } catch (error) {
+        throw new Error(
+          error instanceof Error ? error.message : 'Failed to mark notifications as read'
+        )
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'notifications:mark-dismissed',
+    async (_event, payload: { notificationIds: string[] }) => {
+      try {
+        return await notificationCentreService.markDismissed(payload.notificationIds)
+      } catch (error) {
+        throw new Error(
+          error instanceof Error ? error.message : 'Failed to mark notifications as dismissed'
+        )
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'notifications:record-action',
+    async (
+      _event,
+      payload: { notificationId: string; action: 'VIEWED' | 'DISMISSED' | 'ACTIONED' }
+    ) => {
+      try {
+        return await notificationCentreService.recordAction(
+          payload.notificationId,
+          payload.action
+        )
+      } catch (error) {
+        throw new Error(
+          error instanceof Error ? error.message : 'Failed to record action'
+        )
+      }
+    }
+  )
+
+  ipcMain.handle('notifications:get-telemetry', async () => {
+    try {
+      return await notificationCentreService.getTelemetry()
+    } catch (error) {
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to get telemetry'
+      )
+    }
+  })
+
+  ipcMain.handle('notifications:cleanup', async (_event, payload?: { days?: number }) => {
+    try {
+      return await notificationCentreService.cleanup(payload?.days ?? 7)
+    } catch (error) {
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to cleanup notifications'
+      )
+    }
   })
 
   ipcMain.handle('cron:list', async () => {

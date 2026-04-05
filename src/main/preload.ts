@@ -305,4 +305,28 @@ contextBridge.exposeInMainWorld('api', {
     onSubagentEnded: (payload: { parentSessionId: string; childSessionId: string; summary: string }) =>
       ipcRenderer.invoke('context:on-subagent-ended', payload)
   }
+    },
+    notifications: {
+      list: (payload?: {
+        filters?: {
+          priority?: Array<'INFO' | 'WARN' | 'CRITICAL' | 'ACTION'>
+          source?: string
+          startTime?: string
+          endTime?: string
+          unreadOnly?: boolean
+        }
+        limit?: number
+        offset?: number
+      }) => ipcRenderer.invoke('notifications:list', payload),
+      getUnreadCount: () => ipcRenderer.invoke('notifications:get-unread-count'),
+      markRead: (payload: { notificationIds: string[] }) =>
+        ipcRenderer.invoke('notifications:mark-read', payload),
+      markDismissed: (payload: { notificationIds: string[] }) =>
+        ipcRenderer.invoke('notifications:mark-dismissed', payload),
+      recordAction: (payload: { notificationId: string; action: 'VIEWED' | 'DISMISSED' | 'ACTIONED' }) =>
+        ipcRenderer.invoke('notifications:record-action', payload),
+      getTelemetry: () => ipcRenderer.invoke('notifications:get-telemetry'),
+      cleanup: (payload?: { days?: number }) =>
+        ipcRenderer.invoke('notifications:cleanup', payload)
+    }
   })

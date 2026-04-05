@@ -9,6 +9,8 @@ import { memoryIndexService } from './memoryIndexService';
 import { emailOrchestratorService } from './emailOrchestratorService';
 import { googleBridgeService } from './googleBridgeService';
 import { driveControllerService, VirtualDriveDiagnosticsSnapshot } from './driveControllerService';
+import { notificationCentreService } from './notificationCentreService';
+import { vaidyarService } from './vaidyarService';
 
 export type StartupStageId =
   | 'integration'
@@ -308,6 +310,13 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     await hookSystemService.initialize();
   } catch (error) {
     console.error('[PRANA_WARNING] Failed to initialize hookSystemService:', error);
+  }
+
+  try {
+    // Initialize notification centre (requires vaidyarService and hookSystemService to be ready)
+    await notificationCentreService.initialize('prana');
+  } catch (error) {
+    console.error('[PRANA_WARNING] Failed to initialize notificationCentreService:', error);
   }
 
   try {
