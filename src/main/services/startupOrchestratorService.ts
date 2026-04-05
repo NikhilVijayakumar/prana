@@ -16,6 +16,7 @@ export type StartupStageId =
   | 'integration'
   | 'governance'
   | 'vault'
+  | 'vaidyar'
   | 'sync-recovery'
   | 'cron-recovery';
 
@@ -62,6 +63,14 @@ const createInitialStages = (): StartupStageReport[] => [
   {
     id: 'vault',
     label: 'Vault Initialization and Pull',
+    status: 'PENDING',
+    message: 'Waiting...',
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'vaidyar',
+    label: 'Vaidyar Bootstrap Diagnostics',
     status: 'PENDING',
     message: 'Waiting...',
     startedAt: null,
@@ -125,7 +134,7 @@ const determineOverallStatus = (stages: StartupStageReport[]): StartupStatusRepo
   const failedIds = new Set(stages.filter((stage) => stage.status === 'FAILED').map((stage) => stage.id));
 
   // These are startup blockers before auth flow.
-  if (failedIds.has('integration') || failedIds.has('governance') || failedIds.has('vault')) {
+  if (failedIds.has('integration') || failedIds.has('governance') || failedIds.has('vault') || failedIds.has('vaidyar')) {
     return 'BLOCKED';
   }
 
@@ -153,6 +162,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
       );
       skipStage(stages, 'governance', 'Skipped due to integration failure.');
       skipStage(stages, 'vault', 'Skipped due to integration failure.');
+      skipStage(stages, 'vaidyar', 'Skipped due to integration failure.');
       skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
       skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
 
@@ -179,6 +189,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     );
     skipStage(stages, 'governance', 'Skipped due to integration failure.');
     skipStage(stages, 'vault', 'Skipped due to integration failure.');
+    skipStage(stages, 'vaidyar', 'Skipped due to integration failure.');
     skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
     skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
 
@@ -206,6 +217,7 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     );
 
     skipStage(stages, 'vault', 'Skipped because governance repository is not ready.');
+    skipStage(stages, 'vaidyar', 'Skipped because governance repository is not ready.');
     skipStage(stages, 'sync-recovery', 'Skipped because governance repository is not ready.');
     skipStage(stages, 'cron-recovery', 'Skipped because governance repository is not ready.');
 
@@ -252,6 +264,66 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
 
     skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
     skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
+    skipStage(stages, 'vaidyar', 'Skipped because vault stage failed.');
+
+    latestStartupReport = {
+      startedAt,
+      finishedAt: nowIso(),
+      overallStatus: determineOverallStatus(stages),
+      stages,
+      diagnostics: {
+        virtualDrives: driveControllerService.getDiagnostics(),
+      },
+    };
+
+    return latestStartupReport;
+  }
+
+  try {
+    markStage(stages, 'vaidyar', 'PENDING', 'Running startup health classification and blocking checks...');
+    const vaidyarReport = await vaidyarService.runBootstrapDiagnostics();
+    const blockingSignals = vaidyarService.getBlockingSignals();
+
+    if (blockingSignals.length > 0) {
+      markStage(
+        stages,
+        'vaidyar',
+        'FAILED',
+        `Startup blocked by Vaidyar signals: ${blockingSignals.join(', ')} (status=${vaidyarReport.overall_status}).`,
+      );
+
+      skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar reported blocking signals.');
+      skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar reported blocking signals.');
+
+      latestStartupReport = {
+        startedAt,
+        finishedAt: nowIso(),
+        overallStatus: determineOverallStatus(stages),
+        stages,
+        diagnostics: {
+          virtualDrives: driveControllerService.getDiagnostics(),
+        },
+      };
+
+      return latestStartupReport;
+    }
+
+    markStage(
+      stages,
+      'vaidyar',
+      'SUCCESS',
+      `Startup diagnostics passed (status=${vaidyarReport.overall_status}).`,
+    );
+  } catch (error) {
+    markStage(
+      stages,
+      'vaidyar',
+      'FAILED',
+      error instanceof Error ? error.message : 'Vaidyar bootstrap diagnostics failed.',
+    );
+
+    skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
+    skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
 
     latestStartupReport = {
       startedAt,

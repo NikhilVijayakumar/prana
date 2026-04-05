@@ -74,8 +74,36 @@ interface IntegrationSnapshot {
   bridgeAvailable: boolean;
   runtime: RuntimeIntegrationStatus | null;
   startup: StartupStatusReport | null;
+  vaidyar: VaidyarReport | null;
   rendererKeys: RendererKeyStatus[];
   errors: string[];
+}
+
+type VaidyarLayerName = 'Storage' | 'Security' | 'Network' | 'Cognitive';
+type VaidyarLayerStatus = 'Healthy' | 'Degraded' | 'Blocked';
+type VaidyarCheckStatus = 'Healthy' | 'Degraded' | 'Blocked';
+
+interface VaidyarCheckResult {
+  check_id: string;
+  status: VaidyarCheckStatus;
+  message: string;
+  severity: 'low' | 'medium' | 'high';
+  failure_hint: string;
+  latency_ms: number;
+}
+
+interface VaidyarLayerReport {
+  name: VaidyarLayerName;
+  status: VaidyarLayerStatus;
+  checks: VaidyarCheckResult[];
+}
+
+interface VaidyarReport {
+  timestamp: string;
+  overall_status: VaidyarLayerStatus;
+  execution_mode: 'bootstrap' | 'pulse' | 'on-demand';
+  blocked_signals: string[];
+  layers: VaidyarLayerReport[];
 }
 
 interface IntegrationVerificationPageProps {
@@ -91,6 +119,7 @@ const collectRendererStatus = (branding: Partial<PranaBrandingConfig>): Renderer
 
 const collectRuntimeStatus = async (): Promise<{
   runtime: RuntimeIntegrationStatus | null;
+  vaidyar: VaidyarReport | null;
   errors: string[];
   bridgeAvailable: boolean;
 }> => {
@@ -100,19 +129,31 @@ const collectRuntimeStatus = async (): Promise<{
     errors.push('Missing preload bridge: window.api.app.getIntegrationStatus');
     return {
       runtime: null,
+      vaidyar: null,
       errors,
       bridgeAvailable: false,
     };
   }
 
   try {
-    const runtime = await safeIpcCall<RuntimeIntegrationStatus>(
+    const [runtime, vaidyar] = await Promise.all([
+      safeIpcCall<RuntimeIntegrationStatus>(
       'app.getIntegrationStatus',
       () => window.api.app.getIntegrationStatus(),
       (value) => typeof value === 'object' && value !== null,
-    );
+      ),
+      window.api.app.getVaidyarReport
+        ? safeIpcCall<VaidyarReport>(
+            'app.getVaidyarReport',
+            () => window.api.app.getVaidyarReport(),
+            (value) => typeof value === 'object' && value !== null,
+          ).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
     return {
       runtime,
+      vaidyar,
       errors,
       bridgeAvailable: true,
     };
@@ -120,10 +161,21 @@ const collectRuntimeStatus = async (): Promise<{
     errors.push('Unable to fetch runtime integration status from main process.');
     return {
       runtime: null,
+      vaidyar: null,
       errors,
       bridgeAvailable: true,
     };
   }
+};
+
+const getStatusColor = (status: VaidyarLayerStatus | VaidyarCheckStatus): 'success.main' | 'warning.main' | 'error.main' => {
+  if (status === 'Healthy') {
+    return 'success.main';
+  }
+  if (status === 'Degraded') {
+    return 'warning.main';
+  }
+  return 'error.main';
 };
 
 const summarizeAvailability = (rendererKeys: RendererKeyStatus[]) => {
@@ -140,14 +192,22 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
   const branding = useBranding();
   const muiTheme = useMuiTheme();
   const [loading, setLoading] = useState(true);
+  const [refreshingVaidyar, setRefreshingVaidyar] = useState(false);
   const [snapshot, setSnapshot] = useState<IntegrationSnapshot | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
-    const run = async () => {
+    const run = async (forceVaidyarPulse: boolean = false) => {
       setLoading(true);
       const rendererKeys = collectRendererStatus(branding);
+      if (forceVaidyarPulse) {
+        await safeIpcCall(
+          'app.runVaidyarOnDemand',
+          () => window.api.app.runVaidyarOnDemand(),
+          () => true,
+        ).catch(() => null);
+      }
       const runtimeResult = await collectRuntimeStatus();
 
       if (!mounted) {
@@ -159,6 +219,7 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
         bridgeAvailable: runtimeResult.bridgeAvailable,
         runtime: runtimeResult.runtime,
         startup: null,
+        vaidyar: runtimeResult.vaidyar,
         rendererKeys,
         errors: runtimeResult.errors,
       });
@@ -171,6 +232,29 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
       mounted = false;
     };
   }, [branding]);
+
+  const refreshVaidyar = async (): Promise<void> => {
+    setRefreshingVaidyar(true);
+    const rendererKeys = collectRendererStatus(branding);
+
+    await safeIpcCall(
+      'app.runVaidyarOnDemand',
+      () => window.api.app.runVaidyarOnDemand(),
+      () => true,
+    ).catch(() => null);
+
+    const runtimeResult = await collectRuntimeStatus();
+    setSnapshot({
+      timestamp: new Date().toISOString(),
+      bridgeAvailable: runtimeResult.bridgeAvailable,
+      runtime: runtimeResult.runtime,
+      startup: null,
+      vaidyar: runtimeResult.vaidyar,
+      rendererKeys,
+      errors: runtimeResult.errors,
+    });
+    setRefreshingVaidyar(false);
+  };
 
   const rendererSummary = useMemo(() => summarizeAvailability(snapshot?.rendererKeys ?? []), [snapshot]);
 
@@ -288,6 +372,62 @@ export const IntegrationVerificationPage: FC<IntegrationVerificationPageProps> =
                     </CardContent>
                   </Card>
                 </Stack>
+
+                <Card variant="outlined">
+                  <CardContent>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={600}>
+                          Vaidyar Runtime Integrity
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Mode: {snapshot?.vaidyar?.execution_mode ?? 'n/a'}
+                        </Typography>
+                      </Box>
+                      <Button variant="outlined" size="small" onClick={() => void refreshVaidyar()} disabled={refreshingVaidyar}>
+                        {refreshingVaidyar ? 'Refreshing…' : 'Run On-Demand Check'}
+                      </Button>
+                    </Stack>
+
+                    <Typography variant="body2" sx={{ mt: 1.5 }}>
+                      Overall Status:{' '}
+                      <Typography component="span" fontWeight={700} color={getStatusColor(snapshot?.vaidyar?.overall_status ?? 'Degraded')}>
+                        {snapshot?.vaidyar?.overall_status ?? 'Unavailable'}
+                      </Typography>
+                    </Typography>
+
+                    {snapshot?.vaidyar?.blocked_signals && snapshot.vaidyar.blocked_signals.length > 0 ? (
+                      <Alert severity="error" sx={{ mt: 1.5 }}>
+                        Blocked Signals: {snapshot.vaidyar.blocked_signals.join(', ')}
+                      </Alert>
+                    ) : null}
+
+                    <List dense sx={{ mt: 1 }}>
+                      {(snapshot?.vaidyar?.layers ?? []).map((layer) => (
+                        <ListItem key={layer.name} disableGutters sx={{ display: 'block', py: 1 }}>
+                          <Typography variant="body2" fontWeight={700} color={getStatusColor(layer.status)}>
+                            {layer.name}: {layer.status}
+                          </Typography>
+                          <List dense disablePadding>
+                            {layer.checks.map((check) => (
+                              <ListItem key={check.check_id} disableGutters sx={{ pl: 1 }}>
+                                <ListItemText
+                                  primary={`${check.check_id} (${check.severity.toUpperCase()})`}
+                                  secondary={`${check.status} · ${check.message} · ${check.latency_ms}ms${
+                                    check.status !== 'Healthy' ? ` · Hint: ${check.failure_hint}` : ''
+                                  }`}
+                                  secondaryTypographyProps={{
+                                    color: getStatusColor(check.status),
+                                  }}
+                                />
+                              </ListItem>
+                            ))}
+                          </List>
+                        </ListItem>
+                      ))}
+                    </List>
+                  </CardContent>
+                </Card>
 
                 <Typography variant="caption" color="text.secondary">
                   Checked at: {snapshot?.timestamp}

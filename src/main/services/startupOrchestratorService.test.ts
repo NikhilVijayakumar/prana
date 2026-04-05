@@ -12,6 +12,9 @@ const cronUpsertJobMock = vi.fn();
 const cronRegisterJobExecutorMock = vi.fn();
 const syncHeartbeatSchedulesMock = vi.fn();
 const ensureGoogleSyncSchedulerJobMock = vi.fn();
+const runBootstrapDiagnosticsMock = vi.fn();
+const getBlockingSignalsMock = vi.fn();
+const notificationCentreInitializeMock = vi.fn();
 
 vi.mock('./governanceRepoService', () => ({
   ensureGovernanceRepoReady: ensureGovernanceRepoReadyMock,
@@ -63,6 +66,19 @@ vi.mock('./googleBridgeService', () => ({
   },
 }));
 
+vi.mock('./vaidyarService', () => ({
+  vaidyarService: {
+    runBootstrapDiagnostics: runBootstrapDiagnosticsMock,
+    getBlockingSignals: getBlockingSignalsMock,
+  },
+}));
+
+vi.mock('./notificationCentreService', () => ({
+  notificationCentreService: {
+    initialize: notificationCentreInitializeMock,
+  },
+}));
+
 describe('startupOrchestratorService', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -79,6 +95,9 @@ describe('startupOrchestratorService', () => {
     cronRegisterJobExecutorMock.mockReset();
     syncHeartbeatSchedulesMock.mockReset();
     ensureGoogleSyncSchedulerJobMock.mockReset();
+    runBootstrapDiagnosticsMock.mockReset();
+    getBlockingSignalsMock.mockReset();
+    notificationCentreInitializeMock.mockReset();
 
     getRuntimeIntegrationStatusMock.mockReturnValue({
       ready: true,
@@ -110,6 +129,15 @@ describe('startupOrchestratorService', () => {
       target: 'GOOGLE_DRIVE_SYNC',
       expression: '0 */12 * * *',
     });
+    runBootstrapDiagnosticsMock.mockResolvedValue({
+      timestamp: '2026-03-29T00:00:00.000Z',
+      overall_status: 'Healthy',
+      execution_mode: 'bootstrap',
+      blocked_signals: [],
+      layers: [],
+    });
+    getBlockingSignalsMock.mockReturnValue([]);
+    notificationCentreInitializeMock.mockResolvedValue(undefined);
     cronGetTelemetryMock.mockResolvedValue({
       schedulerActive: true,
       enabledJobs: 3,
@@ -189,8 +217,30 @@ describe('startupOrchestratorService', () => {
 
     expect(report.overallStatus).toBe('READY');
     expect(report.stages.every((stage) => stage.status === 'SUCCESS')).toBe(true);
+    expect(report.stages.find((stage) => stage.id === 'vaidyar')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.message).toContain('missedEnqueued=2');
     expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.message).toContain('recoveredInterrupted=2');
+  });
+
+  it('blocks startup when vaidyar emits blocking signals', async () => {
+    runBootstrapDiagnosticsMock.mockResolvedValue({
+      timestamp: '2026-03-29T00:00:00.000Z',
+      overall_status: 'Blocked',
+      execution_mode: 'bootstrap',
+      blocked_signals: ['BLOCKED_STORAGE'],
+      layers: [],
+    });
+    getBlockingSignalsMock.mockReturnValue(['BLOCKED_STORAGE']);
+
+    const { startupOrchestratorService } = await import('./startupOrchestratorService');
+    const report = await startupOrchestratorService.runStartupSequence();
+
+    expect(report.overallStatus).toBe('BLOCKED');
+    expect(report.stages.find((stage) => stage.id === 'vaidyar')?.status).toBe('FAILED');
+    expect(report.stages.find((stage) => stage.id === 'sync-recovery')?.status).toBe('SKIPPED');
+    expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.status).toBe('SKIPPED');
+    expect(recoverPendingSyncTasksMock).not.toHaveBeenCalled();
+    expect(cronInitializeMock).not.toHaveBeenCalled();
   });
 
   it('marks startup DEGRADED when non-blocking cron recovery fails', async () => {

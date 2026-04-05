@@ -54,7 +54,7 @@ const nowIso = (): string => new Date().toISOString();
  * Map Vaidyar health event type to notification channel
  */
 const getChannelForEventType = (eventType: string): NotificationChannel => {
-  if (eventType.startsWith('vaidyar:')) return 'diagnostic';
+  if (eventType.startsWith('vaidyar:') || eventType.startsWith('diagnostic:')) return 'diagnostic';
   if (eventType.startsWith('vault:') || eventType.startsWith('storage:')) return 'storage';
   if (eventType.startsWith('email:') || eventType.startsWith('integration:')) return 'integration';
   if (eventType.startsWith('agent:')) return 'agent';

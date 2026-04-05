@@ -9,7 +9,11 @@ contextBridge.exposeInMainWorld('api', {
     getRuntimeConfig: () => ipcRenderer.invoke('app:get-runtime-config'),
     getBrandingConfig: () => ipcRenderer.invoke('app:get-branding-config'),
     getIntegrationStatus: () => ipcRenderer.invoke('app:get-integration-status'),
-    getStartupStatus: () => ipcRenderer.invoke('app:get-startup-status')
+    getStartupStatus: () => ipcRenderer.invoke('app:get-startup-status'),
+    getVaidyarReport: () => ipcRenderer.invoke('app:get-vaidyar-report'),
+    runVaidyarPulse: () => ipcRenderer.invoke('app:run-vaidyar-pulse'),
+    runVaidyarOnDemand: () => ipcRenderer.invoke('app:run-vaidyar-on-demand'),
+    getVaidyarTelemetry: () => ipcRenderer.invoke('app:get-vaidyar-telemetry')
   },
   cron: {
     list: () => ipcRenderer.invoke('cron:list'),
@@ -304,9 +308,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('context:prepare-subagent-spawn', payload),
     onSubagentEnded: (payload: { parentSessionId: string; childSessionId: string; summary: string }) =>
       ipcRenderer.invoke('context:on-subagent-ended', payload)
-  }
-    },
-    notifications: {
+  },
+  notifications: {
       list: (payload?: {
         filters?: {
           priority?: Array<'INFO' | 'WARN' | 'CRITICAL' | 'ACTION'>
@@ -328,5 +331,5 @@ contextBridge.exposeInMainWorld('api', {
       getTelemetry: () => ipcRenderer.invoke('notifications:get-telemetry'),
       cleanup: (payload?: { days?: number }) =>
         ipcRenderer.invoke('notifications:cleanup', payload)
-    }
+  }
   })

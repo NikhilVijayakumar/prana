@@ -37,6 +37,7 @@ import { templateService, VisualTemplateFormat, VisualTemplateType } from './tem
 import { visualIdentityService } from './visualIdentityService'
 import { notificationCentreService } from './notificationCentreService'
 import { NotificationListFilters } from './notificationStoreService'
+import { vaidyarService } from './vaidyarService'
 
 const enforceToolPolicy = (payload: {
   actor: string
@@ -177,6 +178,22 @@ export const registerIpcHandlers = (options?: {
 
   ipcMain.handle('app:get-startup-status', async () => {
     return startupOrchestratorService.getLatestStartupStatus()
+  })
+
+  ipcMain.handle('app:get-vaidyar-report', async () => {
+    return vaidyarService.getReport()
+  })
+
+  ipcMain.handle('app:run-vaidyar-pulse', async () => {
+    return vaidyarService.runRuntimePulse()
+  })
+
+  ipcMain.handle('app:run-vaidyar-on-demand', async () => {
+    return vaidyarService.runOnDemandDiagnostics()
+  })
+
+  ipcMain.handle('app:get-vaidyar-telemetry', async () => {
+    return vaidyarService.getTelemetry()
   })
 
   ipcMain.handle('auth:get-status', async () => {
