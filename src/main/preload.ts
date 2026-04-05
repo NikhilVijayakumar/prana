@@ -47,7 +47,16 @@ contextBridge.exposeInMainWorld('api', {
       status: 'APPROVED' | 'REJECTED' | 'OVERRIDDEN'
       reviewer: string
       reviewNote?: string
-    }) => ipcRenderer.invoke('operations:review-cron-proposal', payload)
+    }) => ipcRenderer.invoke('operations:review-cron-proposal', payload),
+    getGoogleBridgeSnapshot: () => ipcRenderer.invoke('operations:get-google-bridge-snapshot'),
+    runGoogleDriveSync: (payload?: { source?: 'MANUAL' | 'CRON' }) =>
+      ipcRenderer.invoke('operations:run-google-drive-sync', payload),
+    ensureGoogleDriveSyncSchedule: () =>
+      ipcRenderer.invoke('operations:ensure-google-drive-sync-schedule'),
+    publishGooglePolicyDocument: (payload: { policyId: string; htmlContent: string }) =>
+      ipcRenderer.invoke('operations:publish-google-policy-document', payload),
+    pullGoogleDocumentToVault: (payload: { documentId: string; vaultTargetPath: string }) =>
+      ipcRenderer.invoke('operations:pull-google-document-to-vault', payload)
   },
   email: {
     configureAccount: (payload: {

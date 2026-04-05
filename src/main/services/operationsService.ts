@@ -52,6 +52,14 @@ import {
   SocialTrendIntelligenceOutput,
 } from './administrationIntegrationService';
 import {
+  googleBridgeService,
+  GoogleBridgeSnapshot,
+  GoogleDocsPublishResult,
+  GoogleDocsPullResult,
+  GoogleDriveSyncResult,
+  GoogleDriveSyncScheduleResult,
+} from './googleBridgeService';
+import {
   CronProposalRecord,
   CronProposalStatus,
   governanceLifecycleQueueStoreService,
@@ -99,6 +107,11 @@ export type FileDocumentConversionResultPayload = FileDocumentConversionResult;
 export type KpiHappinessEvaluationOutputPayload = KpiHappinessEvaluationOutput;
 
 export type SocialTrendIntelligenceOutputPayload = SocialTrendIntelligenceOutput;
+export type GoogleBridgeSnapshotPayload = GoogleBridgeSnapshot;
+export type GoogleDocsPublishResultPayload = GoogleDocsPublishResult;
+export type GoogleDocsPullResultPayload = GoogleDocsPullResult;
+export type GoogleDriveSyncResultPayload = GoogleDriveSyncResult;
+export type GoogleDriveSyncScheduleResultPayload = GoogleDriveSyncScheduleResult;
 
 export interface QueueTask {
   id: string;
@@ -2431,6 +2444,32 @@ export const operationsService = {
 
   async runAdministrationSocialTrendIntelligence(): Promise<SocialTrendIntelligenceOutputPayload> {
     return administrationIntegrationService.runSocialTrendIntelligence();
+  },
+
+  async getGoogleBridgeSnapshot(): Promise<GoogleBridgeSnapshotPayload> {
+    return googleBridgeService.getSnapshot();
+  },
+
+  async runGoogleDriveSync(payload?: { source?: 'MANUAL' | 'CRON' }): Promise<GoogleDriveSyncResultPayload> {
+    return googleBridgeService.runSync(payload?.source ?? 'MANUAL');
+  },
+
+  async ensureGoogleDriveSyncSchedule(): Promise<GoogleDriveSyncScheduleResultPayload> {
+    return googleBridgeService.ensureSyncSchedulerJob();
+  },
+
+  async publishGooglePolicyDocument(payload: {
+    policyId: string;
+    htmlContent: string;
+  }): Promise<GoogleDocsPublishResultPayload> {
+    return googleBridgeService.publishPolicy(payload.policyId, payload.htmlContent);
+  },
+
+  async pullGoogleDocumentToVault(payload: {
+    documentId: string;
+    vaultTargetPath: string;
+  }): Promise<GoogleDocsPullResultPayload> {
+    return googleBridgeService.pullDocument(payload.documentId, payload.vaultTargetPath);
   },
 
   async getQueueMonitorPayload(): Promise<QueueMonitorPayload> {

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { cronSchedulerService } from './cronSchedulerService';
+import { governanceLifecycleQueueStoreService } from './governanceLifecycleQueueStoreService';
 import { GoogleBridgeService } from './googleBridgeService';
 
 describe('googleBridgeService', () => {
@@ -62,5 +64,33 @@ describe('googleBridgeService', () => {
 
     expect(snapshot.mode).toBe('live');
     expect(snapshot.config.credentials).not.toBeNull();
+  });
+
+  it('records latest sync report after a manual run', async () => {
+    const service = new GoogleBridgeService(null, null);
+    const report = await service.runSync('MANUAL');
+    const snapshot = service.getSnapshot();
+
+    expect(report.source).toBe('MANUAL');
+    expect(report.startedAt).toBeDefined();
+    expect(report.finishedAt).toBeDefined();
+    expect(snapshot.latestSync).not.toBeNull();
+    expect(snapshot.latestSync?.source).toBe('MANUAL');
+  });
+
+  it('registers a cron schedule for google drive sync', async () => {
+    await governanceLifecycleQueueStoreService.__resetForTesting();
+    await cronSchedulerService.__resetForTesting();
+
+    const service = new GoogleBridgeService(null, null);
+    const schedule = await service.ensureSyncSchedulerJob();
+    const jobs = await cronSchedulerService.listJobs();
+
+    expect(schedule.jobId).toBe('job-google-drive-sync');
+    expect(schedule.target).toBe('GOOGLE_DRIVE_SYNC');
+    expect(jobs.some((job) => job.id === schedule.jobId)).toBe(true);
+
+    service.disableSyncSchedulerJob();
+    await cronSchedulerService.dispose();
   });
 });

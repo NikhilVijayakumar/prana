@@ -69,6 +69,7 @@ It operates as:
 | **Storage**         | SQLite (`google_workspace_meta`) | Metadata + sync tracking                 |
 | **Storage**         | Vault (`vault/google/`)          | Persistent knowledge projection          |
 | **Cognitive Layer** | Context Engine / RAG             | Consumes ingested content                |
+| **Viewer Layer**    | Markdown / PDF Viewer Screens    | Human inspection of extracted artifacts  |
 | **Startup Layer**   | `startupOrchestrator`            | Must not block on Workspace availability |
 
 ---
@@ -452,6 +453,34 @@ System MUST track:
 * **Write Boundary (Future):**
 
   * Agent → Google Docs must be explicitly approved
+
+---
+
+## 17. Viewer Integration Contract
+
+### 17.1 Markdown Viewer Path
+
+* Docs extraction output SHOULD be projected as Markdown when possible
+* Viewer MUST preserve semantic headings, links, and list structure
+
+---
+
+### 17.2 PDF Viewer Path
+
+* Non-convertible artifacts MAY remain in PDF form for inspection
+* Viewer MUST enforce sandbox rendering and fail-closed behavior
+
+---
+
+### 17.3 Human Verification Rule
+
+* Before high-impact downstream usage, operators SHOULD be able to preview artifacts via viewer screens
+
+---
+
+## 18. Completion Status
+
+This Google Ecosystem Integration contract is complete for the current documentation phase with deterministic ingestion flow, storage governance alignment, and inspection-surface integration.
 
 ---
 

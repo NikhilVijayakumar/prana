@@ -6,7 +6,17 @@ import { PranaModuleErrorBoundary } from 'prana/ui/common/PranaModuleErrorBounda
 import { throwPranaUiError, throwMappedPranaError } from 'prana/ui/common/errors/pranaFailFast';
 
 export const InfrastructureContainer: FC = () => {
-  const { infraState, reload, moduleError } = useInfrastructureViewModel();
+  const {
+    infraState,
+    reload,
+    moduleError,
+    actionMessage,
+    isGoogleActionRunning,
+    runGoogleDriveSync,
+    ensureGoogleDriveSyncSchedule,
+    publishGooglePolicyDocument,
+    pullGoogleDocumentToVault,
+  } = useInfrastructureViewModel();
 
   if (moduleError) {
     throwPranaUiError(moduleError);
@@ -28,6 +38,12 @@ export const InfrastructureContainer: FC = () => {
           payload={infraState.data || null}
           isLoading={infraState.state === StateType.LOADING}
           onRefresh={reload}
+          actionMessage={actionMessage}
+          isGoogleActionRunning={isGoogleActionRunning}
+          onRunGoogleDriveSync={runGoogleDriveSync}
+          onEnsureGoogleDriveSyncSchedule={ensureGoogleDriveSyncSchedule}
+          onPublishGooglePolicyDocument={publishGooglePolicyDocument}
+          onPullGoogleDocumentToVault={pullGoogleDocumentToVault}
         />
       </AppStateHandler>
     </PranaModuleErrorBoundary>

@@ -10,6 +10,7 @@ import { getPranaPlatformRuntime, setPranaPlatformRuntime } from './services/pra
 import { hookSystemService } from './services/hookSystemService'
 import { runtimeDocumentStoreService } from './services/runtimeDocumentStoreService'
 import { driveControllerService } from './services/driveControllerService'
+import { googleBridgeService } from './services/googleBridgeService'
 
 const initializePranaRuntime = (): void => {
   setPranaPlatformRuntime({
@@ -92,6 +93,7 @@ app.whenReady().then(async () => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+  googleBridgeService.disableSyncSchedulerJob()
   void syncProviderService.syncOnClose()
   void vaultService.cleanupTemporaryWorkspace()
   void driveControllerService.dispose()
@@ -101,6 +103,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  googleBridgeService.disableSyncSchedulerJob()
   void syncProviderService.syncOnClose()
   void syncProviderService.dispose()
   void sqliteConfigStoreService.dispose()

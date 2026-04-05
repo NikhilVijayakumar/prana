@@ -7,6 +7,7 @@ import { cronSchedulerService } from './cronSchedulerService';
 import { hookSystemService } from './hookSystemService';
 import { memoryIndexService } from './memoryIndexService';
 import { emailOrchestratorService } from './emailOrchestratorService';
+import { googleBridgeService } from './googleBridgeService';
 import { driveControllerService, VirtualDriveDiagnosticsSnapshot } from './driveControllerService';
 
 export type StartupStageId =
@@ -285,13 +286,14 @@ const runStartupSequenceInternal = async (): Promise<StartupStatusReport> => {
     markStage(stages, 'cron-recovery', 'PENDING', 'Recovering cron scheduler and missed runs...');
     await cronSchedulerService.initialize();
     const emailHeartbeat = await emailOrchestratorService.syncHeartbeatSchedules();
+    const googleSyncSchedule = await googleBridgeService.ensureSyncSchedulerJob();
     await cronSchedulerService.tick();
     const telemetry = await cronSchedulerService.getTelemetry();
     markStage(
       stages,
       'cron-recovery',
       'SUCCESS',
-      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, emailHeartbeatJobs=${emailHeartbeat.configuredJobs.length}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
+      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, emailHeartbeatJobs=${emailHeartbeat.configuredJobs.length}, googleSyncJob=${googleSyncSchedule.jobId}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
     );
   } catch (error) {
     markStage(

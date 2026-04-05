@@ -8,9 +8,15 @@ const recoverPendingSyncTasksMock = vi.fn();
 const cronInitializeMock = vi.fn();
 const cronTickMock = vi.fn();
 const cronGetTelemetryMock = vi.fn();
+const cronUpsertJobMock = vi.fn();
+const cronRegisterJobExecutorMock = vi.fn();
+const syncHeartbeatSchedulesMock = vi.fn();
+const ensureGoogleSyncSchedulerJobMock = vi.fn();
 
 vi.mock('./governanceRepoService', () => ({
   ensureGovernanceRepoReady: ensureGovernanceRepoReadyMock,
+  getGovernanceRepoPath: () => 'E:/Python/prana/.tmp-governance',
+  getAppDataRoot: () => 'E:/Python/prana/.tmp-appdata',
 }));
 
 vi.mock('./runtimeConfigService', () => ({
@@ -40,6 +46,20 @@ vi.mock('./cronSchedulerService', () => ({
     initialize: cronInitializeMock,
     tick: cronTickMock,
     getTelemetry: cronGetTelemetryMock,
+    upsertJob: cronUpsertJobMock,
+    registerJobExecutor: cronRegisterJobExecutorMock,
+  },
+}));
+
+vi.mock('./emailOrchestratorService', () => ({
+  emailOrchestratorService: {
+    syncHeartbeatSchedules: syncHeartbeatSchedulesMock,
+  },
+}));
+
+vi.mock('./googleBridgeService', () => ({
+  googleBridgeService: {
+    ensureSyncSchedulerJob: ensureGoogleSyncSchedulerJobMock,
   },
 }));
 
@@ -55,6 +75,10 @@ describe('startupOrchestratorService', () => {
     cronInitializeMock.mockReset();
     cronTickMock.mockReset();
     cronGetTelemetryMock.mockReset();
+    cronUpsertJobMock.mockReset();
+    cronRegisterJobExecutorMock.mockReset();
+    syncHeartbeatSchedulesMock.mockReset();
+    ensureGoogleSyncSchedulerJobMock.mockReset();
 
     getRuntimeIntegrationStatusMock.mockReturnValue({
       ready: true,
@@ -78,6 +102,14 @@ describe('startupOrchestratorService', () => {
     recoverPendingSyncTasksMock.mockResolvedValue({ recoveredTasks: 0 });
     cronInitializeMock.mockResolvedValue(undefined);
     cronTickMock.mockResolvedValue(undefined);
+    cronUpsertJobMock.mockResolvedValue(undefined);
+    cronRegisterJobExecutorMock.mockResolvedValue(undefined);
+    syncHeartbeatSchedulesMock.mockResolvedValue({ configuredJobs: ['job-email-1'], removedJobs: [] });
+    ensureGoogleSyncSchedulerJobMock.mockResolvedValue({
+      jobId: 'job-google-drive-sync',
+      target: 'GOOGLE_DRIVE_SYNC',
+      expression: '0 */12 * * *',
+    });
     cronGetTelemetryMock.mockResolvedValue({
       schedulerActive: true,
       enabledJobs: 3,

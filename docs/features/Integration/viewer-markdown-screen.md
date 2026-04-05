@@ -1,20 +1,20 @@
-# 👁️ Feature: Document Preview & Inspection Engine (Enhanced)
+# 👁️ Feature: Markdown Viewer Screen (Enhanced)
 
 **Status:** Stable
 **Pattern:** MVVM (Container → ViewModel → View)
-**UI Stack:** `ui/viewers/` (Markdown & PDF)
-**Capability:** Provides a secure, read-only environment for inspecting structured runtime documents, knowledge artifacts, and system logs.
+**UI Stack:** `ui/viewers/` (Markdown)
+**Capability:** Provides a secure, read-only environment for inspecting Markdown runtime documents, knowledge artifacts, and system logs.
 
 ---
 
 ## 1. Tactical Purpose
 
-The Inspection Engine is the **final human verification interface** within the Prana runtime. It ensures that all system-generated or externally ingested content can be **safely reviewed, validated, and audited** before any irreversible action (e.g., Vault commit, external handoff).
+The Markdown Viewer Screen is the **primary human verification interface** for narrative artifacts in the Prana runtime. It ensures system-generated or externally ingested Markdown content can be **safely reviewed, validated, and audited** before irreversible actions (for example Vault commit or external handoff).
 
 It operates as:
 
 * A **secure rendering boundary** (untrusted → sanitized output)
-* A **format abstraction layer** (Markdown, PDF, JSON → unified view)
+* A **format-specific rendering layer** (Markdown → safe HTML)
 * A **context-aware inspection surface** (linked to system workflows)
 * An **audit interface** for operator decision-making
 
@@ -56,7 +56,7 @@ It operates as:
 | **Main Process** | `runtimeDocumentStore`    | Source for active (hot) documents           |
 | **Main Process** | `vaultService`            | Source for archived (cold) documents        |
 | **Renderer**     | `ViewerMarkdownViewModel` | Orchestrates loading, parsing, sanitization |
-| **Renderer**     | `ViewerPdfViewModel`      | Handles PDF rendering lifecycle             |
+| **Renderer**     | `MarkdownSanitizer`       | Enforces safe markdown rendering            |
 | **Feature**      | `VisualIdentityEngine`    | Provides consistent UI styling tokens       |
 
 ---
@@ -66,7 +66,7 @@ It operates as:
 ### 4.1 Loading Lifecycle
 
 ```text id="q1x7mz"
-IDLE → LOADING → SANITIZING → RENDER_READY → DISPLAYED
+IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDER_READY → DISPLAYED
 ```
 
 ---
@@ -75,6 +75,7 @@ IDLE → LOADING → SANITIZING → RENDER_READY → DISPLAYED
 
 ```text id="b4k9fp"
 LOAD_FAILED
+VALIDATION_FAILED
 SANITIZATION_FAILED
 UNSUPPORTED_FORMAT
 ```
@@ -117,29 +118,38 @@ UNSUPPORTED_FORMAT
 
   * file type
   * encoding
+  * markdown size limits
 
 ---
 
-### 5.3 Sanitization
+### 5.3 Parsing
+
+* Parse Markdown deterministically
+* Normalize heading and list structure
+* Preserve semantic meaning
+
+---
+
+### 5.4 Sanitization
 
 * Markdown:
 
   * strip unsafe HTML
   * normalize links
-* HTML (if any):
+  * block inline script URLs
+* HTML (if present):
 
   * strict whitelist-based sanitization
 
 ---
 
-### 5.4 Rendering
+### 5.5 Rendering
 
 * Markdown → HTML (GFM-compliant)
-* PDF → canvas/embedded renderer
 
 ---
 
-### 5.5 Presentation
+### 5.6 Presentation
 
 * Apply:
 
@@ -151,11 +161,9 @@ UNSUPPORTED_FORMAT
 
 ## 6. Supported Formats
 
-| Format          | Handling                          |
-| :-------------- | :-------------------------------- |
-| Markdown        | Parsed → sanitized → rendered     |
-| PDF             | Rendered via `pdf.js` or native   |
-| JSON (implicit) | Pretty-printed (future extension) |
+| Format   | Handling                      |
+| :------- | :---------------------------- |
+| Markdown | Parsed → sanitized → rendered |
 
 ---
 
@@ -167,7 +175,7 @@ UNSUPPORTED_FORMAT
 {
   source: 'runtime' | 'vault',
   path: string,
-  format: 'markdown' | 'pdf' | 'json',
+  format: 'markdown',
   ownerType?: string
 }
 ```
@@ -178,7 +186,7 @@ UNSUPPORTED_FORMAT
 
 ```ts id="m8v2lp"
 {
-  status: 'IDLE' | 'LOADING' | 'READY' | 'ERROR',
+  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'PARSING' | 'SANITIZING' | 'READY' | 'ERROR',
   content?: string,
   error?: string
 }
@@ -195,6 +203,7 @@ EMAIL_DRAFT
 VAULT_DOCUMENT
 SYSTEM_LOG
 AUDIT_REPORT
+GOOGLE_DOC
 ```
 
 ---
@@ -209,6 +218,7 @@ AUDIT_REPORT
 | VAULT_DOCUMENT | View Metadata          |
 | SYSTEM_LOG     | Export                 |
 | AUDIT_REPORT   | Archive                |
+| GOOGLE_DOC     | Open in Drive          |
 
 ---
 
@@ -230,6 +240,7 @@ AUDIT_REPORT
   * remove scripts
   * block inline JS
   * sanitize links
+  * enforce safe markdown link protocols
 
 ---
 
@@ -298,6 +309,17 @@ AUDIT_REPORT
 
 ---
 
+### 10.5 With Google Ecosystem Integration
+
+* Displays:
+
+  * Google Docs content projected into markdown form
+* Must:
+
+  * preserve extracted semantics from Drive sync output
+
+---
+
 ## 11. Failure Modes & Handling
 
 | Scenario             | Behavior          |
@@ -306,7 +328,7 @@ AUDIT_REPORT
 | Unsupported format   | Show fallback UI  |
 | Corrupted content    | Block rendering   |
 | Sanitization failure | Fail closed       |
-| PDF load error       | Retry or fallback |
+| Parse failure        | Block rendering   |
 
 ---
 
@@ -319,6 +341,7 @@ System SHOULD track:
 * failure rates by format
 * large document performance
 * user interaction (scroll depth, time spent)
+* parser and sanitizer rejection counts
 
 ---
 
@@ -340,7 +363,6 @@ System SHOULD track:
 | Export/Print        | No native export or print support           | Medium |
 | Search/Highlight    | No in-document search capability            | Medium |
 | Large File Handling | No pagination/virtualization for large docs | High   |
-| JSON Viewer         | No structured JSON rendering mode           | Medium |
 | Access Control      | No per-document permission filtering        | Medium |
 
 ---
@@ -358,6 +380,10 @@ System SHOULD track:
 * **Email Module**
 
   * MUST provide owner context for drafts
+
+* **Google Bridge**
+
+  * SHOULD provide markdown projection metadata for provenance
 
 * **Vaidyar**
 
@@ -394,14 +420,9 @@ This module is now fully aligned with:
 
 ---
 
-### Strategic Observation
+### Completion Note
 
-This engine becomes **critical glue** between:
-
-* Email (review before send)
-* Vault (audit before commit)
-* Google Bridge (inspect ingested docs)
-* Vaidyar (inspect system health)
+This Markdown viewer contract is complete for Integration-folder documentation and aligned with zero-trust rendering and cross-module inspection needs.
 
 ---
 

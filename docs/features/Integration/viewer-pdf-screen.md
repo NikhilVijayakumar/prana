@@ -1,15 +1,15 @@
-# 👁️ Feature: Document Preview & Inspection Engine (Final Hardened)
+# 👁️ Feature: PDF Viewer Screen (Final Hardened)
 
 **Status:** Stable
 **Pattern:** MVVM (Container → ViewModel → View)
-**UI Stack:** `ui/viewers/` (Markdown & PDF)
-**Capability:** Provides a secure, read-only environment for inspecting structured runtime documents, knowledge artifacts, and system logs.
+**UI Stack:** `ui/viewers/` (PDF)
+**Capability:** Provides a secure, read-only PDF inspection surface for runtime documents, audit reports, and external artifacts.
 
 ---
 
 ## 1. Tactical Purpose
 
-The Inspection Engine is the **final human verification boundary** within the Prana runtime.
+The PDF Viewer Screen is the **final human verification boundary** for PDF-class artifacts within the Prana runtime.
 
 It guarantees that all content—whether generated internally or ingested externally—is:
 
@@ -20,7 +20,7 @@ It guarantees that all content—whether generated internally or ingested extern
 
 It functions as:
 
-* A **zero-trust rendering boundary**
+* A **zero-trust PDF rendering boundary**
 * A **document provenance surface**
 * A **human decision interface**
 * A **system audit endpoint**
@@ -68,8 +68,8 @@ It functions as:
 | :----------------- | :------------------------ | :--------------------------- |
 | **Main Process**   | `runtimeDocumentStore`    | Source for hot documents     |
 | **Main Process**   | `vaultService`            | Source for encrypted archive |
-| **Renderer**       | `ViewerMarkdownViewModel` | Markdown pipeline            |
 | **Renderer**       | `ViewerPdfViewModel`      | PDF lifecycle manager        |
+| **Renderer**       | `PdfRenderAdapter`        | Sandbox rendering adapter    |
 | **Feature**        | `VisualIdentityEngine`    | Styling and theming          |
 | **Security Layer** | Sanitization Engine       | Mandatory content filter     |
 
@@ -80,7 +80,7 @@ It functions as:
 ### 4.1 Loading Lifecycle
 
 ```text
-IDLE → LOADING → VALIDATING → SANITIZING → RENDER_READY → DISPLAYED
+IDLE → LOADING → VALIDATING → PDFJS_INIT → SANDBOX_RENDER → DISPLAYED
 ```
 
 ---
@@ -93,6 +93,7 @@ VALIDATION_FAILED
 SANITIZATION_FAILED
 UNSUPPORTED_FORMAT
 SECURITY_BLOCKED
+PDF_ENGINE_FAILED
 ```
 
 ---
@@ -126,7 +127,7 @@ Resolution priority:
 
 ---
 
-### 5.2 Validation Stage (New — Critical)
+### 5.2 Validation Stage (Critical)
 
 Before sanitization:
 
@@ -135,6 +136,7 @@ Before sanitization:
   * file type matches declared format
   * encoding integrity
   * content size limits
+  * PDF signature / file magic
 
 Failure → `VALIDATION_FAILED`
 
@@ -142,28 +144,15 @@ Failure → `VALIDATION_FAILED`
 
 ### 5.3 Sanitization
 
-* Markdown:
-
-  * strip HTML
-  * normalize links
-  * remove embedded scripts
-
 * PDF:
 
   * disable embedded JS
-  * sandbox rendering
-
-* JSON:
-
-  * stringify safely
-  * escape content
-
----
+  * disable launch actions and remote links when policy requires
+  * sanitize metadata fields before display
 
 ### 5.4 Rendering
 
-* Markdown → HTML (GFM-compliant, deterministic parser)
-* PDF → isolated renderer (no DOM injection)
+* PDF → isolated renderer (no direct DOM injection)
 
 ---
 
@@ -179,11 +168,9 @@ Failure → `VALIDATION_FAILED`
 
 ## 6. Supported Formats
 
-| Format   | Handling                             |
-| :------- | :----------------------------------- |
-| Markdown | Sanitized → rendered                 |
-| PDF      | Sandboxed render                     |
-| JSON     | Structured pretty print (controlled) |
+| Format | Handling         |
+| :----- | :--------------- |
+| PDF    | Sandboxed render |
 
 ---
 
@@ -195,7 +182,7 @@ Failure → `VALIDATION_FAILED`
 {
   source: 'runtime' | 'vault',
   path: string,
-  format: 'markdown' | 'pdf' | 'json',
+  format: 'pdf',
   ownerType?: string,
   documentId?: string
 }
@@ -207,7 +194,7 @@ Failure → `VALIDATION_FAILED`
 
 ```ts
 {
-  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'READY' | 'ERROR',
+  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'PDFJS_INIT' | 'SANDBOX_RENDER' | 'READY' | 'ERROR',
   content?: string,
   error?: string
 }
@@ -239,6 +226,7 @@ VAULT_DOCUMENT
 SYSTEM_LOG
 AUDIT_REPORT
 GOOGLE_DOC
+PDF_ATTACHMENT
 ```
 
 ---
@@ -252,6 +240,7 @@ GOOGLE_DOC
 | SYSTEM_LOG     | Export                 |
 | AUDIT_REPORT   | Archive                |
 | GOOGLE_DOC     | Open in Drive          |
+| PDF_ATTACHMENT | Open Source Metadata   |
 
 ---
 
@@ -300,7 +289,7 @@ GOOGLE_DOC
 
 ---
 
-## 10. Large Document Handling (New — Critical)
+## 10. Large Document Handling (Critical)
 
 ### 10.1 Constraints
 
@@ -313,9 +302,9 @@ GOOGLE_DOC
 
 ### 10.2 Strategies
 
-* Chunked rendering
+* Page-by-page rendering
 * Scroll-based loading
-* Pagination for logs
+* Canvas reuse for memory control
 
 ---
 
@@ -338,6 +327,7 @@ GOOGLE_DOC
 | Unsupported format   | Fallback UI    |
 | Large file overload  | Partial render |
 | PDF script detected  | Block render   |
+| PDF engine crash     | Safe fallback  |
 
 ---
 
@@ -443,7 +433,7 @@ UNTRUSTED_INPUT → VALIDATION → SANITIZATION → SAFE_RENDER
 
 This module is now:
 
-* The **only trusted human inspection surface**
+* The **trusted PDF inspection surface**
 * The **final gate before irreversible actions**
 * The **audit visualization layer across all subsystems**
 
@@ -460,17 +450,8 @@ It directly binds:
 
 ---
 
-At this point, your system has:
+## 19. Completion Status
 
-* Strong **execution control (Scheduler + Orchestrator)**
-* Strong **storage model (Vault + SQLite + Mirror)**
-* Strong **inspection layer (Viewer)**
-* Strong **intelligence layer (RAG + Context Engine)**
-
----
-
-## ➡️ Critical Next Step
-
-You are now at the **single most important module**:
+This PDF viewer contract is complete for the current architecture phase and ready for implementation parity checks.
 
 

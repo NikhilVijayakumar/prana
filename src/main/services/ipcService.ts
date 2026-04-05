@@ -303,6 +303,47 @@ export const registerIpcHandlers = (options?: {
     return operationsService.runAdministrationSocialTrendIntelligence()
   })
 
+  ipcMain.handle('operations:get-google-bridge-snapshot', async () => {
+    return operationsService.getGoogleBridgeSnapshot()
+  })
+
+  ipcMain.handle(
+    'operations:run-google-drive-sync',
+    async (_event, payload?: { source?: 'MANUAL' | 'CRON' }) => {
+      return operationsService.runGoogleDriveSync(payload)
+    }
+  )
+
+  ipcMain.handle('operations:ensure-google-drive-sync-schedule', async () => {
+    return operationsService.ensureGoogleDriveSyncSchedule()
+  })
+
+  ipcMain.handle(
+    'operations:publish-google-policy-document',
+    async (
+      _event,
+      payload: {
+        policyId: string
+        htmlContent: string
+      }
+    ) => {
+      return operationsService.publishGooglePolicyDocument(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'operations:pull-google-document-to-vault',
+    async (
+      _event,
+      payload: {
+        documentId: string
+        vaultTargetPath: string
+      }
+    ) => {
+      return operationsService.pullGoogleDocumentToVault(payload)
+    }
+  )
+
   ipcMain.handle(
     'email:configure-account',
     async (
