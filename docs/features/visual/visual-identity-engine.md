@@ -468,4 +468,75 @@ to:
 
 ---
 
+## 20. Implementation Workflow (Template Registry + Dual Persistence)
+
+### 20.1 Default HTML Templates (Bootstrap Set)
+
+The runtime MUST seed these template classes at bootstrap if missing:
+
+* `default-document-report` (`document`)
+* `default-presentation-deck` (`presentation`)
+* `default-slide-hero` (`slide`)
+* `default-poster-layout` (`poster`)
+* `default-table-audit` (`table`)
+
+Each seeded template MUST include:
+
+* semantic HTML structure
+* declared variable placeholders (`{{variable}}`)
+* token style placeholder (`{{__TOKEN_STYLE_BLOCK__}}`)
+* format compatibility declaration (`supported_formats[]`)
+
+---
+
+### 20.2 Persistence Workflow (SQLite + Vault)
+
+Template registration follows this deterministic sequence:
+
+1. Validate template contract
+
+  * semantic version format
+  * variable declaration integrity
+  * template type and supported format constraints
+
+2. Persist template row in SQLite (`visual_templates`)
+
+  * write status as `PENDING`
+  * persist checksum, version, variable manifest, and vault path
+
+3. Persist HTML template in Vault
+
+  * path: `vault/templates/<template_type>/<template_id>/<version>.html`
+  * commit through runtime vault sync workflow
+
+4. Update SQLite sync status
+
+  * `SYNCED` on successful vault publish
+  * `FAILED` on vault publish failure
+
+5. Retry reconciliation
+
+  * background/manual retry replays `FAILED` and `PENDING` records
+  * successful replay updates status to `SYNCED`
+
+---
+
+### 20.3 Runtime API Surface (Implementation)
+
+Main process APIs expose template lifecycle and preview flow:
+
+* `visual:seed-default-templates`
+* `visual:register-template`
+* `visual:validate-template`
+* `visual:list-templates`
+* `visual:list-template-versions`
+* `visual:get-template`
+* `visual:preview-template`
+* `visual:get-token-snapshot`
+* `visual:retry-template-sync`
+
+These handlers provide an executable contract for UI integration and operational automation.
+
+---
+
 

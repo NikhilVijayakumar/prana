@@ -33,6 +33,8 @@ import { syncProviderService } from './syncProviderService'
 import { runtimeModelAccessService } from './runtimeModelAccessService'
 import { configureRegistryRuntime, RegistryRuntimeConfig } from './registryRuntimeService'
 import { emailOrchestratorService } from './emailOrchestratorService'
+import { templateService, VisualTemplateFormat, VisualTemplateType } from './templateService'
+import { visualIdentityService } from './visualIdentityService'
 
 const enforceToolPolicy = (payload: {
   actor: string
@@ -53,6 +55,10 @@ const enforceToolPolicy = (payload: {
 export const registerIpcHandlers = (options?: {
   registryRuntime?: Partial<RegistryRuntimeConfig>
 }): void => {
+  void templateService.ensureDefaultTemplates().catch((error) => {
+    console.warn('[VISUAL_TEMPLATE_SEED_WARN] Unable to seed default visual templates:', error)
+  })
+
   if (options?.registryRuntime) {
     configureRegistryRuntime(options.registryRuntime)
   }
@@ -343,6 +349,110 @@ export const registerIpcHandlers = (options?: {
       return operationsService.pullGoogleDocumentToVault(payload)
     }
   )
+
+  ipcMain.handle('visual:seed-default-templates', async () => {
+    return templateService.ensureDefaultTemplates()
+  })
+
+  ipcMain.handle(
+    'visual:register-template',
+    async (
+      _event,
+      payload: {
+        templateId: string
+        version: string
+        templateType: VisualTemplateType
+        name: string
+        supportedFormats: VisualTemplateFormat[]
+        htmlContent: string
+        requiredVariables?: string[]
+      }
+    ) => {
+      return templateService.registerTemplate(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'visual:validate-template',
+    async (
+      _event,
+      payload: {
+        templateId: string
+        version: string
+        templateType: VisualTemplateType
+        name: string
+        supportedFormats: VisualTemplateFormat[]
+        htmlContent: string
+        requiredVariables?: string[]
+      }
+    ) => {
+      return templateService.validateTemplate(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'visual:list-templates',
+    async (_event, payload?: { templateType?: VisualTemplateType; includeContent?: boolean }) => {
+      return templateService.listTemplates(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'visual:list-template-versions',
+    async (_event, payload: { templateId: string; includeContent?: boolean }) => {
+      return templateService.listTemplateVersions(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'visual:get-template',
+    async (
+      _event,
+      payload: { templateId: string; version?: string; includeContent?: boolean }
+    ) => {
+      return templateService.getTemplate(payload)
+    }
+  )
+
+  ipcMain.handle(
+    'visual:preview-template',
+    async (
+      _event,
+      payload: {
+        templateId: string
+        version?: string
+        data: Record<string, unknown>
+        injectTokenStyles?: boolean
+      }
+    ) => {
+      const tokenSnapshot = await visualIdentityService.getTokenSnapshot()
+      const tokenStyleBlock =
+        payload.injectTokenStyles === false
+          ? ''
+          : visualIdentityService.renderTokenStyleBlock(tokenSnapshot.tokens)
+
+      const preview = await templateService.previewTemplate({
+        templateId: payload.templateId,
+        version: payload.version,
+        data: payload.data,
+        tokenStyleBlock,
+      })
+
+      return {
+        ...preview,
+        tokenVersion: tokenSnapshot.version,
+        tokenChecksum: tokenSnapshot.checksum,
+      }
+    }
+  )
+
+  ipcMain.handle('visual:get-token-snapshot', async () => {
+    return visualIdentityService.getTokenSnapshot()
+  })
+
+  ipcMain.handle('visual:retry-template-sync', async () => {
+    return templateService.retryTemplateSync()
+  })
 
   ipcMain.handle(
     'email:configure-account',

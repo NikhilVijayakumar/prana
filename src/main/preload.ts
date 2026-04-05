@@ -150,6 +150,43 @@ contextBridge.exposeInMainWorld('api', {
     stopBrowserSession: (payload: { sessionId: string }) =>
       ipcRenderer.invoke('email:browser-session-stop', payload)
   },
+  visual: {
+    seedDefaultTemplates: () => ipcRenderer.invoke('visual:seed-default-templates'),
+    registerTemplate: (payload: {
+      templateId: string
+      version: string
+      templateType: 'document' | 'presentation' | 'slide' | 'poster' | 'table'
+      name: string
+      supportedFormats: Array<'html' | 'docs' | 'slides' | 'sheets' | 'pdf' | 'ppt'>
+      htmlContent: string
+      requiredVariables?: string[]
+    }) => ipcRenderer.invoke('visual:register-template', payload),
+    validateTemplate: (payload: {
+      templateId: string
+      version: string
+      templateType: 'document' | 'presentation' | 'slide' | 'poster' | 'table'
+      name: string
+      supportedFormats: Array<'html' | 'docs' | 'slides' | 'sheets' | 'pdf' | 'ppt'>
+      htmlContent: string
+      requiredVariables?: string[]
+    }) => ipcRenderer.invoke('visual:validate-template', payload),
+    listTemplates: (payload?: {
+      templateType?: 'document' | 'presentation' | 'slide' | 'poster' | 'table'
+      includeContent?: boolean
+    }) => ipcRenderer.invoke('visual:list-templates', payload),
+    listTemplateVersions: (payload: { templateId: string; includeContent?: boolean }) =>
+      ipcRenderer.invoke('visual:list-template-versions', payload),
+    getTemplate: (payload: { templateId: string; version?: string; includeContent?: boolean }) =>
+      ipcRenderer.invoke('visual:get-template', payload),
+    previewTemplate: (payload: {
+      templateId: string
+      version?: string
+      data: Record<string, unknown>
+      injectTokenStyles?: boolean
+    }) => ipcRenderer.invoke('visual:preview-template', payload),
+    getTokenSnapshot: () => ipcRenderer.invoke('visual:get-token-snapshot'),
+    retryTemplateSync: () => ipcRenderer.invoke('visual:retry-template-sync')
+  },
   channels: {
     routeMessage: (payload: {
       senderId: string

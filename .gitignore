@@ -160,3 +160,5 @@ out/
 /test-results/playwright/e2e-quality-report.json
 /test-results/playwright/e2e-quality-report.md
 /reference/
+/.tmp-appdata/email-orchestrator.json
+/.tmp-appdata/memory-index.json
