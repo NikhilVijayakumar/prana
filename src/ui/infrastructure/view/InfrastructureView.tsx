@@ -3,6 +3,7 @@ import { Box, Typography, Button, useTheme as useMuiTheme } from '@mui/material'
 import { useLanguage } from 'astra';
 import { spacing } from 'astra';
 import { InfrastructurePayload } from '../repo/InfrastructureRepo';
+import { CronManagementContainer } from '../cron-management/view/CronManagementContainer';
 
 interface InfrastructureProps {
   payload: InfrastructurePayload | null;
@@ -85,6 +86,8 @@ export const InfrastructureView: FC<InfrastructureProps> = ({ payload, isLoading
 
         </Box>
       )}
+
+      <CronManagementContainer />
     </Box>
   );
 };

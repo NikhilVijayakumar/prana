@@ -11,6 +11,44 @@ contextBridge.exposeInMainWorld('api', {
     getIntegrationStatus: () => ipcRenderer.invoke('app:get-integration-status'),
     getStartupStatus: () => ipcRenderer.invoke('app:get-startup-status')
   },
+  cron: {
+    list: () => ipcRenderer.invoke('cron:list'),
+    upsert: (payload: {
+      id: string
+      name: string
+      expression: string
+      target?: string
+      recoveryPolicy?: 'SKIP' | 'RUN_ONCE' | 'CATCH_UP'
+      enabled?: boolean
+      retentionDays?: number
+      maxRuntimeMs?: number
+    }) => ipcRenderer.invoke('cron:upsert', payload),
+    remove: (payload: { id: string }) => ipcRenderer.invoke('cron:remove', payload),
+    pause: (payload: { id: string }) => ipcRenderer.invoke('cron:pause', payload),
+    resume: (payload: { id: string }) => ipcRenderer.invoke('cron:resume', payload),
+    runNow: (payload: { id: string }) => ipcRenderer.invoke('cron:run-now', payload),
+    tick: () => ipcRenderer.invoke('cron:tick'),
+    telemetry: () => ipcRenderer.invoke('cron:telemetry')
+  },
+  operations: {
+    getInfrastructure: () => ipcRenderer.invoke('operations:get-infrastructure'),
+    createCronProposal: (payload: {
+      id: string
+      name: string
+      expression: string
+      retentionDays?: number
+      maxRuntimeMs?: number
+    }) => ipcRenderer.invoke('operations:create-cron-proposal', payload),
+    listCronProposals: (payload?: {
+      status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'OVERRIDDEN'
+    }) => ipcRenderer.invoke('operations:list-cron-proposals', payload),
+    reviewCronProposal: (payload: {
+      proposalId: string
+      status: 'APPROVED' | 'REJECTED' | 'OVERRIDDEN'
+      reviewer: string
+      reviewNote?: string
+    }) => ipcRenderer.invoke('operations:review-cron-proposal', payload)
+  },
   email: {
     configureAccount: (payload: {
       accountId?: string

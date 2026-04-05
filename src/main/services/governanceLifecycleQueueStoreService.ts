@@ -66,6 +66,39 @@ export interface TaskAuditLogRecord {
   createdAt: string;
 }
 
+export type CronJobRecoveryPolicy = 'SKIP' | 'RUN_ONCE' | 'CATCH_UP';
+
+export interface CronJobStateRecord {
+  id: string;
+  name: string;
+  expression: string;
+  target: string;
+  status: 'active' | 'paused';
+  recoveryPolicy: CronJobRecoveryPolicy;
+  retentionDays: number;
+  maxRuntimeMs: number;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CronExecutionLogRecord {
+  id: string;
+  jobId: string;
+  startedAt: string;
+  completedAt: string;
+  status: 'success' | 'failed' | 'skipped_overlap';
+  errorMessage: string | null;
+  source: 'scheduler' | 'manual' | 'recovery';
+}
+
+export interface CronLockRecord {
+  jobId: string;
+  lockAcquiredAt: string;
+  lockExpiresAt: string;
+}
+
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
@@ -176,6 +209,55 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
+  database.run(`
+    CREATE TABLE IF NOT EXISTS cron_jobs (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      expression TEXT NOT NULL,
+      target TEXT NOT NULL,
+      status TEXT NOT NULL,
+      recovery_policy TEXT NOT NULL,
+      retention_days INTEGER NOT NULL,
+      max_runtime_ms INTEGER NOT NULL,
+      last_run_at TEXT,
+      next_run_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  database.run(`
+    CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx
+    ON cron_jobs (status, next_run_at);
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS cron_execution_log (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      source TEXT NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES cron_jobs(id)
+    );
+  `);
+
+  database.run(`
+    CREATE INDEX IF NOT EXISTS cron_execution_log_job_idx
+    ON cron_execution_log (job_id, started_at DESC);
+  `);
+
+  database.run(`
+    CREATE TABLE IF NOT EXISTS cron_locks (
+      job_id TEXT PRIMARY KEY,
+      lock_acquired_at TEXT NOT NULL,
+      lock_expires_at TEXT NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES cron_jobs(id)
+    );
+  `);
+
   await persistDatabase(database);
   return database;
 };
@@ -194,6 +276,21 @@ const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
 
 const nowIso = (): string => new Date().toISOString();
 const createId = (prefix: string): string => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const normalizeCronJobState = (row: Record<string, unknown>): CronJobStateRecord => ({
+  id: String(row.id ?? ''),
+  name: String(row.name ?? ''),
+  expression: String(row.expression ?? ''),
+  target: String(row.target ?? ''),
+  status: String(row.status ?? 'active') as CronJobStateRecord['status'],
+  recoveryPolicy: String(row.recovery_policy ?? 'RUN_ONCE') as CronJobRecoveryPolicy,
+  retentionDays: Number(row.retention_days ?? 30),
+  maxRuntimeMs: Number(row.max_runtime_ms ?? 5000),
+  lastRunAt: row.last_run_at ? String(row.last_run_at) : null,
+  nextRunAt: row.next_run_at ? String(row.next_run_at) : null,
+  createdAt: String(row.created_at ?? nowIso()),
+  updatedAt: String(row.updated_at ?? nowIso()),
+});
 
 const parseJsonObject = (value: unknown): Record<string, unknown> => {
   if (typeof value !== 'string') {
@@ -219,6 +316,286 @@ const appendTaskAudit = (database: Database, eventType: string, details: string,
 };
 
 export const governanceLifecycleQueueStoreService = {
+  async listCronJobs(): Promise<CronJobStateRecord[]> {
+    const database = await getDatabase();
+    const statement = database.prepare('SELECT * FROM cron_jobs ORDER BY name ASC');
+    const rows: CronJobStateRecord[] = [];
+
+    while (statement.step()) {
+      rows.push(normalizeCronJobState(statement.getAsObject() as Record<string, unknown>));
+    }
+
+    statement.free();
+    return rows;
+  },
+
+  async getCronJobById(jobId: string): Promise<CronJobStateRecord | null> {
+    const database = await getDatabase();
+    const statement = database.prepare('SELECT * FROM cron_jobs WHERE id = ? LIMIT 1');
+    statement.bind([jobId]);
+
+    if (!statement.step()) {
+      statement.free();
+      return null;
+    }
+
+    const record = normalizeCronJobState(statement.getAsObject() as Record<string, unknown>);
+    statement.free();
+    return record;
+  },
+
+  async upsertCronJob(payload: {
+    id: string;
+    name: string;
+    expression: string;
+    target: string;
+    status: CronJobStateRecord['status'];
+    recoveryPolicy: CronJobRecoveryPolicy;
+    retentionDays: number;
+    maxRuntimeMs: number;
+    lastRunAt: string | null;
+    nextRunAt: string | null;
+    createdAt?: string;
+  }): Promise<CronJobStateRecord> {
+    const record: CronJobStateRecord = {
+      id: payload.id,
+      name: payload.name,
+      expression: payload.expression,
+      target: payload.target,
+      status: payload.status,
+      recoveryPolicy: payload.recoveryPolicy,
+      retentionDays: payload.retentionDays,
+      maxRuntimeMs: payload.maxRuntimeMs,
+      lastRunAt: payload.lastRunAt,
+      nextRunAt: payload.nextRunAt,
+      createdAt: payload.createdAt ?? nowIso(),
+      updatedAt: nowIso(),
+    };
+
+    await queueWrite(async () => {
+      const database = await getDatabase();
+      const statement = database.prepare(`
+        INSERT INTO cron_jobs (
+          id, name, expression, target, status, recovery_policy,
+          retention_days, max_runtime_ms, last_run_at, next_run_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          expression = excluded.expression,
+          target = excluded.target,
+          status = excluded.status,
+          recovery_policy = excluded.recovery_policy,
+          retention_days = excluded.retention_days,
+          max_runtime_ms = excluded.max_runtime_ms,
+          last_run_at = excluded.last_run_at,
+          next_run_at = excluded.next_run_at,
+          updated_at = excluded.updated_at
+      `);
+      statement.run([
+        record.id,
+        record.name,
+        record.expression,
+        record.target,
+        record.status,
+        record.recoveryPolicy,
+        record.retentionDays,
+        record.maxRuntimeMs,
+        record.lastRunAt,
+        record.nextRunAt,
+        record.createdAt,
+        record.updatedAt,
+      ]);
+      statement.free();
+      await persistDatabase(database);
+    });
+
+    const stored = await this.getCronJobById(payload.id);
+    return stored ?? record;
+  },
+
+  async removeCronJob(jobId: string): Promise<boolean> {
+    let changes = 0;
+    await queueWrite(async () => {
+      const database = await getDatabase();
+      const statement = database.prepare('DELETE FROM cron_jobs WHERE id = ?');
+      statement.run([jobId]);
+      statement.free();
+      changes = Number(database.exec('SELECT changes() AS count')[0]?.values?.[0]?.[0] ?? 0);
+
+      if (changes > 0) {
+        const lockStatement = database.prepare('DELETE FROM cron_locks WHERE job_id = ?');
+        lockStatement.run([jobId]);
+        lockStatement.free();
+      }
+
+      await persistDatabase(database);
+    });
+    return changes > 0;
+  },
+
+  async appendCronExecutionLog(payload: {
+    id?: string;
+    jobId: string;
+    startedAt: string;
+    completedAt: string;
+    status: CronExecutionLogRecord['status'];
+    errorMessage?: string | null;
+    source: CronExecutionLogRecord['source'];
+  }): Promise<CronExecutionLogRecord> {
+    const record: CronExecutionLogRecord = {
+      id: payload.id ?? createId('cron-exec'),
+      jobId: payload.jobId,
+      startedAt: payload.startedAt,
+      completedAt: payload.completedAt,
+      status: payload.status,
+      errorMessage: payload.errorMessage ?? null,
+      source: payload.source,
+    };
+
+    await queueWrite(async () => {
+      const database = await getDatabase();
+      const statement = database.prepare(`
+        INSERT INTO cron_execution_log (
+          id, job_id, started_at, completed_at, status, error_message, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      statement.run([
+        record.id,
+        record.jobId,
+        record.startedAt,
+        record.completedAt,
+        record.status,
+        record.errorMessage,
+        record.source,
+      ]);
+      statement.free();
+      await persistDatabase(database);
+    });
+
+    return record;
+  },
+
+  async listCronExecutionLogByJob(jobId: string, limit = 100): Promise<CronExecutionLogRecord[]> {
+    const database = await getDatabase();
+    const statement = database.prepare(`
+      SELECT id, job_id, started_at, completed_at, status, error_message, source
+      FROM cron_execution_log
+      WHERE job_id = ?
+      ORDER BY started_at DESC
+      LIMIT ?
+    `);
+    statement.bind([jobId, Math.max(1, Math.min(limit, 500))]);
+    const rows: CronExecutionLogRecord[] = [];
+
+    while (statement.step()) {
+      const row = statement.getAsObject() as Record<string, unknown>;
+      rows.push({
+        id: String(row.id ?? ''),
+        jobId: String(row.job_id ?? ''),
+        startedAt: String(row.started_at ?? nowIso()),
+        completedAt: String(row.completed_at ?? nowIso()),
+        status: String(row.status ?? 'failed') as CronExecutionLogRecord['status'],
+        errorMessage: row.error_message ? String(row.error_message) : null,
+        source: String(row.source ?? 'scheduler') as CronExecutionLogRecord['source'],
+      });
+    }
+
+    statement.free();
+    return rows;
+  },
+
+  async acquireCronLock(payload: { jobId: string; lockTimeoutMs: number }): Promise<{ acquired: boolean; lock: CronLockRecord | null }> {
+    const now = new Date();
+    const nowValue = now.toISOString();
+    const expiresAt = new Date(now.getTime() + Math.max(1000, payload.lockTimeoutMs)).toISOString();
+    let lock: CronLockRecord | null = null;
+    let acquired = false;
+
+    await queueWrite(async () => {
+      const database = await getDatabase();
+      database.run('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        const existingStatement = database.prepare(
+          'SELECT job_id, lock_acquired_at, lock_expires_at FROM cron_locks WHERE job_id = ? LIMIT 1',
+        );
+        existingStatement.bind([payload.jobId]);
+
+        if (existingStatement.step()) {
+          const existingRow = existingStatement.getAsObject() as Record<string, unknown>;
+          const existingExpiresAt = Date.parse(String(existingRow.lock_expires_at ?? ''));
+          if (!Number.isNaN(existingExpiresAt) && existingExpiresAt > Date.now()) {
+            lock = {
+              jobId: String(existingRow.job_id ?? payload.jobId),
+              lockAcquiredAt: String(existingRow.lock_acquired_at ?? nowValue),
+              lockExpiresAt: String(existingRow.lock_expires_at ?? expiresAt),
+            };
+            existingStatement.free();
+            database.run('COMMIT');
+            await persistDatabase(database);
+            return;
+          }
+
+          const updateStatement = database.prepare(
+            'UPDATE cron_locks SET lock_acquired_at = ?, lock_expires_at = ? WHERE job_id = ?',
+          );
+          updateStatement.run([nowValue, expiresAt, payload.jobId]);
+          updateStatement.free();
+        } else {
+          const insertStatement = database.prepare(
+            'INSERT INTO cron_locks (job_id, lock_acquired_at, lock_expires_at) VALUES (?, ?, ?)',
+          );
+          insertStatement.run([payload.jobId, nowValue, expiresAt]);
+          insertStatement.free();
+        }
+        existingStatement.free();
+
+        acquired = true;
+        lock = {
+          jobId: payload.jobId,
+          lockAcquiredAt: nowValue,
+          lockExpiresAt: expiresAt,
+        };
+
+        database.run('COMMIT');
+      } catch (error) {
+        database.run('ROLLBACK');
+        throw error;
+      }
+
+      await persistDatabase(database);
+    });
+
+    return { acquired, lock };
+  },
+
+  async releaseCronLock(jobId: string): Promise<void> {
+    await queueWrite(async () => {
+      const database = await getDatabase();
+      const statement = database.prepare('DELETE FROM cron_locks WHERE job_id = ?');
+      statement.run([jobId]);
+      statement.free();
+      await persistDatabase(database);
+    });
+  },
+
+  async listCronLocks(): Promise<CronLockRecord[]> {
+    const database = await getDatabase();
+    const statement = database.prepare('SELECT job_id, lock_acquired_at, lock_expires_at FROM cron_locks ORDER BY job_id ASC');
+    const rows: CronLockRecord[] = [];
+
+    while (statement.step()) {
+      const row = statement.getAsObject() as Record<string, unknown>;
+      rows.push({
+        jobId: String(row.job_id ?? ''),
+        lockAcquiredAt: String(row.lock_acquired_at ?? nowIso()),
+        lockExpiresAt: String(row.lock_expires_at ?? nowIso()),
+      });
+    }
+
+    statement.free();
+    return rows;
+  },
+
   async stageLifecycleDraft(payload: {
     entityType: LifecycleDraftRecord['entityType'];
     entityId: string;

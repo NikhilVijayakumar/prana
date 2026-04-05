@@ -1,9 +1,14 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { CronExpressionParser } from 'cron-parser';
 import { getAppDataRoot } from './governanceRepoService';
 import { hookSystemService } from './hookSystemService';
-import { governanceLifecycleQueueStoreService } from './governanceLifecycleQueueStoreService';
+import {
+  CronJobRecoveryPolicy,
+  CronJobStateRecord,
+  governanceLifecycleQueueStoreService,
+} from './governanceLifecycleQueueStoreService';
 import {
   SYNC_PULL_CRON_JOB_ID,
   SYNC_PUSH_CRON_JOB_ID,
@@ -17,6 +22,8 @@ export interface CronJob {
   id: string;
   name: string;
   expression: string;
+  target: string;
+  recoveryPolicy: CronJobRecoveryPolicy;
   enabled: boolean;
   retentionDays: number;
   maxRuntimeMs: number;
@@ -59,6 +66,8 @@ type CronJobExecutor = () => Promise<void>;
 
 const STORE_FILE = 'cron-schedules.json';
 const TICK_INTERVAL_MS = 30_000;
+const LOCK_TIMEOUT_MS = 30_000;
+const MAX_CATCH_UP_WINDOWS_PER_SWEEP = 96;
 let initialized = false;
 let tickTimer: NodeJS.Timeout | null = null;
 let lastTickAt: string | null = null;
@@ -73,7 +82,8 @@ let latestRecoverySummary: CronRecoverySummary = {
 };
 
 const jobs = new Map<string, CronJob>();
-const customJobExecutors = new Map<string, CronJobExecutor>();
+const customJobExecutorsByJobId = new Map<string, CronJobExecutor>();
+const customJobExecutorsByTarget = new Map<string, CronJobExecutor>();
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -82,14 +92,38 @@ const getStorePath = (): string => join(getAppDataRoot(), STORE_FILE);
 const cloneJob = (job: CronJob): CronJob => ({ ...job });
 const cloneRecoverySummary = (): CronRecoverySummary => ({ ...latestRecoverySummary });
 
+const getSyncCronDefaults = (): {
+  pushCronExpression: string;
+  pullCronExpression: string;
+  cronEnabled: boolean;
+} => {
+  try {
+    const sync = getRuntimeBootstrapConfig().sync;
+    return {
+      pushCronExpression: sync.pushCronExpression,
+      pullCronExpression: sync.pullCronExpression,
+      cronEnabled: sync.cronEnabled,
+    };
+  } catch {
+    // Test environments can initialize cron before runtime bootstrap.
+    return {
+      pushCronExpression: '*/30 * * * *',
+      pullCronExpression: '*/30 * * * *',
+      cronEnabled: true,
+    };
+  }
+};
+
 const defaultJobs = (): CronJob[] => {
   const now = new Date();
-  const syncConfig = getRuntimeBootstrapConfig().sync;
+  const syncConfig = getSyncCronDefaults();
   return [
     {
       id: 'job-daily-brief',
       name: 'Daily Brief Compilation',
       expression: '0 8 * * *',
+      target: 'DAILY_BRIEF',
+      recoveryPolicy: 'RUN_ONCE',
       enabled: true,
       retentionDays: 30,
       maxRuntimeMs: 5000,
@@ -104,6 +138,8 @@ const defaultJobs = (): CronJob[] => {
       id: 'job-weekly-review',
       name: 'Weekly Review Compilation',
       expression: '0 9 * * 5',
+      target: 'WEEKLY_REVIEW',
+      recoveryPolicy: 'RUN_ONCE',
       enabled: true,
       retentionDays: 60,
       maxRuntimeMs: 8000,
@@ -118,6 +154,8 @@ const defaultJobs = (): CronJob[] => {
       id: SYNC_PUSH_CRON_JOB_ID,
       name: 'Registry Sync Push (DB -> Vault)',
       expression: syncConfig.pushCronExpression,
+      target: 'SYNC_PUSH',
+      recoveryPolicy: 'RUN_ONCE',
       enabled: syncConfig.cronEnabled,
       retentionDays: 30,
       maxRuntimeMs: 30_000,
@@ -132,6 +170,8 @@ const defaultJobs = (): CronJob[] => {
       id: SYNC_PULL_CRON_JOB_ID,
       name: 'Registry Sync Pull (Vault -> DB)',
       expression: syncConfig.pullCronExpression,
+      target: 'SYNC_PULL',
+      recoveryPolicy: 'RUN_ONCE',
       enabled: syncConfig.cronEnabled,
       retentionDays: 30,
       maxRuntimeMs: 30_000,
@@ -146,18 +186,18 @@ const defaultJobs = (): CronJob[] => {
 };
 
 const runJobAction = async (job: CronJob): Promise<void> => {
-  const customExecutor = customJobExecutors.get(job.id);
+  const customExecutor = customJobExecutorsByJobId.get(job.id) ?? customJobExecutorsByTarget.get(job.target);
   if (customExecutor) {
     await customExecutor();
     return;
   }
 
-  if (job.id === SYNC_PUSH_CRON_JOB_ID) {
+  if (job.id === SYNC_PUSH_CRON_JOB_ID || job.target === 'SYNC_PUSH') {
     await syncProviderService.triggerBackgroundPush();
     return;
   }
 
-  if (job.id === SYNC_PULL_CRON_JOB_ID) {
+  if (job.id === SYNC_PULL_CRON_JOB_ID || job.target === 'SYNC_PULL') {
     await syncProviderService.triggerBackgroundPull();
     return;
   }
@@ -186,123 +226,155 @@ const readStore = async (): Promise<PersistedCronState> => {
   };
 };
 
-const writeStore = async (): Promise<void> => {
-  const persisted: PersistedCronState = {
-    jobs: [...jobs.values()].map(cloneJob),
-    updatedAt: nowIso(),
+const mapStateRecordToJob = (record: CronJobStateRecord): CronJob => {
+  const computedNextRun = computeNextRunIso(record.expression, new Date());
+  return {
+    id: record.id,
+    name: record.name,
+    expression: record.expression,
+    target: record.target,
+    recoveryPolicy: record.recoveryPolicy,
+    enabled: record.status === 'active',
+    retentionDays: Math.max(7, record.retentionDays || 30),
+    maxRuntimeMs: Math.max(1000, record.maxRuntimeMs || 5000),
+    nextRunAt: record.nextRunAt ?? computedNextRun,
+    lastRunAt: record.lastRunAt,
+    lastRunStatus: null,
+    lastRunSource: null,
+    runCount: 0,
+    running: false,
   };
-  await writeFile(getStorePath(), JSON.stringify(persisted, null, 2), 'utf8');
 };
 
-const parseInteger = (value: string): number | null => {
-  const n = Number.parseInt(value, 10);
-  return Number.isFinite(n) ? n : null;
+const persistJobState = async (job: CronJob): Promise<void> => {
+  await governanceLifecycleQueueStoreService.upsertCronJob({
+    id: job.id,
+    name: job.name,
+    expression: job.expression,
+    target: job.target,
+    status: job.enabled ? 'active' : 'paused',
+    recoveryPolicy: job.recoveryPolicy,
+    retentionDays: job.retentionDays,
+    maxRuntimeMs: job.maxRuntimeMs,
+    lastRunAt: job.lastRunAt,
+    nextRunAt: job.nextRunAt,
+  });
 };
 
-const isWildcard = (value: string): boolean => value.trim() === '*';
+const loadJobsFromDatabase = async (): Promise<void> => {
+  const stored = await governanceLifecycleQueueStoreService.listCronJobs();
+  jobs.clear();
+  for (const record of stored) {
+    const normalized = mapStateRecordToJob(record);
+    jobs.set(normalized.id, normalized);
+  }
+};
 
-const parseEveryMinutes = (field: string): number | null => {
-  const match = field.match(/^\*\/(\d{1,2})$/);
-  if (!match) {
-    return null;
+const importJobsToDatabase = async (records: CronJob[]): Promise<void> => {
+  for (const record of records) {
+    await governanceLifecycleQueueStoreService.upsertCronJob({
+      id: record.id,
+      name: record.name,
+      expression: record.expression,
+      target: record.target,
+      status: record.enabled ? 'active' : 'paused',
+      recoveryPolicy: record.recoveryPolicy,
+      retentionDays: Math.max(7, record.retentionDays || 30),
+      maxRuntimeMs: Math.max(1000, record.maxRuntimeMs || 5000),
+      lastRunAt: record.lastRunAt,
+      nextRunAt: record.nextRunAt,
+    });
+  }
+};
+
+const migrateLegacyStoreIfNeeded = async (): Promise<void> => {
+  const existing = await governanceLifecycleQueueStoreService.listCronJobs();
+  if (existing.length > 0) {
+    return;
   }
 
-  const n = parseInteger(match[1]);
-  if (!n || n < 1 || n > 59) {
-    return null;
+  if (!existsSync(getStorePath())) {
+    await importJobsToDatabase(defaultJobs());
+    return;
   }
 
-  return n;
+  const legacy = await readStore();
+  const records: CronJob[] = [];
+  for (const job of legacy.jobs) {
+    if (!validateExpression(job.expression)) {
+      continue;
+    }
+
+    const normalized: CronJob = {
+      id: job.id,
+      name: job.name,
+      expression: job.expression,
+      target: job.target?.trim() || job.id,
+      recoveryPolicy: job.recoveryPolicy ?? 'RUN_ONCE',
+      enabled: job.enabled !== false,
+      retentionDays: Math.max(7, job.retentionDays || 30),
+      maxRuntimeMs: Math.max(1000, job.maxRuntimeMs || 5000),
+      nextRunAt: job.nextRunAt ?? computeNextRunIso(job.expression, new Date()),
+      lastRunAt: job.lastRunAt ?? null,
+      lastRunStatus: null,
+      lastRunSource: null,
+      runCount: 0,
+      running: false,
+    };
+    records.push(normalized);
+  }
+
+  if (records.length === 0) {
+    records.push(...defaultJobs());
+  }
+
+  await importJobsToDatabase(records);
 };
 
 const validateExpression = (expression: string): boolean => {
-  const parts = expression.trim().split(/\s+/);
-  if (parts.length !== 5) {
-    return false;
-  }
-
-  const [min, hour, dayOfMonth, month, dayOfWeek] = parts;
-
-  if (parseEveryMinutes(min) !== null && isWildcard(hour) && isWildcard(dayOfMonth) && isWildcard(month) && isWildcard(dayOfWeek)) {
+  try {
+    CronExpressionParser.parse(expression, { currentDate: new Date() });
     return true;
-  }
-
-  const minNum = parseInteger(min);
-  if (minNum === null || minNum < 0 || minNum > 59) {
+  } catch {
     return false;
   }
-
-  if (!isWildcard(hour)) {
-    const hourNum = parseInteger(hour);
-    if (hourNum === null || hourNum < 0 || hourNum > 23) {
-      return false;
-    }
-  }
-
-  if (!isWildcard(dayOfMonth) || !isWildcard(month)) {
-    return false;
-  }
-
-  if (!isWildcard(dayOfWeek)) {
-    const dowNum = parseInteger(dayOfWeek);
-    if (dowNum === null || dowNum < 0 || dowNum > 6) {
-      return false;
-    }
-  }
-
-  return true;
 };
 
 const computeNextRunDate = (expression: string, fromDate: Date): Date | null => {
-  if (!validateExpression(expression)) {
+  try {
+    const parsed = CronExpressionParser.parse(expression, {
+      currentDate: fromDate,
+    });
+    return parsed.next().toDate();
+  } catch {
     return null;
   }
+};
 
-  const parts = expression.trim().split(/\s+/);
-  const [min, hour, _dayOfMonth, _month, dayOfWeek] = parts;
-
-  const everyMinutes = parseEveryMinutes(min);
-  if (everyMinutes !== null) {
-    const next = new Date(fromDate);
-    next.setSeconds(0, 0);
-    next.setMinutes(next.getMinutes() + 1);
-
-    while (next.getMinutes() % everyMinutes !== 0) {
-      next.setMinutes(next.getMinutes() + 1);
-    }
-
-    return next;
+const computeDueOccurrences = (job: CronJob, now: Date): string[] => {
+  if (!job.nextRunAt) {
+    return [];
   }
 
-  const minute = parseInteger(min);
-  const hourValue = isWildcard(hour) ? null : parseInteger(hour);
-  const dayValue = isWildcard(dayOfWeek) ? null : parseInteger(dayOfWeek);
-  if (minute === null) {
-    return null;
+  const firstDueTime = Date.parse(job.nextRunAt);
+  if (Number.isNaN(firstDueTime) || firstDueTime > now.getTime()) {
+    return [];
   }
 
-  const candidate = new Date(fromDate);
-  candidate.setSeconds(0, 0);
+  const occurrences: string[] = [job.nextRunAt];
+  let cursor = new Date(firstDueTime + 1000);
 
-  for (let i = 0; i < 8 * 24 * 60; i += 1) {
-    candidate.setMinutes(candidate.getMinutes() + 1);
-
-    if (candidate.getMinutes() !== minute) {
-      continue;
+  for (let i = 1; i < MAX_CATCH_UP_WINDOWS_PER_SWEEP; i += 1) {
+    const next = computeNextRunDate(job.expression, cursor);
+    if (!next || next.getTime() > now.getTime()) {
+      break;
     }
 
-    if (hourValue !== null && candidate.getHours() !== hourValue) {
-      continue;
-    }
-
-    if (dayValue !== null && candidate.getDay() !== dayValue) {
-      continue;
-    }
-
-    return candidate;
+    occurrences.push(next.toISOString());
+    cursor = new Date(next.getTime() + 1000);
   }
 
-  return null;
+  return occurrences;
 };
 
 const computeNextRunIso = (expression: string, fromDate: Date): string | null => {
@@ -321,6 +393,29 @@ const markRun = (
   job.lastRunSource = source;
   job.runCount += 1;
   job.nextRunAt = computeNextRunIso(job.expression, completedAt);
+};
+
+const persistExecution = async (payload: {
+  job: CronJob;
+  startedAt: string;
+  completedAt: string;
+  status: CronRunStatus;
+  source: 'scheduler' | 'manual' | 'recovery';
+  errorMessage?: string;
+}): Promise<void> => {
+  await governanceLifecycleQueueStoreService.appendCronExecutionLog({
+    jobId: payload.job.id,
+    startedAt: payload.startedAt,
+    completedAt: payload.completedAt,
+    status:
+      payload.status === 'SUCCESS'
+        ? 'success'
+        : payload.status === 'FAILED'
+          ? 'failed'
+          : 'skipped_overlap',
+    errorMessage: payload.errorMessage ?? null,
+    source: payload.source,
+  });
 };
 
 const getJobPriority = (jobId: string): number => {
@@ -342,18 +437,40 @@ const enqueueDueJobs = async (
   duplicatePreventions: number;
 }> => {
   const dueJobs: Array<{ job: CronJob; scheduledFor: string }> = [];
+  let detected = 0;
 
   for (const job of jobs.values()) {
     if (!job.enabled || !job.nextRunAt) {
       continue;
     }
 
-    const next = Date.parse(job.nextRunAt);
-    if (Number.isNaN(next) || next > now.getTime()) {
+    const dueOccurrences = computeDueOccurrences(job, now);
+    if (dueOccurrences.length === 0) {
       continue;
     }
 
-    dueJobs.push({ job, scheduledFor: job.nextRunAt });
+    detected += dueOccurrences.length;
+
+    if (source === 'MISSED' && job.recoveryPolicy === 'SKIP') {
+      job.nextRunAt = computeNextRunIso(job.expression, now);
+      await persistJobState(job);
+      continue;
+    }
+
+    if (source === 'MISSED' && job.recoveryPolicy === 'RUN_ONCE') {
+      dueJobs.push({ job, scheduledFor: dueOccurrences[0] });
+      job.nextRunAt = computeNextRunIso(job.expression, now);
+      await persistJobState(job);
+      continue;
+    }
+
+    for (const scheduledFor of dueOccurrences) {
+      dueJobs.push({ job, scheduledFor });
+    }
+
+    const lastDue = dueOccurrences[dueOccurrences.length - 1];
+    job.nextRunAt = computeNextRunIso(job.expression, new Date(Date.parse(lastDue) + 1000));
+    await persistJobState(job);
   }
 
   dueJobs.sort((a, b) => {
@@ -382,13 +499,10 @@ const enqueueDueJobs = async (
     if (result.duplicatePrevented) {
       duplicatePreventions += 1;
     }
-
-    // Advance next run immediately so repeated sweeps do not duplicate queue inserts.
-    job.nextRunAt = computeNextRunIso(job.expression, now);
   }
 
   return {
-    detected: dueJobs.length,
+    detected,
     enqueued,
     duplicatePreventions,
   };
@@ -447,8 +561,39 @@ const executeJob = async (
   job: CronJob,
   source: 'scheduler' | 'manual',
 ): Promise<CronRunStatus> => {
+  const startedAt = nowIso();
+
   if (job.running) {
-    markRun(job, 'SKIPPED_OVERLAP', source, new Date());
+    const completedAt = new Date();
+    markRun(job, 'SKIPPED_OVERLAP', source, completedAt);
+    await persistJobState(job);
+    await persistExecution({
+      job,
+      startedAt,
+      completedAt: completedAt.toISOString(),
+      status: 'SKIPPED_OVERLAP',
+      source,
+      errorMessage: 'Job execution skipped because previous run is still in progress.',
+    });
+    return 'SKIPPED_OVERLAP';
+  }
+
+  const lockResult = await governanceLifecycleQueueStoreService.acquireCronLock({
+    jobId: job.id,
+    lockTimeoutMs: LOCK_TIMEOUT_MS,
+  });
+  if (!lockResult.acquired) {
+    const completedAt = new Date();
+    markRun(job, 'SKIPPED_OVERLAP', source, completedAt);
+    await persistJobState(job);
+    await persistExecution({
+      job,
+      startedAt,
+      completedAt: completedAt.toISOString(),
+      status: 'SKIPPED_OVERLAP',
+      source,
+      errorMessage: 'Cron lock acquisition failed.',
+    });
     return 'SKIPPED_OVERLAP';
   }
 
@@ -461,13 +606,33 @@ const executeJob = async (
       scheduleName: job.name,
       source,
     });
-    markRun(job, 'SUCCESS', source, new Date());
+    const completedAt = new Date();
+    markRun(job, 'SUCCESS', source, completedAt);
+    await persistJobState(job);
+    await persistExecution({
+      job,
+      startedAt,
+      completedAt: completedAt.toISOString(),
+      status: 'SUCCESS',
+      source,
+    });
     return 'SUCCESS';
-  } catch {
-    markRun(job, 'FAILED', source, new Date());
+  } catch (error) {
+    const completedAt = new Date();
+    markRun(job, 'FAILED', source, completedAt);
+    await persistJobState(job);
+    await persistExecution({
+      job,
+      startedAt,
+      completedAt: completedAt.toISOString(),
+      status: 'FAILED',
+      source,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
     return 'FAILED';
   } finally {
     job.running = false;
+    await governanceLifecycleQueueStoreService.releaseCronLock(job.id);
   }
 };
 
@@ -477,8 +642,6 @@ const tickInternal = async (): Promise<void> => {
 
   await enqueueDueJobs(now, 'SCHEDULED');
   await processPendingTaskQueue();
-
-  await writeStore();
 };
 
 const startTimer = (): void => {
@@ -496,31 +659,8 @@ const ensureInitialized = async (): Promise<void> => {
     return;
   }
 
-  const persisted = await readStore();
-  jobs.clear();
-
-  for (const job of persisted.jobs) {
-    if (!validateExpression(job.expression)) {
-      continue;
-    }
-
-    const normalized: CronJob = {
-      ...job,
-      enabled: job.enabled !== false,
-      retentionDays: Math.max(7, job.retentionDays || 30),
-      maxRuntimeMs: Math.max(1000, job.maxRuntimeMs || 5000),
-      running: false,
-      nextRunAt: job.nextRunAt ?? computeNextRunIso(job.expression, new Date()),
-    };
-
-    jobs.set(job.id, normalized);
-  }
-
-  if (jobs.size === 0) {
-    for (const job of defaultJobs()) {
-      jobs.set(job.id, job);
-    }
-  }
+  await migrateLegacyStoreIfNeeded();
+  await loadJobsFromDatabase();
 
   const recoveredInterruptedTasks = await governanceLifecycleQueueStoreService.recoverInterruptedTasks();
   const missedSummary = await enqueueDueJobs(new Date(), 'MISSED');
@@ -536,7 +676,6 @@ const ensureInitialized = async (): Promise<void> => {
     completedAt: nowIso(),
   };
 
-  await writeStore();
   startTimer();
   initialized = true;
 };
@@ -555,6 +694,8 @@ export const cronSchedulerService = {
     id: string;
     name: string;
     expression: string;
+    target?: string;
+    recoveryPolicy?: CronJobRecoveryPolicy;
     enabled?: boolean;
     retentionDays?: number;
     maxRuntimeMs?: number;
@@ -579,6 +720,8 @@ export const cronSchedulerService = {
       id: input.id,
       name: input.name,
       expression: input.expression,
+      target: input.target?.trim() || existing?.target || input.id,
+      recoveryPolicy: input.recoveryPolicy ?? existing?.recoveryPolicy ?? 'RUN_ONCE',
       enabled: input.enabled ?? existing?.enabled ?? true,
       retentionDays: Math.max(7, input.retentionDays ?? existing?.retentionDays ?? 30),
       maxRuntimeMs: Math.max(1000, input.maxRuntimeMs ?? existing?.maxRuntimeMs ?? 5000),
@@ -591,7 +734,7 @@ export const cronSchedulerService = {
     };
 
     jobs.set(input.id, merged);
-    await writeStore();
+    await persistJobState(merged);
     return cloneJob(merged);
   },
 
@@ -599,7 +742,7 @@ export const cronSchedulerService = {
     await ensureInitialized();
     const removed = jobs.delete(jobId);
     if (removed) {
-      await writeStore();
+      await governanceLifecycleQueueStoreService.removeCronJob(jobId);
     }
     return removed;
   },
@@ -612,7 +755,7 @@ export const cronSchedulerService = {
     }
 
     job.enabled = false;
-    await writeStore();
+    await persistJobState(job);
     return cloneJob(job);
   },
 
@@ -625,7 +768,7 @@ export const cronSchedulerService = {
 
     job.enabled = true;
     job.nextRunAt = computeNextRunIso(job.expression, new Date());
-    await writeStore();
+    await persistJobState(job);
     return cloneJob(job);
   },
 
@@ -637,7 +780,6 @@ export const cronSchedulerService = {
     }
 
     await executeJob(job, 'manual');
-    await writeStore();
     return cloneJob(job);
   },
 
@@ -678,6 +820,8 @@ export const cronSchedulerService = {
   async __resetForTesting(): Promise<void> {
     await this.dispose();
     jobs.clear();
+    customJobExecutorsByJobId.clear();
+    customJobExecutorsByTarget.clear();
     lastTickAt = null;
     latestRecoverySummary = {
       recoveredInterruptedTasks: 0,
@@ -694,6 +838,20 @@ export const cronSchedulerService = {
       updatedAt: nowIso(),
     };
     await writeFile(getStorePath(), JSON.stringify(seeded, null, 2), 'utf8');
+    for (const job of seeded.jobs) {
+      await governanceLifecycleQueueStoreService.upsertCronJob({
+        id: job.id,
+        name: job.name,
+        expression: job.expression,
+        target: job.target,
+        status: job.enabled ? 'active' : 'paused',
+        recoveryPolicy: job.recoveryPolicy,
+        retentionDays: job.retentionDays,
+        maxRuntimeMs: job.maxRuntimeMs,
+        lastRunAt: job.lastRunAt,
+        nextRunAt: job.nextRunAt,
+      });
+    }
   },
 
   async __setJobStateForTesting(jobId: string, patch: Partial<CronJob>): Promise<CronJob | null> {
@@ -704,7 +862,13 @@ export const cronSchedulerService = {
     }
 
     Object.assign(job, patch);
-    await writeStore();
+    if (!job.target) {
+      job.target = job.id;
+    }
+    if (!job.recoveryPolicy) {
+      job.recoveryPolicy = 'RUN_ONCE';
+    }
+    await persistJobState(job);
     return cloneJob(job);
   },
 
@@ -712,17 +876,28 @@ export const cronSchedulerService = {
     if (!jobId.trim()) {
       throw new Error('Cron executor job id is required.');
     }
-    customJobExecutors.set(jobId, executor);
+    customJobExecutorsByJobId.set(jobId, executor);
+  },
+
+  registerExecutor(target: string, executor: CronJobExecutor): void {
+    if (!target.trim()) {
+      throw new Error('Cron executor target is required.');
+    }
+    customJobExecutorsByTarget.set(target, executor);
   },
 
   unregisterJobExecutor(jobId: string): void {
-    customJobExecutors.delete(jobId);
+    customJobExecutorsByJobId.delete(jobId);
+  },
+
+  unregisterExecutor(target: string): void {
+    customJobExecutorsByTarget.delete(target);
   },
 
   unregisterJobExecutorsByPrefix(prefix: string): void {
-    for (const key of [...customJobExecutors.keys()]) {
+    for (const key of [...customJobExecutorsByJobId.keys()]) {
       if (key.startsWith(prefix)) {
-        customJobExecutors.delete(key);
+        customJobExecutorsByJobId.delete(key);
       }
     }
   },

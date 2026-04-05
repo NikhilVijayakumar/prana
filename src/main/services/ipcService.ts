@@ -1065,6 +1065,8 @@ export const registerIpcHandlers = (options?: {
         id: string
         name: string
         expression: string
+        target?: string
+        recoveryPolicy?: 'SKIP' | 'RUN_ONCE' | 'CATCH_UP'
         enabled?: boolean
         retentionDays?: number
         maxRuntimeMs?: number
