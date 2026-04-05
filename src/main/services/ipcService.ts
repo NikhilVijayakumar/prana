@@ -221,6 +221,12 @@ export const registerIpcHandlers = (options?: {
     return authService.resetPassword(payload.newPassword)
   })
 
+  ipcMain.handle('auth:logout', async () => {
+    // Session invalidation is handled client-side by clearing volatileSessionStore
+    // This handler is a no-op but signals to the client that logout is complete
+    return { success: true }
+  })
+
   ipcMain.handle('settings:load', async () => {
     return operationsService.loadSettings()
   })

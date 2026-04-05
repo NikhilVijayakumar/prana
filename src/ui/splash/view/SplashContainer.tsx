@@ -26,7 +26,7 @@ export const SplashContainer: FC = () => {
     navigate('/access-denied');
   };
 
-  const { state, statusMessage, moduleError } = useSplashViewModel(handleComplete, handleSshFailure);
+  const { state, statusMessage, moduleError, isError, errorCode, isDegraded, bootProgress, bootCurrentState, onRetry } = useSplashViewModel(handleComplete, handleSshFailure);
 
   if (moduleError) {
     throwPranaUiError(moduleError);
@@ -38,6 +38,12 @@ export const SplashContainer: FC = () => {
         isLoading={state.state === StateType.LOADING} 
         isSuccess={state.isSuccess} 
         statusMessage={statusMessage}
+        isError={isError}
+        errorCode={errorCode}
+        isDegraded={isDegraded}
+        bootProgress={bootProgress}
+        bootCurrentState={bootCurrentState}
+        onRetry={onRetry}
       />
     </PranaModuleErrorBoundary>
   );

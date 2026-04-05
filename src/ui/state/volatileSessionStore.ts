@@ -12,6 +12,7 @@ import {
 
 interface VolatileSessionState {
   sessionToken: string | null;
+  sessionTokenExpiresAt: string | null; // ISO timestamp for session expiry
   onboardingStatus: OnboardingStatus;
   onboardingComplete: boolean;
 }
@@ -21,6 +22,7 @@ export type ExperienceMode = 'PREVIEW' | 'ACTIVE';
 
 let state: VolatileSessionState = {
   sessionToken: null,
+  sessionTokenExpiresAt: null,
   onboardingStatus: 'NOT_STARTED',
   onboardingComplete: false,
 };
@@ -64,11 +66,27 @@ export const volatileSessionStore = {
     return state.onboardingStatus === 'COMPLETED' ? 'ACTIVE' : 'PREVIEW';
   },
 
-  setSessionToken(sessionToken: string): void {
+  setSessionToken(sessionToken: string, expiresAt?: string): void {
     setState({
       ...state,
       sessionToken,
+      sessionTokenExpiresAt: expiresAt ?? null,
     });
+  },
+
+  /**
+   * Check if current session token has expired
+   */
+  isSessionExpired(): boolean {
+    if (!state.sessionTokenExpiresAt) {
+      return false; // No expiry set, session is valid
+    }
+    try {
+      const expiryTime = new Date(state.sessionTokenExpiresAt).getTime();
+      return Date.now() >= expiryTime;
+    } catch {
+      return false; // Invalid timestamp format, treat as valid
+    }
   },
 
   setOnboardingStatus(onboardingStatus: OnboardingStatus): void {
@@ -90,6 +108,7 @@ export const volatileSessionStore = {
   clear(): void {
     setState({
       sessionToken: null,
+      sessionTokenExpiresAt: null,
       onboardingStatus: 'NOT_STARTED',
       onboardingComplete: false,
     });

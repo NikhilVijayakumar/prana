@@ -15,6 +15,8 @@ export interface AuthStoreRecord {
   tempPasswordHash: string | null;
   tempPasswordExpiresAt: number | null;
   lastPasswordResetAt: string;
+  attemptCount?: number; // Brute force tracking: failed login attempts
+  attemptLockUntil?: number; // Brute force tracking: timestamp when lockout expires
 }
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;

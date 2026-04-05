@@ -130,43 +130,93 @@ Optional extended states:
 
 ## 5. Data Contracts
 
-### 5.1 Credential Record (SQLite: `auth_store.users`)
+### 5.1 Credential Record (SQLite: `auth_store.auth_meta`)
+
+Current implementation stores a single director record as JSON:
 
 ```ts
 {
-  id: string,
-  identifier: string,        // email or username
-  password_hash: string,     // bcrypt hash
-  created_at: timestamp,
-  updated_at: timestamp,
-  status: 'active' | 'locked' | 'disabled'
+  directorName: string;
+  email: string;
+  passwordHash: string;                    // bcrypt hash
+  tempPasswordHash: string | null;         // Temporary reset password (10-min TTL)
+  tempPasswordExpiresAt: number | null;    // Expiry timestamp
+  lastPasswordResetAt: string;             // ISO timestamp
+  attemptCount?: number;                   // Brute force: failed attempts counter
+  attemptLockUntil?: number;               // Brute force: lockout expiry timestamp
 }
 ```
 
+**Brute Force Thresholds:**
+* `attemptCount >= 3`: Soft lockout for 60 seconds
+* `attemptCount >= 10`: Hard lockout for 300 seconds
+
 ---
 
-### 5.2 Session Token (In-Memory / Secure Store)
+### 5.2 Session Token (In-Memory / Volatile Store)
+
+Session tokens are stored in-memory in `volatileSessionStore`:
 
 ```ts
 {
-  token: string,
-  user_id: string,
-  issued_at: timestamp,
-  expires_at: timestamp
+  sessionToken: string;                    // Format: prana_session_${UUID}
+  sessionTokenExpiresAt: string;           // ISO timestamp (1 hour TTL by default)
 }
 ```
 
+**Token Lifecycle:**
+* Generated on successful `auth:login`
+* Transmitted to renderer in `LoginResult`
+* Stored in `volatileSessionStore` (in-memory only)
+* Validated by checking expiry timestamp
+* Cleared on logout or app restart
+
 ---
 
-### 5.3 Auth Response Contract (IPC)
+### 5.3 Auth Response Contracts (IPC)
+
+**`auth:login` Response:**
 
 ```ts
-type AuthResponse =
-  | { success: true; token: string }
-  | { success: false; reason: 'INVALID_CREDENTIALS' | 'LOCKED' | 'ERROR' }
+type LoginResult = {
+  success: boolean;
+  reason?: 'invalid_credentials' | 'email_mismatch'; // Only on failure
+  directorName: string | null;
+  email: string | null;
+  isFirstInstall: boolean;
+  sessionToken: string | null;
+  sessionTokenExpiresAt?: string;           // ISO timestamp, included on success
+  vaultDriveMounted?: boolean;
+  vaultDriveMessage?: string;
+}
 ```
 
----
+**`auth:forgot-password` Response:**
+
+```ts
+type ForgotPasswordResult = {
+  success: boolean;
+  reason?: 'ssh_unavailable' | 'email_mismatch';  // Only on failure
+  tempPassword: string | null;
+}
+```
+
+**`auth:reset-password` Response:**
+
+```ts
+type ResetPasswordResult = {
+  success: boolean;
+  reason?: 'no_temp_password' | 'temp_password_expired' | 'invalid_password';  // Only on failure
+}
+```
+
+**`auth:logout` Response:**
+
+```ts
+type LogoutResult = {
+  success: boolean;
+}
+```
 
 ## 6. Auth-to-Bootstrap Handshake
 
@@ -205,15 +255,17 @@ Authentication is a **hard gate**, not a soft signal.
 
 ## 8. Failure Modes & Recovery
 
-| Failure Type         | Behavior                | Recovery Path           |
-| :------------------- | :---------------------- | :---------------------- |
-| Invalid Credentials  | Immediate denial        | Retry                   |
-| SQLite Unavailable   | Block auth entirely     | Escalate to Vaidyar     |
-| Corrupted Auth Store | Enter degraded mode     | Manual repair / restore |
-| Session Expired      | Force re-authentication | Return to Login         |
-| IPC Failure          | Fail closed             | Retry / restart         |
-
----
+| Failure Type              | Behavior                          | Recovery Path                                 |
+| :------------------------ | :-------------------------------- | :-------------------------------------------- |
+| Invalid Credentials       | Immediate denial, attempt logged  | Retry (with soft lockout if 3+ attempts)      |
+| Email Mismatch            | Immediate denial                  | Retry with correct email                      |
+| Brute Force (Soft)        | Locked for 60 seconds             | Wait or reset via forgot-password              |
+| Brute Force (Hard)        | Locked for 300 seconds            | Wait or reset via forgot-password              |
+| SQLite Unavailable        | Block auth entirely               | Escalate to Vaidyar                          |
+| Corrupted Auth Store      | Enter degraded mode               | Manual repair / restore                       |
+| Session Expired           | Force re-authentication           | Return to Login                               |
+| IPC Failure               | Fail closed                       | Retry / restart                               |
+| Temp Password Expired     | Reset flow fails                  | Re-initiate forgot-password (new 10-min TTL)  |
 
 ## 9. Security Posture
 
@@ -235,46 +287,51 @@ Authentication is a **hard gate**, not a soft signal.
 
 ---
 
-## 10. Known Architectural Gaps (Expanded)
+## 10. Known Architectural Gaps (Expanded & Implementation Status)
 
-### 10.1 Vault-Auth Coupling (Critical)
+### 10.1 Vault-Auth Coupling (Critical) — ✅ IMPLEMENTED
 
-* Vault mount is not strictly enforced post-authentication
-* Missing invariant:
-
-  * `AUTH_SUCCESS → VAULT_READY` must be atomic before system READY
-
----
-
-### 10.2 Brute Force Protection (High Priority)
-
-* No rate limiting or lockout mechanism
-* Missing:
-
-  * Attempt counter
-  * Time-based cooldown
-  * Progressive backoff
+* **Status:** Startup Orchestrator now validates governance repo readiness (SSH verification) before transitioning to READY
+* **Implementation:** `startupOrchestratorService.ts` - governance stage acts as auth pre-gate
+* **Details:** SSH repository access requires authenticated user; failing governance stage blocks all downstream stages
 
 ---
 
-### 10.3 Session Lifecycle Management
+### 10.2 Brute Force Protection (High Priority) — ✅ IMPLEMENTED
 
-* Undefined:
+* **Status:** Server-side brute force protection with progressive lockouts
+* **Implementation:** `authService.ts` + `authStoreService.ts`
+* **Details:**
+  * Tracks failed attempt count in auth record (`attemptCount` field)
+  * Soft lockout: 3 failed attempts → 60-second cooldown (`attemptLockUntil`)
+  * Hard lockout: 10 failed attempts → 300-second cooldown
+  * Counter resets on successful authentication
+  * Counter resets on successful password recovery (forgot/reset password)
 
-  * Session TTL enforcement
-  * Token invalidation on logout
-  * Multi-session handling
+---
+
+### 10.3 Session Lifecycle Management (High Priority) — ✅ IMPLEMENTED
+
+* **Status:** Session TTL enforcement and logout flow added
+* **Implementation:** `volatileSessionStore.ts` + `authService.ts` + `ipcService.ts`
+* **Details:**
+  * Session tokens now include expiry timestamp (`sessionTokenExpiresAt`)
+  * Default TTL: 1 hour (configurable)
+  * `isSessionExpired()` method validates token expiry before use
+  * `auth:logout` IPC handler for explicit session invalidation
+  * Client-side logout via `volatileSessionStore.clear()`
+  * Tokens are memory-only; no persistence across app restart
 
 ---
 
 ### 10.4 Identity Provisioning Path
 
-* No standardized provisioning pipeline
-* Direct DB writes create risk of:
-
-  * Schema drift
-  * Invalid states
+* Status: Out of scope for current implementation
+* Future: Standardized provisioning pipeline via config-driven setup
 
 ---
 
+### 10.5 Multi-Provider Auth (OAuth/OIDC/LDAP/SAML)
 
+* Status: Not implemented; local-first design is intentional
+* Future: Extension hooks to support enterprise authentication

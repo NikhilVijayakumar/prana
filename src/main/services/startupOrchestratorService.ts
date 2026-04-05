@@ -70,6 +70,45 @@ export type StartupProgressCallback = (event: StartupProgressEvent) => void;
 const nowIso = (): string => new Date().toISOString();
 
 /**
+ * Watchdog timer configuration: per-stage maximum execution time in milliseconds.
+ * Stages exceeding these durations will be marked as FAILED with TIMEOUT_ERROR.
+ */
+const WATCHDOG_TIMEOUT_MS: Record<StartupStageId, number> = {
+  'integration': 30 * 1000,        // 30 seconds
+  'governance': 45 * 1000,         // 45 seconds (includes repo clone if needed)
+  'vault': 60 * 1000,              // 60 seconds (vault initialization + pull)
+  'storage-mirror-validation': 30 * 1000, // 30 seconds
+  'vaidyar': 45 * 1000,            // 45 seconds (bootstrap diagnostics)
+  'sync-recovery': 60 * 1000,      // 60 seconds (recovery can take time)
+  'cron-recovery': 60 * 1000,      // 60 seconds (cron jobs recovery)
+};
+
+/**
+ * Execute an async operation with watchdog timeout protection.
+ * Rejects with TimeoutError if execution exceeds the configured timeout for the stage.
+ */
+const executeWithWatchdog = async <T>(
+  stageId: StartupStageId,
+  operation: () => Promise<T>,
+): Promise<T> => {
+  const timeoutMs = WATCHDOG_TIMEOUT_MS[stageId];
+  if (!timeoutMs) {
+    return operation();
+  }
+
+  return Promise.race([
+    operation(),
+    new Promise<T>((_, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Stage '${stageId}' exceeded timeout of ${timeoutMs}ms`));
+      }, timeoutMs);
+      // Ensure timer is cleared if operation completes
+      void operation().finally(() => clearTimeout(timer));
+    }),
+  ]);
+};
+
+/**
  * Maps stage IDs to their target boot state upon successful completion.
  * Stages progress through states: INIT -> FOUNDATION -> IDENTITY_VERIFIED -> STORAGE_READY -> STORAGE_MIRROR_VALIDATING -> INTEGRITY_VERIFIED -> OPERATIONAL
  */
@@ -418,7 +457,32 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
   }
 
   markStage(stages, 'governance', 'PENDING', 'Verifying SSH and governance repository...');
-  const governanceStatus = await ensureGovernanceRepoReady();
+  let governanceStatus;
+  try {
+    governanceStatus = await executeWithWatchdog('governance', () => ensureGovernanceRepoReady());
+  } catch (error) {
+    markStage(
+      stages,
+      'governance',
+      'FAILED',
+      error instanceof Error ? error.message : 'Governance repository verification failed.',
+      'TIMEOUT_ERROR',
+    );
+    skipStage(stages, 'vault', 'Skipped because governance repository verification failed.');
+    skipStage(stages, 'storage-mirror-validation', 'Skipped because governance repository verification failed.');
+    skipStage(stages, 'vaidyar', 'Skipped because governance repository verification failed.');
+    skipStage(stages, 'sync-recovery', 'Skipped because governance repository verification failed.');
+    skipStage(stages, 'cron-recovery', 'Skipped because governance repository verification failed.');
+    
+    latestStartupReport = buildStatusReport(startedAt, stages);
+    emitProgressEvent({
+      type: 'stage-fail',
+      stage: stages.find(s => s.id === 'governance'),
+      currentState: determineCurrentState(stages),
+      overallProgress: calculateOverallProgress(stages),
+    });
+    return latestStartupReport;
+  }
   if (!governanceStatus.repoReady || !governanceStatus.sshVerified) {
     markStage(
       stages,
@@ -447,8 +511,10 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
 
   try {
     markStage(stages, 'vault', 'PENDING', 'Initializing vault and pulling remote changes...');
-    await vaultService.initializeVault();
-    const splashSync = await syncProviderService.initializeOnSplash({ installMode });
+    const splashSync = await executeWithWatchdog('vault', async () => {
+      await vaultService.initializeVault();
+      return syncProviderService.initializeOnSplash({ installMode });
+    });
     markStage(
       stages,
       'vault',
@@ -504,7 +570,7 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
 
   try {
     markStage(stages, 'vaidyar', 'PENDING', 'Running startup health classification and blocking checks...');
-    const vaidyarReport = await vaidyarService.runBootstrapDiagnostics();
+    const vaidyarReport = await executeWithWatchdog('vaidyar', () => vaidyarService.runBootstrapDiagnostics());
     const blockingSignals = vaidyarService.getBlockingSignals();
 
     if (blockingSignals.length > 0) {
@@ -545,7 +611,7 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
 
   try {
     markStage(stages, 'sync-recovery', 'PENDING', 'Recovering interrupted sync tasks...');
-    const recovery = await recoveryOrchestratorService.recoverPendingSyncTasks();
+    const recovery = await executeWithWatchdog('sync-recovery', () => recoveryOrchestratorService.recoverPendingSyncTasks());
     markStage(
       stages,
       'sync-recovery',
@@ -563,11 +629,14 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
 
   try {
     markStage(stages, 'cron-recovery', 'PENDING', 'Recovering cron scheduler and missed runs...');
-    await cronSchedulerService.initialize();
-    const emailHeartbeat = await emailOrchestratorService.syncHeartbeatSchedules();
-    const googleSyncSchedule = await googleBridgeService.ensureSyncSchedulerJob();
-    await cronSchedulerService.tick();
-    const telemetry = await cronSchedulerService.getTelemetry();
+    const { emailHeartbeat, googleSyncSchedule, telemetry } = await executeWithWatchdog('cron-recovery', async () => {
+      await cronSchedulerService.initialize();
+      const emailHeartbeat = await emailOrchestratorService.syncHeartbeatSchedules();
+      const googleSyncSchedule = await googleBridgeService.ensureSyncSchedulerJob();
+      await cronSchedulerService.tick();
+      const telemetry = await cronSchedulerService.getTelemetry();
+      return { emailHeartbeat, googleSyncSchedule, telemetry };
+    });
     markStage(
       stages,
       'cron-recovery',

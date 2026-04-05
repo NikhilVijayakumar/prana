@@ -234,52 +234,61 @@ StartupOrchestrator → IPC Bridge → SplashContainer → ViewModel → View
 
 ---
 
-### 8.2 Failure UI Contract
+### 8.2 Failure UI Contract — ✅ IMPLEMENTED
 
-* MUST show:
+Error panel displays:
+* **Error message** - from orchestrator stage
+* **Error code** - e.g., `TIMEOUT_ERROR`, `STARTUP_BLOCKED`
+* **Retry button** - "Retry Bootstrap" (re-triggers orchestrator from INIT)
+* **Alert styling** - uses MUI Alert component with error severity
 
-  * error message
-  * failure type
-  * retry/exit options
-
----
-
-### 8.3 Retry Model (New)
-
-* UI MAY expose:
-
-  * `Retry Bootstrap`
-* Retry MUST:
-
-  * re-trigger orchestrator from INIT
-  * clear previous state
+Implementation in `SplashView.tsx` shows structured error display.
 
 ---
 
-## 9. Watchdog Timer (New — Critical)
+### 8.3 Retry Model — ✅ IMPLEMENTED
+
+* UI exposes "Retry Bootstrap" button in error panel when `isError = true`
+* Retry re-triggers orchestrator from INIT state
+* Previous state cleared before retry:
+  * `bootProgress` reset to 0
+  * `bootCurrentState` reset to INIT
+  * `isError` reset to false
+* No automatic retry; user must explicitly click button
+* Retry count not limited
+
+## 9. Watchdog Timer (New — Critical) — ✅ IMPLEMENTED
 
 ### 9.1 Purpose
 
-Prevent infinite hangs during startup
+Prevent infinite hangs during startup by enforcing per-stage maximum execution times.
 
 ---
 
 ### 9.2 Behavior
 
-* Each stage has max execution time
-* If exceeded:
-
-  * emit `TIMEOUT_ERROR`
-  * transition to failure state
+* Each stage has a configurable max execution time
+* If a stage exceeds its timeout:
+  * Execution is interrupted
+  * Stage is marked as `FAILED` with `errorCode: 'TIMEOUT_ERROR'`
+  * Downstream stages are skipped (if blocking)
+  * `TIMEOUT_ERROR` message displayed in splash UI
 
 ---
 
-### 9.3 UI Response
+### 9.3 Timeouts by Stage
 
-* Display:
+See **Section 13.1** for detailed timeout values per stage (ranging from 30-60 seconds).
 
-  * "Startup Timeout"
-  * retry option
+---
+
+### 9.4 UI Response to Timeout
+
+* Displays error panel:
+  * Error message: `"Stage '[stageName]' exceeded timeout of [N]ms"`
+  * Error code: `TIMEOUT_ERROR`
+* Provides "Retry Bootstrap" button for user-initiated recovery
+* Does not automatically retry
 
 ---
 
@@ -340,17 +349,95 @@ System MUST track:
 
 ---
 
-## 13. Known Architectural Gaps (Expanded)
+## 13. Known Architectural Gaps (Status Update)
 
-| Area              | Gap                                  | Impact   |
-| :---------------- | :----------------------------------- | :------- |
-| Watchdog Timer    | No timeout enforcement               | Critical |
-| Retry Mechanism   | No in-app retry flow                 | High     |
-| Diagnostics UI    | No detailed failure inspection       | High     |
-| State Persistence | Cannot resume after restart          | Medium   |
-| Degraded UX       | No clear degraded-mode visualization | Medium   |
+| Area              | Gap Status     | Implementation Details                                                                   |
+| :---------------- | :------------- | :--------------------------------------------------------------------------------------- |
+| Watchdog Timer    | ✅ IMPLEMENTED | Per-stage max duration timeouts; stages exceeding limits emit TIMEOUT_ERROR and fail     |
+| Retry Mechanism   | ✅ IMPLEMENTED | "Retry Bootstrap" button in error panel; re-triggers orchestrator from INIT state        |
+| Degraded UX       | ✅ IMPLEMENTED | Distinct degraded-mode rendering with warning alert; separate from error state          |
+| Diagnostics UI    | ⚠️ PARTIAL     | Basic error message display implemented; detailed diagnostics UI not yet added           |
+| State Persistence | ⏳ NOT YET     | Bootstrap state can be persisted to disk; resume logic is future work (Phase 4)          |
 
 ---
+
+### 13.1 Watchdog Timer Implementation
+
+**File:** `src/main/services/startupOrchestratorService.ts`
+
+**Per-Stage Timeouts (milliseconds):**
+
+| Stage                        | Timeout (sec) | Rationale                                    |
+| :--------------------------- | :------------ | :------------------------------------------- |
+| `integration`                | 30            | Validates config contracts                   |
+| `governance`                 | 45            | SSH verification + possible repo clone       |
+| `vault`                      | 60            | Vault init + sync pull operations            |
+| `storage-mirror-validation`  | 30            | Mirror contract validation                   |
+| `vaidyar`                    | 45            | Bootstrap diagnostics and checks             |
+| `sync-recovery`              | 60            | Sync queue recovery tasks                    |
+| `cron-recovery`              | 60            | Cron scheduler recovery + job initialization |
+
+**Execution Model:** `executeWithWatchdog()` helper wraps async operations with `Promise.race()`:
+
+```ts
+Promise.race([
+  operation(),
+  new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`Stage exceeded ${timeoutMs}ms`)), timeoutMs);
+  })
+])
+```
+
+**Failure Handling:** On timeout:
+* Stage marked as `FAILED` with `errorCode: 'TIMEOUT_ERROR'`
+* Downstream stages skipped if blocking stage times out
+* Time-out error message displayed in splash UI
+
+---
+
+### 13.2 Retry Mechanism Implementation
+
+**Files:**
+* `src/ui/splash/viewmodel/useSplashViewModel.ts` - retry handler
+* `src/ui/splash/view/SplashView.tsx` - retry button UI
+* `src/ui/splash/view/SplashContainer.tsx` - retry callback wiring
+
+**Retry Flow:**
+1. User clicks "Retry Bootstrap" button in error panel
+2. `handleRetry()` resets state: `bootProgress = 0`, `bootCurrentState = INIT`
+3. `startBootstrapSequence()` re-invoked with clean state
+4. Orchestrator re-runs from INIT stage
+
+**Constraints:**
+* Retry only available when `isError = true`
+* Does not retry automatic SSH/identity checks (SSH failure is terminal - routes to `/access-denied`)
+* Retry count not limited (user can retry indefinitely)
+
+---
+
+### 13.3 Degraded UX Visualization Implementation
+
+**Files:**
+* `src/ui/splash/view/SplashView.tsx` - degraded rendering
+* `src/ui/splash/viewmodel/useSplashViewModel.ts` - degraded state detection
+
+**Visual Indicators:**
+* Container border color changes to warning color (`muiTheme.palette.warning.main`)
+* Container background dims to warning background
+* Progress bar changes to warning color
+* Alert badge shown: "Degraded startup: Some recovery stages failed, but core services are operational."
+
+**Triggering Condition:**
+```ts
+if (startupStatus.overallStatus === 'DEGRADED') {
+  setIsDegraded(true);
+}
+```
+
+* Non-blocking failures (e.g., `sync-recovery`, `cron-recovery` stages) mark status as `DEGRADED`
+* Allows progression to main UI (unlike `BLOCKED` which shows error panel)
+
+
 
 ## 14. Cross-Module Contracts
 
