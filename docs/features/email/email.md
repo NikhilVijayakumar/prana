@@ -59,6 +59,7 @@ It operates as:
 | :------------------ | :---------------------------- | :----------------------------------------- |
 | **Main Process**    | `emailOrchestratorService`    | Core pipeline controller                   |
 | **Main Process**    | `cronSchedulerService`        | Drives ingestion heartbeat                 |
+| **Main Process**    | `emailImapService`            | Executes IMAP unread polling adapter       |
 | **Main Process**    | `emailBrowserAgentService`    | Handles interactive/browser-based flows    |
 | **Storage**         | SQLite (`email_artifacts`)    | Active pipeline state and triage data      |
 | **Storage**         | Vault (`knowledge_documents`) | Long-term structured knowledge             |
@@ -112,7 +113,8 @@ ARCHIVED
 ### 5.1 Intake (Scheduler Trigger)
 
 * Triggered via `CronScheduler`
-* Fetch unread email UIDs per account
+* Poll unread IMAP UIDs per account (App Password auth)
+* Default pulse profile: `twice_daily` (light, deterministic cadence)
 * Validate against processed UID registry
 
 **Output:**
@@ -265,6 +267,7 @@ Responsibilities:
 ### 7.1 Template Job
 
 * `EMAIL_POLL` MUST be registered as a **Template Job**
+* Execution mode is IMAP pulse polling (manual or scheduler-triggered only)
 
 Example:
 
@@ -331,7 +334,7 @@ Stores:
 * Handle:
 
   * Gmail sessions
-  * OAuth-based flows
+  * human-guided browser fallback flows
   * interactive UI operations
 
 ---
@@ -390,7 +393,7 @@ System MUST track:
 | Area                  | Gap                                        | Impact |
 | :-------------------- | :----------------------------------------- | :----- |
 | Management UI         | No account + polling configuration surface | High   |
-| Gmail API Integration | Over-reliance on IMAP/browser fallback     | Medium |
+| IMAP Transport Ops    | No packaged Python runtime contract yet    | Medium |
 | Attachment Handling   | No structured binary processing pipeline   | Medium |
 | Thread Modeling       | Weak conversation threading across emails  | Medium |
 | Backpressure Control  | No throttling under large inbox load       | High   |

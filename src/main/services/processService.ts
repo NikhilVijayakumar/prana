@@ -16,6 +16,7 @@ export const executeCommand = (
   args: string[],
   timeoutMs = 10_000,
   cwd?: string,
+  envOverrides?: Record<string, string>,
 ): Promise<CommandResult> => {
   return new Promise((resolve) => {
     const platformRuntime = getPranaPlatformRuntime();
@@ -41,6 +42,7 @@ export const executeCommand = (
         USERPROFILE: platformRuntime.userProfileDir || home,
         // Force non-interactive SSH for git operations
         GIT_SSH_COMMAND: gitSshCommand,
+        ...(envOverrides ?? {}),
       },
     });
 

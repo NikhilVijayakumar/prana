@@ -3,10 +3,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runtimeDocumentStoreService } from './runtimeDocumentStoreService'
 import { getAppDataRoot } from './governanceRepoService'
-import { executeCommand } from './processService'
 import { emailBrowserAgentService } from './emailBrowserAgentService'
 import { cronSchedulerService } from './cronSchedulerService'
 import { emailKnowledgeContextStoreService } from './emailKnowledgeContextStoreService'
+import { emailImapService } from './emailImapService'
 
 export interface EmailAccount {
   accountId: string
@@ -243,40 +243,6 @@ const resolveAssignedAgents = (department: string): string[] => {
   }
 }
 
-const parseGogRows = (stdout: string): Array<Record<string, unknown>> => {
-  const trimmed = stdout.trim()
-  if (!trimmed) {
-    return []
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (Array.isArray(parsed)) {
-      return parsed.filter(
-        (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object'
-      )
-    }
-  } catch {
-    // Fall through to line-delimited parsing.
-  }
-
-  return trimmed
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      try {
-        const parsed = JSON.parse(line) as unknown
-        return Boolean(parsed) && typeof parsed === 'object'
-          ? (parsed as Record<string, unknown>)
-          : null
-      } catch {
-        return null
-      }
-    })
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
-}
-
 const toEmailUid = (entry: Record<string, unknown>): number => {
   const candidates = [entry.uid, entry.id, entry.messageId, entry.threadId]
   for (const candidate of candidates) {
@@ -318,28 +284,21 @@ const toBodyPreview = (entry: Record<string, unknown>): string => {
   return body.replace(/\s+/g, ' ').trim().slice(0, 500)
 }
 
-const runGmailUnreadFetch = async (
+const runImapUnreadFetch = async (
   account: EmailAccount,
   max = 50
 ): Promise<Array<Record<string, unknown>>> => {
-  const args = [
-    'gmail',
-    'messages',
-    'search',
-    'is:unread',
-    '--max',
-    String(max),
-    '--account',
-    account.address,
-    '--json'
-  ]
-
-  const result = await executeCommand('gog', args, 20_000)
-  if (!result.ok) {
-    throw new Error(result.stderr.trim() || result.stdout.trim() || 'gog gmail unread fetch failed')
-  }
-
-  return parseGogRows(result.stdout)
+  return emailImapService.fetchUnread(
+    {
+      accountId: account.accountId,
+      address: account.address,
+      imapHost: account.imapHost,
+      imapPort: account.imapPort,
+      useTls: account.useTls,
+      lastReadUID: account.lastReadUID
+    },
+    max
+  )
 }
 
 const containsRestrictedContent = (content: string): boolean => {
@@ -508,7 +467,7 @@ export const emailOrchestratorService = {
     const createdAt = nowIso()
 
     try {
-      const rows = await runGmailUnreadFetch(account, 50)
+      const rows = await runImapUnreadFetch(account, 50)
 
       let createdActionItems = 0
       let duplicateCount = 0
@@ -965,76 +924,18 @@ export const emailOrchestratorService = {
     })
   },
 
-  async handleGmailPubSubNotification(payload: {
+  async handleGmailPubSubNotification(_payload: {
     accountId?: string
     emailAddress?: string
     historyId?: string
     triggerBrowserFallbackOnFailure?: boolean
     inboxUrl?: string
   }) {
-    const store = await loadStore()
-    const account = payload.accountId
-      ? store.accounts.find((entry) => entry.accountId === payload.accountId)
-      : payload.emailAddress
-        ? store.accounts.find(
-            (entry) => entry.address.toLowerCase() === payload.emailAddress?.toLowerCase()
-          )
-        : null
-
-    if (!account) {
-      return {
-        acknowledged: false,
-        reason: 'No matching account found for Gmail Pub/Sub notification.'
-      }
-    }
-
-    if (account.provider !== 'gmail') {
-      return {
-        acknowledged: false,
-        reason: 'Pub/Sub notification accepted only for Gmail provider accounts.'
-      }
-    }
-
-    const batch = await this.fetchUnread(account.accountId, 'WEBHOOK')
-    if (batch.status !== 'FAILED') {
-      return {
-        acknowledged: true,
-        mode: 'WEBHOOK_FETCH',
-        accountId: account.accountId,
-        historyId: payload.historyId ?? null,
-        batch
-      }
-    }
-
-    if (!payload.triggerBrowserFallbackOnFailure) {
-      return {
-        acknowledged: false,
-        mode: 'WEBHOOK_FETCH_FAILED',
-        accountId: account.accountId,
-        historyId: payload.historyId ?? null,
-        batch,
-        reason: 'Webhook intake failed and browser fallback was not requested.'
-      }
-    }
-
-    const session = await emailBrowserAgentService.startSession({
-      draftId: `gmail-pubsub-fallback-${account.accountId}`,
-      url: payload.inboxUrl ?? 'https://mail.google.com/mail/u/0/#inbox',
-      headless: false,
-      profileId: `gmail-${account.accountId}`,
-      retainProfileOnStop: true,
-      requireHumanLogin: true
-    })
-
     return {
-      acknowledged: true,
-      mode: 'BROWSER_FALLBACK',
-      accountId: account.accountId,
-      historyId: payload.historyId ?? null,
-      batch,
-      session,
-      instructions:
-        'Pub/Sub intake failed. Browser fallback session opened; verify inbox state and remain signed in so subsequent fallback runs can reuse this profile.'
+      acknowledged: false,
+      deprecated: true,
+      reason:
+        'Gmail Pub/Sub intake is disabled. Email ingestion is IMAP pulse-only (scheduler/manual fetch) with app-password authentication.'
     }
   },
 
