@@ -20,12 +20,14 @@ Prana is a standalone desktop runtime library that provides orchestration, persi
   - [SQLite Cache — Hot Operational State](#sqlite-cache--hot-operational-state)
   - [Encryption Service](#encryption-service)
   - [Runtime Doctor — Post-Bootstrap Diagnostics](#runtime-doctor--post-bootstrap-diagnostics)
+  - [Vaidyar — Runtime Integrity Engine & Dashboard](#vaidyar--runtime-integrity-engine--dashboard)
 - [Runtime Systems](#runtime-systems)
   - [Startup Orchestrator & Splash Initialization](#startup-orchestrator--splash-initialization)
   - [Props Config Principle (Cold-Vault Bootstrap)](#props-config-principle-cold-vault-bootstrap)
   - [Sync Protocol & Vault Sync Contract](#sync-protocol--vault-sync-contract)
   - [Data Integrity Protocol](#data-integrity-protocol)
   - [Cron Recovery Contract](#cron-recovery-contract)
+  - [Task Scheduler & Universal Queue System](#task-scheduler--universal-queue-system)
   - [Context Optimization & Chat Context Rotation](#context-optimization--chat-context-rotation)
   - [Channel Integration](#channel-integration)
   - [Email Subsystem](#email-subsystem)
@@ -272,6 +274,22 @@ The Doctor produces a structured report with overall status, per-check results, 
 
 ---
 
+### Vaidyar — Runtime Integrity Engine & Dashboard
+
+**Document:** [`vaidyar.md`](docs/features/vaidyar/vaidyar.md)
+**Services:** `vaidyarService.ts` · `systemHealthService.ts`
+
+Vaidyar acts as the authoritative health system of the runtime, providing continuous evaluation and visual verification ensuring system integrity:
+
+- **Diagnostic Registry** — Modular, independently executable checks grouped by layer (Storage, Security, Network, Cognitive).
+- **Health Classification** — Assigns statuses (Healthy, Degraded, Blocked), capable of gating Startup Orchestrator based on critical failures.
+- **Continuous Monitoring** — Supports bootstrap checks, runtime periodic pulses, and on-demand execution.
+- **Dashboard Surface** — Real-time MVVM-based visual verification of health, blocking status, and failure remediation hints via `IntegrationVerificationPage.tsx`.
+
+**Known gaps:** No continuous background heartbeat worker, lack of auto-recovery hooks tied to orchestrator, and no raw deep log inspection UI.
+
+---
+
 ## Runtime Systems
 
 ### Startup Orchestrator & Splash Initialization
@@ -344,6 +362,21 @@ Provides deterministic cron catch-up with duplicate prevention:
 - Recovers missed jobs on startup.
 - Prevents duplicate queueing across restart windows.
 - Publishes scheduler telemetry for diagnostics.
+
+---
+
+### Task Scheduler & Universal Queue System
+
+**Document:** [`queue-scheduling.md`](docs/features/queue-scheduling/queue-scheduling.md)
+**Services:** `cronSchedulerService.ts` · `queueOrchestratorService.ts` · `taskRegistryService.ts`
+
+Provides a deterministic, persistent, multi-lane task orchestration system:
+
+- **Multi-Lane Isolation** — Segregates execution into Model (AI), Channel (External), and System (Cron) lanes to prevent concurrency starvation.
+- **Persistent Task Registry** — Stores all task metadata in SQLite for crash recovery and bounded execution retries.
+- **Execution Contract** — Ensures tasks are executed at least once safely with global/lane concurrency limits.
+
+**Known gaps:** Lacks dynamic scaling (adaptive throttling) based on system metrics, no DAG task dependency chaining, and no remote distributed execution.
 
 ---
 
