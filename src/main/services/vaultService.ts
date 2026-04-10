@@ -11,6 +11,7 @@ import { memoryIndexService } from './memoryIndexService';
 import { vaultMetadataService } from './vaultMetadataService';
 import { vaultRegistryService } from './vaultRegistryService';
 import { syncStoreService } from './syncStoreService';
+import { PATH_TRAVERSAL_VIOLATION } from './virtualDriveProvider';
 
 const DEFAULT_SCHEMA_FILE = 'schema_validation.json';
 const DEFAULT_INDEX_FILE = 'vault_index.json';
@@ -654,7 +655,7 @@ const assertVaultRelativePath = (relativePath: string): string => {
   const fullPath = resolve(join(getWorkingRootDir(), normalizedRelative));
 
   if (!isPathInsideRoot(fullPath, getWorkingRootDir()) || !existsSync(fullPath)) {
-    throw new Error('Requested vault path is invalid.');
+    throw new PATH_TRAVERSAL_VIOLATION('Requested vault path is invalid.');
   }
 
   return fullPath;
