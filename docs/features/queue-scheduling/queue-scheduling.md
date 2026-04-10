@@ -321,3 +321,14 @@ The system must expose:
 
 ---
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **wrappedFetch** | HTTP-bound task execution uses `wrappedFetch` with timeout enforcement | Enforced |
+| **IPC Validation** | Task management IPC handlers accept typed payloads | Enforced |
+| **Lane Isolation** | Multi-lane execution (Model/Channel/System) prevents concurrency starvation | Enforced |
+

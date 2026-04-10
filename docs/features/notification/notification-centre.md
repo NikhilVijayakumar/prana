@@ -3,7 +3,7 @@
 **Version:** 1.2.0
 **Status:** Stable
 **Pattern:** Event-Driven Observer · Deterministic Event Pipeline
-**Services:** `hookSystemService.ts` · `vaidyarService.ts`
+**Services:** `hookSystemService.ts` · `notificationCentreService.ts` · `notificationStoreService.ts` · `notificationValidationService.ts` · `notificationRateLimiterService.ts` · `vaidyarService.ts`
 **UI Stack:** `shared-components/notifications/` · `DirectorInteractionBar.tsx`
 **Capability:** Provides a centralized event registry and notification pipeline for capturing, classifying, and surfacing real-time system signals, workflow updates, and diagnostic alerts.
 
@@ -486,4 +486,15 @@ Right now, your system has:
 
 ---
 
+## 20. Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **IPC Validation** | All notification IPC handlers accept typed payloads | ✅ Enforced |
+| **Event Schema** | `notificationValidationService.ts` provides schema enforcement per §13.1 | ✅ Resolved in v1.2 |
+| **Rate Limiting** | `notificationRateLimiterService.ts` enforces rate limits per §8.3 | ✅ Resolved in v1.2 |
+| **Injection Protection** | UI rendering sanitizes event payloads per §13.2 | ✅ Enforced |
+| **Priority Bypass** | CRITICAL events bypass rate limiting filters | ✅ Enforced |
+
+> **Note:** Event Schema Enforcement and Rate Limiting were previously listed as gaps — both are now covered by dedicated services introduced in v1.2.
 

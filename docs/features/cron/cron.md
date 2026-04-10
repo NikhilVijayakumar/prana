@@ -390,3 +390,14 @@ System MUST track:
 ---
 
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **Execution Boundaries** | Job execution boundaries prevent unbounded cron runs | Enforced |
+| **Failure Throttling** | Max retry limits enforced to prevent infinite failure loops | Enforced |
+| **IPC Validation** | Scheduler IPC handlers accept typed payloads | Enforced |
+

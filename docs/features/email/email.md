@@ -457,3 +457,15 @@ This module is now strongly aligned with:
 ---
 
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **wrappedFetch** | All HTTP-bound email operations use `wrappedFetch` with timeout enforcement | Enforced |
+| **UID Idempotency** | Per-account UID deduplication prevents duplicate processing | Enforced |
+| **Human-in-the-Loop** | All outbound operations require human-confirmed handoff â€” no autonomous sending | Enforced |
+| **IPC Validation** | Email IPC handlers accept typed payloads | Enforced |
+

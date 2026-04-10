@@ -333,3 +333,16 @@ System must expose:
 * Storage diagnostics previously reported host metrics but not mount posture, so fallback or blocked encrypted storage could be missed during bootstrap.
 * The doctor surface now needs to treat virtual-drive state as a contract check, not just a side-effect of startup logging.
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **wrappedFetch** | `recoveryService.ts` uses `wrappedFetch` for HTTP health probes | Enforced |
+| **Blocking Signals** | Vaidyar provides `BLOCKED_SECURITY` and `BLOCKED_STORAGE` signals that prevent unsafe startup | Enforced |
+| **IPC Validation** | All Vaidyar IPC handlers (`app:get-vaidyar-report`, `app:run-vaidyar-pulse`, `app:run-vaidyar-on-demand`, `app:get-vaidyar-telemetry`) return typed responses | Enforced |
+
+> **Note:** Vaidyar is the most complete domain in the v1.2 audit â€” 100% match across all documented capabilities.
+

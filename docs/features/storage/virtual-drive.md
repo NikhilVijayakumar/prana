@@ -320,3 +320,16 @@ The `mountRegistry` must capture:
 * Storage startup did not expose mount posture as first-class diagnostics, making degraded or blocked storage easy to miss.
 * Vault sync and workspace flows relied on ad hoc mount usage instead of an explicit session contract, which made deterministic unmounting unreliable.
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **Path Traversal Prevention** | `virtualDriveProvider.ts` enforces `resolvedPath.startsWith(vaultRoot)` for all filesystem operations | Enforced |
+| **Mount Isolation** | Mount registry ensures segregated vault/system drives | Enforced |
+| **IPC Validation** | Storage IPC handlers accept typed payloads | Enforced |
+
+> **v1.2 Change:** Path traversal gating prevents any filesystem operation from accessing files outside defined vault directories.
+

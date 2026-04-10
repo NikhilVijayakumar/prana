@@ -540,3 +540,14 @@ These handlers provide an executable contract for UI integration and operational
 ---
 
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **No Raw Fetch** | Asset rendering operates locally â€” no raw `fetch()` calls in visual services | Enforced |
+| **Template Validation** | Template registration includes validation before persistence | Enforced |
+| **IPC Validation** | Visual IPC handlers accept typed payloads for template and token operations | Enforced |
+

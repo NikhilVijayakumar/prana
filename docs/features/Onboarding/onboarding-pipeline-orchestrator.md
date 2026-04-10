@@ -494,4 +494,14 @@ but:
 
 ---
 
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **IPC Validation** | `app:onboarding-state` and `app:onboarding-submit` accept typed payloads | ✅ Enforced |
+| **Single Authority** | Only `onboardingOrchestratorService` controls stage transitions — no manual override paths | ✅ Enforced |
+| **UX Stages** | Welcome, Consent, Review, Completion stages all implemented (per §0 update 2026-04-06) | ✅ Resolved in v1.2 |
+
+**Implementation Services:** `onboardingStageStoreService.ts` · `startupOrchestratorService.ts`
+
 

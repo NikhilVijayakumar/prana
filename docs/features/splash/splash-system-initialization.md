@@ -516,3 +516,17 @@ This is not just a splash screen anymore—it is:
 ---
 
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **Zod Validation** | `PranaRuntimeConfigSchema` validates all bootstrap config fields via `safeParse()` | Enforced |
+| **Fail-Fast** | System remains BLOCKED until splash provides valid config; invalid payloads trigger structured error reports | Enforced |
+| **IPC Boundary** | `app:bootstrap-host` handler rejects malformed payloads with structured error responses | Enforced |
+| **No process.env** | Configuration flows exclusively through structured IPC payloads; no direct environment variable access | Enforced |
+
+> **v1.2 Change:** Bootstrap validation migrated from imperative if-chain (~135 lines) to Zod schema (`PranaRuntimeConfigSchema`). Invalid config returns `{ valid: false, errors, issues }` with descriptive messages.
+

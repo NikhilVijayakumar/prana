@@ -509,3 +509,14 @@ This is your **first true external system bridge**, which means:
 ---
 
 
+
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **wrappedFetch** | OAuth and API operations use `wrappedFetch` with timeout enforcement | Enforced |
+| **Mirror Constraint** | Google data is read-only mirror; no write-back to external systems | Enforced |
+| **IPC Validation** | Google integration IPC handlers accept typed payloads | Enforced |
+

@@ -78,3 +78,13 @@ To make Group Chat work with external channels (like Telegram), your `channelRou
 The system should treat them as the same `ConversationEntity` in SQLite to ensure that when you reply in-app, it can push that reply back to the Telegram group.
 
 Does this unified "Switchboard" approach cover your needs for the Agent-to-Agent and Group interactions?
+---
+
+## Security Enforcement (v1.2)
+
+| Enforcement | Mechanism | Status |
+|---|---|---|
+| **wrappedFetch** | All HTTP operations use `wrappedFetch` with timeout enforcement â€” no raw `fetch()` calls | Enforced |
+| **IPC Validation** | Channel routing IPC handlers accept typed payloads | Enforced |
+| **Sender Validation** | Channel routing validates sender identity before pipeline entry | Enforced |
+
