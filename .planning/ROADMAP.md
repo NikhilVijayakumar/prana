@@ -1,38 +1,54 @@
-# Roadmap: v1.2 Feature Auditing & Security Hardening
+# Roadmap: v1.3 Feature Expansion & Ecosystem Integration
 
 ## Overview
-**3 phases** | **15 requirements mapped** | All covered ✓
+**5 phases** | **13 requirements mapped** | All covered ✓
 
 | # | Phase | Goal | Requirements | Success Criteria |
 |---|-------|------|--------------|------------------|
-| 1 | Baseline Security & IPC Hardening | Secure bounded contexts and isolate system processes. | SEC-01, SEC-02, SEC-03 | 3 |
-| 2 | Comprehensive Feature Audit | Analyze and resolve partial implementations across all 11 sub-domains. | AUDIT-01 to AUDIT-11 | 4 |
-| 3 | Documentation Reconciliation | Align actual implementation state natively with `docs/features`. | DOCS-01 | 2 |
+| 4 | Communication Enhancements | Secure bounded messaging and agent flow control | COMM-01, COMM-02 | 2 |
+| 5 | Advanced Queue Services | Integrate complex DAG tasks and strict throttling logic | QUEUE-01, QUEUE-02, QUEUE-03 | 3 |
+| 6 | Storage & DB Optimizations | Embed vector RAG structures and encryption features | STORE-01, STORE-02 | 2 |
+| 7 | Pipeline Constraint Extensions | Enforce backpressure and PDF processing in visual streams | PIPE-01, PIPE-02, PIPE-03 | 3 |
+| 8 | Google Ecosystem Connectors | Full read/write operation bridging for Google apps | GOOG-01, GOOG-02, GOOG-03 | 3 |
 
 ---
 
 ## Phase Details
 
-### Phase 1: Baseline Security & IPC Hardening
-**Goal:** Secure bounded contexts and isolate system processes.
-**Requirements:** SEC-01, SEC-02, SEC-03
+### Phase 4: Communication Enhancements
+**Goal:** Secure bounded messaging and agent flow control.
+**Requirements:** COMM-01, COMM-02
 **Success criteria:**
-1. IPC messaging is strictly limited and context isolation is enabled.
-2. File system access bounds are cleanly restricted to defined vault directories.
-3. Network integration contexts enforce timeout mechanisms to prevent DDOS starvation.
+1. System successfully routes messages through the WhatsApp adapter.
+2. Agents effectively abort infinite generative loops using an explicitly integrated limiter.
 
-### Phase 2: Comprehensive Feature Audit
-**Goal:** Analyze and resolve partial implementations across all 11 sub-domains.
-**Requirements:** AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04, AUDIT-05, AUDIT-06, AUDIT-07, AUDIT-08, AUDIT-09, AUDIT-10, AUDIT-11
+### Phase 5: Advanced Queue Services
+**Goal:** Integrate complex DAG tasks and strict throttling logic.
+**Requirements:** QUEUE-01, QUEUE-02, QUEUE-03
 **Success criteria:**
-1. Communication, Cron, and Email engines operate fully according to specs.
-2. Integrations, Notifications, Queue-scheduling reliably pass execution gates.
-3. Splash, Storage, Visual and Onboarding logic cleanly handle 100% of defined capability scopes.
-4. Missing feature branches identified during audit are merged and built.
+1. Failed jobs are consistently moved to a Dead Letter Queue (DLQ).
+2. DAG processing resolves task dependencies before evaluating successive execution nodes.
+3. Adaptive throttling restricts inbound volume during excessive congestion.
 
-### Phase 3: Documentation Reconciliation
-**Goal:** Align actual implementation state natively with `docs/features`.
-**Requirements:** DOCS-01
+### Phase 6: Storage & DB Optimizations
+**Goal:** Embed vector RAG structures and encryption features.
+**Requirements:** STORE-01, STORE-02
 **Success criteria:**
-1. Updated technical guides properly match the implemented security changes.
-2. Partial implementation markers are cleared across PRs tracking documentation updates.
+1. Vector databases properly respond to contextual indexing queries.
+2. The SQLite vault validates standard encryption at rest boundaries.
+
+### Phase 7: Pipeline Constraint Extensions
+**Goal:** Enforce backpressure and PDF processing in visual streams.
+**Requirements:** PIPE-01, PIPE-02, PIPE-03
+**Success criteria:**
+1. Real-time backpressure limits incoming pipeline ingestion bursts.
+2. Redaction rules successfully blur predefined PII sections in tested test files.
+3. Puppeteer properly compiles generated data tables to compliant PDFs.
+
+### Phase 8: Google Ecosystem Connectors
+**Goal:** Full read/write operation bridging for Google apps.
+**Requirements:** GOOG-01, GOOG-02, GOOG-03
+**Success criteria:**
+1. Valid OAuth connection establishes operational sessions with Google Drive.
+2. System pushes text/sheets payload effectively creating Docs and Sheets contents.
+3. Successfully retrieves slide data and processes specific Google Form input arrays.

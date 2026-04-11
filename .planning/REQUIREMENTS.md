@@ -35,16 +35,16 @@
 
 | Requirement | Addressed In |
 |---|---|
-| COMM-01 | |
-| COMM-02 | |
-| STORE-01 | |
-| STORE-02 | |
-| QUEUE-01 | |
-| QUEUE-02 | |
-| QUEUE-03 | |
-| PIPE-01 | |
-| PIPE-02 | |
-| PIPE-03 | |
-| GOOG-01 | |
-| GOOG-02 | |
-| GOOG-03 | |
+| COMM-01 | Phase 4 |
+| COMM-02 | Phase 4 |
+| STORE-01 | Phase 6 |
+| STORE-02 | Phase 6 |
+| QUEUE-01 | Phase 5 |
+| QUEUE-02 | Phase 5 |
+| QUEUE-03 | Phase 5 |
+| PIPE-01 | Phase 7 |
+| PIPE-02 | Phase 7 |
+| PIPE-03 | Phase 7 |
+| GOOG-01 | Phase 8 |
+| GOOG-02 | Phase 8 |
+| GOOG-03 | Phase 8 |
