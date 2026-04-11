@@ -1,10 +1,10 @@
 # Prana — Electron Runtime Library & Host Application Shell
 
-**Version 1.1.0** · Electron + TypeScript · MVVM Renderer · SQLite + Encrypted Vault Persistence
+**Version 1.2.0** · Electron + TypeScript · MVVM Renderer · SQLite + Encrypted Vault Persistence
 
 Prana is a standalone desktop runtime library that provides orchestration, persistence, context management, security, and UI infrastructure for intelligent agent-driven applications. It ships as an Electron application shell that can be consumed by a host app today (e.g. **Dhi**) and extended to additional host apps over time.
 
-> **Canonical documentation lives in [`docs/modules/index.md`](docs/features/index.md).**
+> **Canonical documentation lives in [`docs/features/index.md`](docs/features/index.md).**
 > Each atomic document owns one runtime responsibility and one reason to change.
 
 ---
@@ -54,7 +54,7 @@ Prana is a standalone desktop runtime library that provides orchestration, persi
 
 Prana is built around four governing principles:
 
-1. **Atomic Documentation First** — One document, one runtime responsibility. Every module contract in `docs/modules` defines scope boundaries with explicit "It does / It does not" clauses, dependency lists, implementation references, and known gaps.
+1. **Atomic Documentation First** — One document, one runtime responsibility. Every module contract in `docs/features` defines scope boundaries with explicit "It does / It does not" clauses, dependency lists, implementation references, and known gaps.
 
 2. **Service-Oriented Main Process** — The Electron main process hosts ~100+ TypeScript services covering storage, sync, orchestration, security, email, AI context management, channel routing, and diagnostics. All state flows through structured IPC; the renderer never directly accesses filesystem or SQLite.
 
@@ -234,7 +234,7 @@ SQLite is the hot operational cache for all mutable runtime state:
 - Files are exported via `sql.js` and stored under the system drive root when available.
 - Runtime documents are maintained as a write-through cache that can flush to vault-backed state.
 - Email knowledge context uses a dedicated store with retention cleanup.
-- App-specific cache mappings are defined in [`docs/modules/storage/cache`](docs/features/storage/governance/cache).
+- App-specific cache mappings are defined in [`docs/features/storage/governance/cache`](docs/features/storage/governance/cache).
 
 **Known gaps:** SQLite file-at-rest encryption is not DB-native; it depends on the mounted system drive. Not all domains have migrated to SQLite-backed projections. Some surfaces still read legacy props or vault-derived files directly.
 
@@ -550,7 +550,7 @@ Cache also defines an extra cache-only domain: `session_only`.
 
 ## UI Screen Inventory
 
-All screens follow the **Container → ViewModel → View** MVVM pattern. Atomic contracts for each screen are in [`docs/modules/ui/`](docs/features/splash).
+All screens follow the **Container → ViewModel → View** MVVM pattern. Atomic contracts for each screen are in [`docs/features/splash`](docs/features/splash).
 
 | Screen Family | Screens | Purpose |
 |---|---|---|
@@ -584,6 +584,24 @@ The audit layer tracks implementation-to-documentation mismatches. Each audit re
 | [Chat Context Rotation](docs/features/audit/chat-context-rotation-audit.md) | Rotation policy, UI consumption |
 | [UI Atomicization](docs/features/audit/ui-atomicization-audit.md) | Per-screen doc coverage, MVVM compliance |
 
+### v1.2 Feature Audit Reports
+
+Comprehensive domain-by-domain audit conducted in v1.2. Reports are located in [`docs/features/audit/v1.2/`](docs/features/audit/v1.2/index.md).
+
+| Domain | Match Rate | Key Finding |
+|--------|-----------|-------------|
+| Storage | 100% | Vault segregation and path traversal gating confirmed |
+| Cron | 100% | Job registration and failure throttling confirmed |
+| Splash | 100% | Zod migration for runtime config validation |
+| Communication | 100% | wrappedFetch migration complete |
+| Email | 100% | Pipeline lifecycle and UID idempotency confirmed |
+| Queue/Scheduling | 100% | Multi-lane isolation confirmed |
+| Google Integration | 100% | Mirror constraint enforced |
+| Visual | 90% | Token system complete, Puppeteer rendering deferred |
+| Onboarding | 100% | All UX gaps closed |
+| Notification | 100% | Rate limiting and schema enforcement now covered |
+| Vaidyar | 100% | Most complete domain |
+
 ---
 
 ## Security Model Summary
@@ -595,11 +613,17 @@ The audit layer tracks implementation-to-documentation mismatches. Each audit re
 | **Local Auth** | bcrypt hashes in SQLite | Never synced to vault |
 | **Mount Handshake** | Drive controller negotiates with platform config | Encrypted mount points |
 | **Fallback Path** | Local app-data directory (degraded) | No encryption — diagnostic warning |
-| **IPC Boundary** | `contextBridge` preload — no direct `process.env` | Config flows through structured IPC |
+| **IPC Boundary** | `contextBridge` preload + Zod schema validation — no direct `process.env` or unvalidated payloads | Config flows through structured IPC |
+| **IPC Payload Validation** _(v1.2)_ | Zod schema `.safeParse()` on all IPC handlers | Typed payloads at IPC boundary |
+| **Network Timeout** _(v1.2)_ | `wrappedFetch` with `AbortController` on all HTTP calls | All network calls timeout-bounded |
+| **Path Traversal** _(v1.2)_ | `resolvedPath.startsWith(vaultRoot)` in `virtualDriveProvider.ts` | Filesystem ops vault-bounded |
+
 
 ---
 
 ## Known Architectural Gaps
+
+> **Security enforcement gaps** (IPC validation, fetch timeouts, path traversal gating) were **closed in v1.2**. The gaps below are structural capabilities not yet implemented.
 
 Tracked across atomic docs and audit reports. The highest-impact gaps are:
 
@@ -614,6 +638,8 @@ Tracked across atomic docs and audit reports. The highest-impact gaps are:
 | **Key Rotation** | No dedicated encryption key-rotation workflow | Medium |
 | **Cross-Channel Identity** | No shared identity reconciliation across external channel adapters | Low |
 | **Context Rotation Policy** | No dedicated chat-room lifecycle-to-session-rollover policy | Low |
+| ~~**Notification Subsystem**~~ | ~~Rate limiting and event schema enforcement~~ | ✅ Resolved in v1.2 |
+
 
 ---
 
@@ -651,7 +677,7 @@ npm run typecheck      # TypeScript (node + web configs)
 
 ### For Cross-Cutting Runtime Features
 
-1. Update or add atomic docs in [`docs/modules`](docs/features).
+1. Update or add atomic docs in [`docs/features`](docs/features).
 2. If storage is impacted, update storage contract files and rules.
 3. Add or update audit notes for implementation/documentation parity.
 4. Implement runtime changes in `src/` after doc contract agreement.
@@ -659,14 +685,14 @@ npm run typecheck      # TypeScript (node + web configs)
 
 ### For New App Integrations (Multi-App)
 
-1. Add app cache contract in [`docs/modules/storage/cache`](docs/features/storage/governance/cache).
-2. Optionally add app vault contract in [`docs/modules/storage/vault`](docs/features/storage/governance/vault) if durable archive is required.
+1. Add app cache contract in [`docs/features/storage/governance/cache`](docs/features/storage/governance/cache).
+2. Optionally add app vault contract in [`docs/features/storage/governance/vault`](docs/features/storage/governance/vault) if durable archive is required.
 3. Respect the mirror rule: every vault domain must have a corresponding cache domain.
 4. Follow the PR contract: docs first, implementation after review.
 
 ### For UI Screens
 
-1. Add a screen-level atomic doc in [`docs/modules/ui`](docs/features/splash).
+1. Add a screen-level atomic doc in [`docs/features/splash`](docs/features/splash).
 2. Implement with Container → ViewModel → View MVVM pattern.
 3. Reference from the atomic docs index.
 
@@ -687,14 +713,15 @@ This repository is designed to stay **generic as a runtime library** while shipp
 
 | Resource | Link |
 |---|---|
-| Atomic docs index | [`docs/modules/index.md`](docs/features/index.md) |
-| Storage rules | [`docs/modules/storage/rule.md`](docs/features/storage/governance/rule.md) |
-| Storage contract audit | [`docs/modules/audit/storage-contract-audit.md`](docs/features/audit/storage-contract-audit.md) |
-| Full audit index | [`docs/modules/audit/index.md`](docs/features/audit/index.md) |
+| Atomic docs index | [`docs/features/index.md`](docs/features/index.md) |
+| Storage rules | [`docs/features/storage/governance/rule.md`](docs/features/storage/governance/rule.md) |
+| Storage contract audit | [`docs/features/audit/storage-contract-audit.md`](docs/features/audit/storage-contract-audit.md) |
+| Full audit index | [`docs/features/audit/index.md`](docs/features/audit/index.md) |
+| v1.2 feature audit | [`docs/features/audit/v1.2/index.md`](docs/features/audit/v1.2/index.md) |
 | Main process entry | [`src/main/index.ts`](src/main/index.ts) |
 | Preload bridge | [`src/main/preload.ts`](src/main/preload.ts) |
 | IPC service | [`src/main/services/ipcService.ts`](src/main/services/ipcService.ts) |
 | Startup orchestrator | [`src/main/services/startupOrchestratorService.ts`](src/main/services/startupOrchestratorService.ts) |
 | Runtime config | [`src/main/services/runtimeConfigService.ts`](src/main/services/runtimeConfigService.ts) |
 | React entry point | [`src/ui/main.tsx`](src/ui/main.tsx) |
-| Legacy docs (bridge) | [`docs/module/`](docs/module) |
+

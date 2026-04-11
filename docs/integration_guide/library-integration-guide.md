@@ -23,6 +23,24 @@ Before enabling any Prana feature, your client app must provide:
 5. Writable local storage locations for SQLite files and vault working directories.
 6. Python runtime available in PATH, or `PRANA_EMAIL_PYTHON_COMMAND` set, if Email IMAP ingestion is enabled.
 
+## v1.2 Security Contract
+
+Starting with v1.2, Prana enforces strict security boundaries at the IPC and network layers:
+
+### IPC Payload Validation (Zod)
+All IPC handlers validate incoming payloads using Zod schemas via `.safeParse()`. Host apps must send correctly typed payloads — unvalidated or malformed payloads will be rejected with structured error responses. Key schemas:
+- `PranaRuntimeConfigSchema` — validates bootstrap config at `app:bootstrap-host`
+- Typed payloads on all `app:*` handlers
+
+### Network Timeout Enforcement (wrappedFetch)
+All HTTP calls within Prana route through `wrappedFetch` (from `globalFetchWrapper.ts`) which enforces:
+- Default timeout via `AbortController`
+- No raw `fetch()` calls permitted in any service
+- Host apps integrating custom network operations should follow the same pattern
+
+### Filesystem Path Traversal Prevention
+All filesystem operations are vault-bounded: `resolvedPath.startsWith(vaultRoot)` is enforced by `virtualDriveProvider.ts`. Files outside defined vault directories cannot be accessed.
+
 ## Required Runtime Config Contract
 
 Prana validates required keys before startup can reach operational state. These fields are mandatory:

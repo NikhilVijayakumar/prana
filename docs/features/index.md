@@ -1,5 +1,5 @@
 # 📜 Prana Atomic Documentation Index
-**Version:** 1.1.0  
+**Version:** 1.2.0  
 **Principle:** One runtime responsibility, one reason to change.
 
 > [!IMPORTANT]
@@ -82,6 +82,7 @@
 * **Logic:** [Sync/Cache Audit](audit/sqlite-cache-audit.md) | [Encryption Audit](audit/encryption-service-audit.md) | [Doctor Audit](audit/prana-doctor-audit.md)
 * **Agents:** [Chat/Context Audit](audit/chat-context-rotation-audit.md) | [Channel Audit](audit/channel-integration-audit.md)
 * **UI:** [UI Atomicization Audit](audit/ui-atomicization-audit.md)
+* [v1.2 Feature Audit Reports](audit/v1.2/index.md) — **Domain-by-Domain Implementation Verification**
 
 ---
 
@@ -92,3 +93,4 @@
 | **Add a New SQLite Table** | [Storage Rules](storage/governance/rule.md) |
 | **Change AI Context Logic** | [Context Optimization](context/context-optimization.md) |
 | **Verify Security Compliance** | [Encryption Service Audit](audit/encryption-service-audit.md) |
+| **Review v1.2 Audit Results** | [v1.2 Audit Reports](audit/v1.2/index.md) |
