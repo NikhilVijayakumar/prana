@@ -1,6 +1,6 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, resolve, normalize } from 'node:path';
 import { executeCommand } from './processService';
 import { getGovernanceRepoPath } from './governanceRepoService';
 import type { VirtualDriveId } from './mountRegistryService';
@@ -68,14 +68,35 @@ const detectMountFailure = (stderr: string): string | null => {
 
 const isWindows = (): boolean => process.platform === 'win32';
 
+export class PATH_TRAVERSAL_VIOLATION extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PATH_TRAVERSAL_VIOLATION';
+  }
+}
+
+export const assertSafeVaultPath = (targetPath: string, vaultRoot: string): string => {
+  const resolvedPath = resolve(isAbsolute(targetPath) ? targetPath : resolve(vaultRoot, targetPath));
+  const resolvedRoot = resolve(vaultRoot);
+  // Ensure path is unequivocally within the root
+  if (!normalize(resolvedPath).startsWith(normalize(resolvedRoot))) {
+    throw new PATH_TRAVERSAL_VIOLATION(`Path traversal violation detected for path: ${targetPath}`);
+  }
+  return resolvedPath;
+};
+
 const ensureParentReady = async (mountPoint: string): Promise<void> => {
   if (isWindows()) {
     return;
   }
 
-  const target = isAbsolute(mountPoint)
-    ? mountPoint
-    : resolve(getGovernanceRepoPath(), '.mounts', mountPoint);
+  const baseDir = resolve(getGovernanceRepoPath(), '.mounts');
+  const target = isAbsolute(mountPoint) ? mountPoint : resolve(baseDir, mountPoint);
+  
+  if (!isAbsolute(mountPoint)) {
+    assertSafeVaultPath(mountPoint, baseDir);
+  }
+
   await mkdir(target, { recursive: true });
 };
 
@@ -96,6 +117,11 @@ export const rcloneVirtualDriveProvider: VirtualDriveProvider = {
   id: 'rclone',
 
   async mount(request): Promise<VirtualDriveProviderMountResult> {
+    // Basic prefix checks at mount boundaries
+    if (!isAbsolute(request.sourcePath)) {
+      assertSafeVaultPath(request.sourcePath, getGovernanceRepoPath());
+    }
+    
     await mkdir(request.sourcePath, { recursive: true });
     await ensureParentReady(request.mountPoint);
 

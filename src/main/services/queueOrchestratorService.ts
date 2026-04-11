@@ -121,7 +121,10 @@ export const queueOrchestratorService = {
 
     const laneDepth = telemetry.byLane;
     const allowedLanes = (lanes ?? ['CHANNEL', 'MODEL', 'SYSTEM']).filter(
-      (lane) => laneDepth[lane].running < PER_LANE_PARALLELISM[lane],
+      (lane) => {
+        const dynamicLimit = laneDepth[lane].failed > 5 ? 0 : PER_LANE_PARALLELISM[lane];
+        return laneDepth[lane].running < dynamicLimit;
+      }
     );
     if (allowedLanes.length === 0) {
       return null;
@@ -177,6 +180,12 @@ export const queueOrchestratorService = {
       status = 'critical';
     }
 
+    const dynamicLimits: Record<QueueLaneType, number> = {
+      MODEL: telemetry.byLane['MODEL'].failed > 5 ? 0 : PER_LANE_PARALLELISM['MODEL'],
+      CHANNEL: telemetry.byLane['CHANNEL'].failed > 5 ? 0 : PER_LANE_PARALLELISM['CHANNEL'],
+      SYSTEM: telemetry.byLane['SYSTEM'].failed > 5 ? 0 : PER_LANE_PARALLELISM['SYSTEM'],
+    };
+
     return {
       status,
       recoveredTasks,
@@ -189,7 +198,7 @@ export const queueOrchestratorService = {
         maxQueueDepth: MAX_QUEUE_DEPTH,
         crisisReserveSlots: CRISIS_RESERVED_SLOTS,
         maxParallelTasks: MAX_PARALLEL_TASKS,
-        perLaneParallelism: { ...PER_LANE_PARALLELISM },
+        perLaneParallelism: dynamicLimits,
       },
     };
   },

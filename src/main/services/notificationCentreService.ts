@@ -3,7 +3,7 @@ import { vaidyarService, VaidyarHealthEvent } from './vaidyarService';
 import { notificationStoreService, Notification, NotificationPriority, NotificationListFilters } from './notificationStoreService';
 import { notificationRateLimiterService } from './notificationRateLimiterService';
 import { notificationValidationService } from './notificationValidationService';
-import { hookSystemService, HookNotification } from './hookSystemService';
+
 
 export type NotificationChannel = 'system' | 'storage' | 'integration' | 'agent' | 'diagnostic';
 
@@ -206,26 +206,6 @@ const handleVaidyarHealthEvent = async (event: VaidyarHealthEvent): Promise<void
     source: event.subsystem,
     message: event.message,
     payload: event.payload,
-  });
-};
-
-/**
- * Handle hook system notification
- */
-const handleHookNotification = async (notification: HookNotification): Promise<void> => {
-  // Map hook severity to priority
-  const priorityMap: Record<string, NotificationPriority> = {
-    CRITICAL: 'CRITICAL',
-    WARNING: 'WARN',
-    INFO: 'INFO',
-  };
-
-  await emitNotification({
-    eventType: `system:hook_notification`,
-    priority: priorityMap[notification.severity] || 'INFO',
-    source: notification.source,
-    message: notification.message,
-    payload: { hookNotificationId: notification.id },
   });
 };
 

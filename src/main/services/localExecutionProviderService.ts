@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getAppDataRoot } from './governanceRepoService';
+import { wrappedFetch } from "../utils/network/globalFetchWrapper";
 
 export type ModelProviderType = 'lm-studio' | 'openrouter' | 'gemini-cli';
 
@@ -323,7 +324,7 @@ export class LocalExecutionProviderService {
 
   private async validateLmStudio(config: ModelProviderConfig): Promise<boolean> {
     const url = `http://localhost:${config.port ?? 1234}/api/chat/completions`;
-    const response = await fetch(url, {
+    const response = await wrappedFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -338,7 +339,7 @@ export class LocalExecutionProviderService {
 
   private async executeLmStudio(req: ModelExecutionRequest, config: ModelProviderConfig): Promise<ModelExecutionResult> {
     const url = `http://localhost:${config.port ?? 1234}/api/chat/completions`;
-    const response = await fetch(url, {
+    const response = await wrappedFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -377,7 +378,7 @@ export class LocalExecutionProviderService {
       return false;
     }
 
-    const response = await fetch(`${config.endpoint ?? 'https://openrouter.ai/api/v1'}/models`, {
+    const response = await wrappedFetch(`${config.endpoint ?? 'https://openrouter.ai/api/v1'}/models`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(config.timeout ?? 5000),
     });
@@ -395,7 +396,7 @@ export class LocalExecutionProviderService {
       throw new Error('Unable to decrypt OpenRouter API key');
     }
 
-    const response = await fetch(`${config.endpoint ?? 'https://openrouter.ai/api/v1'}/chat/completions`, {
+    const response = await wrappedFetch(`${config.endpoint ?? 'https://openrouter.ai/api/v1'}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

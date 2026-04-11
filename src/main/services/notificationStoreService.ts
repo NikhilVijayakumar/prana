@@ -41,7 +41,6 @@ export interface NotificationListFilters {
 
 let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
-let cachedDatabase: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
@@ -134,11 +133,8 @@ const initializeDatabase = async (): Promise<Database> => {
   `);
 
   await persistDatabase(database);
-  cachedDatabase = database;
   return database;
 };
-
-const getDatabaseSync = (): Database | null => cachedDatabase;
 
 const getDatabase = async (): Promise<Database> => {
   if (!dbPromise) {

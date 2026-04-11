@@ -1,15 +1,15 @@
-﻿
+
 
 # 🧠 Vector Search & RAG — Enhanced
 
 ```md id="5n8r2k"
 # Feature: Vector Search & RAG (Retrieval-Augmented Generation)
 
-**Version:** 1.1.0  
-**Status:** In-Development / Core  
-**Engine:** SQLite-VSS / SQLCipher  
-**Service:** `vectorSearchService.ts` · `ragOrchestratorService.ts`  
-**Capability:** Provides a deterministic, local-first semantic retrieval pipeline integrated with the SQLite Cache and governed by Storage and Security Protocols.
+**Version:** 1.3.0  
+**Status:** Stable / Core  
+**Engine:** Xenova / BGE-micro-v2 (In-Memory Vector Search)  
+**Service:** `vectorSearchService.ts` · `loopProtectionService.ts`  
+**Capability:** Provides a deterministic, local-first semantic retrieval and loop-protection pipeline using high-performance transformer models in the main process.
 
 ---
 
@@ -177,9 +177,10 @@ LLM AUGMENTED RESPONSE
 
 ## 8. Security Model
 
-* All data stored in SQLCipher-encrypted DB
-* Embeddings treated as sensitive data
-* No external vector DB allowed
+* All vector operations occur in-memory using **Xenova** transformers.
+* Embeddings are ephemeral or stored in encrypted SQLite BLOBs.
+* Embeddings treated as sensitive data.
+* No external vector DB or cloud embeddings allowed.
 
 ---
 

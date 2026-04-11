@@ -1,3 +1,4 @@
+import { encryptSqliteBuffer, decryptSqliteBuffer } from './sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -15,7 +16,8 @@ export type TaskRegistryStatus =
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED'
-  | 'EXPIRED';
+  | 'EXPIRED'
+  | 'DLQ';
 
 export interface TaskRegistryRecord {
   taskId: string;
@@ -108,7 +110,7 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
   await mkdir(getAppDataRoot(), { recursive: true });
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
@@ -118,7 +120,12 @@ const initializeDatabase = async (): Promise<Database> => {
   let database: Database;
   if (existsSync(getDbPath())) {
     const raw = await readFile(getDbPath());
-    database = new sqlRuntime.Database(new Uint8Array(raw));
+    try {
+      database = new sqlRuntime.Database(await decryptSqliteBuffer(Buffer.from(raw)));
+    } catch {
+      database = new sqlRuntime.Database(new Uint8Array(raw));
+      await persistDatabase(database);
+    }
   } else {
     database = new sqlRuntime.Database();
   }
@@ -409,7 +416,33 @@ export const taskRegistryService = {
         .filter((task) => Date.parse(task.scheduledAt) <= now)
         .filter((task) => !task.leaseExpiresAt || Date.parse(task.leaseExpiresAt) <= now)
         .sort(compareTaskOrder);
-      const next = available[0] ?? null;
+
+      let next: TaskRegistryRecord | null = null;
+      for (const task of available) {
+        const meta = parsePayloadMeta(task.payloadMetaJson);
+        const deps = meta.dependency_task_ids;
+        if (Array.isArray(deps) && deps.length > 0) {
+          const statement = database.prepare(
+            `SELECT status FROM task_registry WHERE task_id IN (${deps.map(() => '?').join(', ')})`
+          );
+          statement.bind(deps);
+          let allCompleted = true;
+          while (statement.step()) {
+            const row = statement.getAsObject();
+            if (row.status !== 'COMPLETED') {
+              allCompleted = false;
+              break;
+            }
+          }
+          statement.free();
+          if (!allCompleted) {
+            continue;
+          }
+        }
+        next = task;
+        break; // found the highest priority task that has its dependencies met
+      }
+
       if (!next) {
         return null;
       }
@@ -531,7 +564,7 @@ export const taskRegistryService = {
       const updatedAt = nowIso();
       const nextRetryCount = existing.retryCount + 1;
       const shouldRetry = nextRetryCount <= existing.maxRetries;
-      const nextStatus: TaskRegistryStatus = shouldRetry ? 'RETRY_PENDING' : 'FAILED';
+      const nextStatus: TaskRegistryStatus = shouldRetry ? 'RETRY_PENDING' : 'DLQ';
       const nextScheduledAt = shouldRetry ? computeRetryScheduleAt(existing) : existing.scheduledAt;
       const statement = database.prepare(`
         UPDATE task_registry
@@ -596,6 +629,7 @@ export const taskRegistryService = {
       FAILED: 0,
       CANCELLED: 0,
       EXPIRED: 0,
+      DLQ: 0,
     } satisfies Record<TaskRegistryStatus, number>;
     const byLane: Record<QueueLaneType, { queued: number; running: number; failed: number }> = {
       MODEL: { queued: 0, running: 0, failed: 0 },

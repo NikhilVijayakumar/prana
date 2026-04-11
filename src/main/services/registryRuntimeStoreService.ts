@@ -1,3 +1,4 @@
+import { encryptSqliteBuffer, decryptSqliteBuffer } from './sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -40,6 +41,8 @@ export interface RuntimeChannelDetails {
   telegramChannelId: string;
   webhookSubscriptionUri: string;
   providerCredentials: string;
+  whitelistedNumbers: string[];
+  whitelistedGroups: string[];
 }
 
 export interface RuntimeChannelDetailsUpdatePayload {
@@ -50,6 +53,8 @@ export interface RuntimeChannelDetailsUpdatePayload {
   telegramChannelId?: string;
   webhookSubscriptionUri?: string;
   providerCredentials?: string;
+  whitelistedNumbers?: string[];
+  whitelistedGroups?: string[];
 }
 
 export interface ApprovedRuntimeState {
@@ -111,16 +116,25 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
   await mkdir(getAppDataRoot(), { recursive: true });
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
   await mkdir(getAppDataRoot(), { recursive: true });
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    const raw = await readFile(getDbPath());
+    try {
+      database = new sqlRuntime.Database(await decryptSqliteBuffer(Buffer.from(raw)));
+    } catch {
+      database = new sqlRuntime.Database(new Uint8Array(raw));
+      await persistDatabase(database);
+    }
+  } else {
+    database = new sqlRuntime.Database();
+  }
 
   database.run(`
     CREATE TABLE IF NOT EXISTS runtime_registry_meta (
@@ -197,6 +211,8 @@ const buildChannelDetails = (contextByStep: Record<string, Record<string, string
   const telegramChannelId = (infrastructure.telegram_channel_id ?? '').trim();
   const webhookSubscriptionUri = (infrastructure.webhook_subscription_uri ?? '').trim();
   const providerCredentials = (infrastructure.provider_credentials ?? '').trim();
+  const whitelistedNumbers = splitDelimited(infrastructure.whitelisted_numbers ?? '');
+  const whitelistedGroups = splitDelimited(infrastructure.whitelisted_groups ?? '');
 
   return {
     provider,
@@ -206,6 +222,8 @@ const buildChannelDetails = (contextByStep: Record<string, Record<string, string
     telegramChannelId,
     webhookSubscriptionUri,
     providerCredentials,
+    whitelistedNumbers,
+    whitelistedGroups,
   };
 };
 
@@ -252,6 +270,8 @@ const parseStoredState = (payloadJson: string): ApprovedRuntimeState | null => {
         telegramChannelId: '',
         webhookSubscriptionUri: '',
         providerCredentials: '',
+        whitelistedNumbers: [],
+        whitelistedGroups: [],
       }) as RuntimeChannelDetails,
     };
   } catch {
@@ -493,6 +513,8 @@ export const registryRuntimeStoreService = {
         telegram_channel_id: (payload.telegramChannelId ?? '').trim(),
         webhook_subscription_uri: (payload.webhookSubscriptionUri ?? '').trim(),
         provider_credentials: (payload.providerCredentials ?? '').trim(),
+        whitelisted_numbers: (payload.whitelistedNumbers ?? []).join(','),
+        whitelisted_groups: (payload.whitelistedGroups ?? []).join(','),
       },
     };
 

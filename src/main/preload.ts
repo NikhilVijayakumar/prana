@@ -240,7 +240,12 @@ contextBridge.exposeInMainWorld('api', {
       limit?: number
     }) => ipcRenderer.invoke('channels:list-conversations', payload),
     getConversationHistory: (payload: { conversationKey: string; limit?: number }) =>
-      ipcRenderer.invoke('channels:get-conversation-history', payload)
+      ipcRenderer.invoke('channels:get-conversation-history', payload),
+    onEscalation: (callback: (event: any, { taskId, reason }: { taskId: string; reason: string }) => void) => {
+      ipcRenderer.on('app:escalation-required', callback);
+      return () => ipcRenderer.removeListener('app:escalation-required', callback);
+    },
+    clearEscalation: (payload: { taskId: string }) => ipcRenderer.invoke('app:escalation-cleared', payload)
   },
   workOrders: {
     submitDirectorRequest: (payload: {

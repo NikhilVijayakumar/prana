@@ -1,4 +1,5 @@
 import { FC } from 'react';
+// @ts-expect-error - Astra typings bug drops AppStateHandler named export
 import { AppStateHandler, StateType } from 'astra';
 import { useInfrastructureViewModel } from '../viewmodel/useInfrastructureViewModel';
 import { InfrastructureView } from './InfrastructureView';

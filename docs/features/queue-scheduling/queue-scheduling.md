@@ -1,6 +1,6 @@
 # Feature: Task Scheduler & Universal Queue System
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Status:** Stable / Core  
 **Service:** `cronSchedulerService.ts` · `queueOrchestratorService.ts` · `taskRegistryService.ts`  
 **Pattern:** Priority-Based Producer-Consumer / Persistence-Linked Execution  
@@ -70,7 +70,7 @@ RUNNING
 COMPLETED / FAILED
    ↓
 RETRY_PENDING (if applicable)
-````
+```
 
 ---
 
@@ -81,6 +81,7 @@ COMPLETED
 FAILED
 CANCELLED
 EXPIRED
+DLQ (Dead Letter Queue)
 ```
 
 ---
@@ -184,7 +185,8 @@ Each task must include:
 
 * Global `max_parallel_tasks`
 * Per-lane limits
-* Dynamic adjustment (future via Vaidyar)
+* **Adaptive Throttling (v1.3):** Lanes feature a **Circuit Breaker** mechanism. If a lane encounters >5 consecutive failures, its `max_parallel_tasks` is dynamically dropped to 0 to prevent cascading failure.
+* **Task Dependencies (v1.3):** Tasks can specify `dependency_task_ids` in `payloadMeta`. The orchestrator prevents claiming a task until all listed dependencies are in the `COMPLETED` state.
 
 ---
 
@@ -312,11 +314,11 @@ The system must expose:
 
 | Area                | Gap                                       | Impact |
 | ------------------- | ----------------------------------------- | ------ |
-| Adaptive Throttling | No dynamic scaling via system metrics     | High   |
-| Task Dependencies   | No DAG / dependency chaining              | High   |
+| ~~Adaptive Throttling~~ | ~~No dynamic scaling via system metrics~~ | ✅ v1.3 |
+| ~~Task Dependencies~~   | ~~No DAG / dependency chaining~~              | ✅ v1.3 |
 | Distributed Queue   | No remote/offloaded execution             | Medium |
 | Priority Inversion  | No prevention strategy                    | Medium |
-| Dead Letter Queue   | No isolation for permanently failed tasks | Medium |
+| ~~Dead Letter Queue~~   | ~~No isolation for permanently failed tasks~~ | ✅ v1.3 |
 | Task Timeout        | No enforced execution timeout             | Medium |
 
 ---
@@ -331,4 +333,3 @@ The system must expose:
 | **wrappedFetch** | HTTP-bound task execution uses `wrappedFetch` with timeout enforcement | Enforced |
 | **IPC Validation** | Task management IPC handlers accept typed payloads | Enforced |
 | **Lane Isolation** | Multi-lane execution (Model/Channel/System) prevents concurrency starvation | Enforced |
-

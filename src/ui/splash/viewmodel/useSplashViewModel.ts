@@ -31,7 +31,7 @@ const resolveBootstrapConfig = async (): Promise<Record<string, unknown>> => {
   throw new Error('Host bootstrap config is unavailable. Splash bootstrap cannot start.');
 };
 
-export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => void) => {
+export const useSplashViewModel = (onComplete: () => void) => {
   // useDataState returns: [state, execute, setAppState]
   const [bootState, , setBootState] = useDataState<boolean>();
   const [statusMessage, setStatusMessage] = useState<string>('');
@@ -194,11 +194,6 @@ export const useSplashViewModel = (onComplete: () => void, onSshFailure: () => v
     errorCode,
     isDegraded,
     onRetry: handleRetry,
-    moduleError: fatalError,
-    clearModuleError: clearFatalError,
-  };
-    bootProgress,
-    bootCurrentState,
     moduleError: fatalError,
     clearModuleError: clearFatalError,
   };

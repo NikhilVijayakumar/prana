@@ -29,6 +29,7 @@ import {
   HttpCheck,
   StepExecutionConfig,
 } from './types/orchestrationTypes';
+import { wrappedFetch } from "../utils/network/globalFetchWrapper";
 
 interface StepExecutionAttempt {
   attemptNumber: number;
@@ -466,7 +467,7 @@ export class RecoveryService {
       if (check.type === 'http_check') {
         const httpCheck = check as HttpCheck;
         const expectedStatus = httpCheck.expected_status ?? 200;
-        const response = await fetch(httpCheck.http_url, {
+        const response = await wrappedFetch(httpCheck.http_url, {
           method: 'GET',
           signal: AbortSignal.timeout(30_000),
         });

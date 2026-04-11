@@ -7,6 +7,7 @@ import { emailBrowserAgentService } from './emailBrowserAgentService'
 import { cronSchedulerService } from './cronSchedulerService'
 import { emailKnowledgeContextStoreService } from './emailKnowledgeContextStoreService'
 import { emailImapService } from './emailImapService'
+import { redactPii } from './piiRedactionService'
 
 export interface EmailAccount {
   accountId: string
@@ -72,7 +73,7 @@ export interface EmailBatchRecord {
   accountId: string | 'ALL'
   createdAt: string
   source: 'MANUAL' | 'CRON' | 'WEBHOOK'
-  status: 'SUCCESS' | 'FAILED' | 'PARTIAL'
+  status: 'SUCCESS' | 'FAILED' | 'PARTIAL' | 'BACKPRESSURED'
   fetched: number
   createdActionItems: number
   duplicateCount: number
@@ -89,6 +90,7 @@ interface EmailOrchestratorStore {
 
 const STORE_FILE = 'email-orchestrator.json'
 const MAX_BATCH_HISTORY = 200
+const MAX_PENDING_ACTION_ITEMS = 200
 const EMAIL_HEARTBEAT_JOB_PREFIX = 'job-email-heartbeat-'
 
 const nowIso = (): string => new Date().toISOString()
@@ -466,6 +468,27 @@ export const emailOrchestratorService = {
     const batchId = createId('batch')
     const createdAt = nowIso()
 
+    // Backpressure gate: skip IMAP fetch if pipeline is saturated
+    const pendingCount = store.actionItems.filter(
+      (entry) => entry.status === 'PENDING_TRIAGE' || entry.status === 'TRIAGED'
+    ).length
+    if (pendingCount >= MAX_PENDING_ACTION_ITEMS) {
+      const batch: EmailBatchRecord = {
+        batchId,
+        accountId,
+        createdAt,
+        source,
+        status: 'BACKPRESSURED',
+        fetched: 0,
+        createdActionItems: 0,
+        duplicateCount: 0,
+        message: `Backpressure active: ${pendingCount} pending items exceed threshold (${MAX_PENDING_ACTION_ITEMS}).`
+      }
+      pushBatch(store, batch)
+      await saveStore(store)
+      return batch
+    }
+
     try {
       const rows = await runImapUnreadFetch(account, 50)
 
@@ -498,7 +521,7 @@ export const emailOrchestratorService = {
           sender,
           senderDomain,
           receivedAt: typeof row.internalDate === 'string' ? row.internalDate : createdAt,
-          bodyPreview: toBodyPreview(row),
+          bodyPreview: redactPii(toBodyPreview(row)),
           priority: resolvePriority(subject),
           department,
           directorAction: null,

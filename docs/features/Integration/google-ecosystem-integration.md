@@ -1,9 +1,9 @@
 # 🌐 Feature: Google Ecosystem Integration — Workspace Bridge (Enhanced)
 
-**Status:** Proposed / Research
-**Service:** `googleBridgeService.ts` (New) · `emailBrowserAgentService.ts`
+**Status:** Stable / Production
+**Service:** `googleBridgeService.ts` (REST Flow) · `googleBridgeService.runOAuthHandshake`
 **Storage Domain:** `google_workspace_meta` (SQLite) / `vault/google/` (Vault)
-**Capability:** Provides an authenticated bridge to Google Drive, Docs, Sheets, and Slides for automated knowledge extraction and document staging.
+**Capability:** Provides a native, zero-dependency REST bridge (Port 3111 OAuth) to Google Workspace for automated knowledge extraction.
 
 ---
 
@@ -400,7 +400,7 @@ System MUST track:
 
 | Area                   | Gap                                  | Impact |
 | :--------------------- | :----------------------------------- | :----- |
-| Unified API Client     | No centralized token + scope manager | High   |
+| ~~Unified API Client~~ | ~~No centralized token + scope manager~~ | ✅ v1.3 |
 | Real-time Sync         | No webhook / push-based updates      | Medium |
 | Write-Back Pipeline    | No structured outbound sync          | Medium |
 | Conflict Resolution    | No version conflict handling         | High   |

@@ -1,6 +1,6 @@
 # Prana — Electron Runtime Library & Host Application Shell
 
-**Version 1.2.0** · Electron + TypeScript · MVVM Renderer · SQLite + Encrypted Vault Persistence
+**Version 1.3.0** · Electron + TypeScript · MVVM Renderer · SQLite + Hardened Vault Persistence (AES-256-GCM)
 
 Prana is a standalone desktop runtime library that provides orchestration, persistence, context management, security, and UI infrastructure for intelligent agent-driven applications. It ships as an Electron application shell that can be consumed by a host app today (e.g. **Dhi**) and extended to additional host apps over time.
 
@@ -85,20 +85,19 @@ Prana is built around four governing principles:
 │  │                    SERVICE LAYER (~100+ services)            │  │
 │  │                                                              │  │
 │  │  Storage:  driveController · vault · sqliteConfigStore ·     │  │
-│  │            runtimeDocumentStore · mountRegistry               │  │
+│  │            runtimeDocumentStore · mountRegistry · cryptoUtil   │  │
 │  │  Sync:     syncProvider · syncEngine · syncStore ·           │  │
 │  │            conflictResolver · transactionCoordinator          │  │
 │  │  Auth:     authStore · authService                           │  │
 │  │  Email:    emailOrchestrator · emailBrowserAgent ·           │  │
-│  │            emailKnowledgeContextStore · cronScheduler         │  │
+│  │            piiRedactor · cronScheduler                        │  │
 │  │  Context:  contextEngine · contextOptimizer ·                │  │
 │  │            contextDigestStore · tokenManager                  │  │
 │  │  Agents:   orchestrationManager · channelRouter ·            │  │
 │  │            protocolInterceptor · agentExecution · queue       │  │
-│  │  Business: businessContextRegistry · businessAlignment ·     │  │
-│  │            registryRuntimeStore · governanceLifecycleQueue    │  │
-│  │  Infra:    systemHealth · hookSystem · processService        │  │
-│  │  Security: encryption (distributed across vault/drive/auth)  │  │
+│  │  Google:   googleBridge (Docs/Sheets/Forms) · OAuthServer     │  │
+│  │  Infra:    systemHealth · hookSystem · pdfGenerator           │  │
+│  │  Security: AES-256-GCM (vault/drive/auth/sqlite-cache)        │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌────────────────────┐    ┌────────────────────┐                  │
@@ -219,7 +218,18 @@ Vault is the encrypted durable archive. It stores commit-ready knowledge and app
 **Document:** [`sqlite-cache.md`](docs/features/storage/sqlite-cache.md)
 **Services:** `runtimeDocumentStoreService.ts` · `sqliteConfigStoreService.ts` · `contextDigestStoreService.ts` · `emailKnowledgeContextStoreService.ts` · `governanceLifecycleQueueStoreService.ts` · `authStoreService.ts`
 
-SQLite is the hot operational cache for all mutable runtime state:
+SQLite is the hot operational cache for all mutable runtime state. In v1.3, these databases are **encrypted at rest** independently of the mount state.
+
+```mermaid
+graph LR
+    subgraph "Main Process (Node.js)"
+        Service[Domain Service] --> Registry[Task Registry/Store]
+        Registry --> Crypto[sqliteCryptoUtil]
+        RuntimeConfig[RuntimeConfig] -->|PBKDF2 Seed| Crypto
+    end
+    Crypto -->|Encrypted Buffer| FS[Filesystem: .sqlite]
+    FS -- AES-256-GCM --> Crypto
+```
 
 | Domain | What It Stores |
 |---|---|
@@ -231,12 +241,11 @@ SQLite is the hot operational cache for all mutable runtime state:
 | Governance | Lifecycle queue for onboarding and registry approval |
 | Cron | Scheduler state, job history, recovery queue |
 
-- Files are exported via `sql.js` and stored under the system drive root when available.
+- Files are exported via `sql.js`, encrypted via AES-256-GCM, and stored under the system drive root.
 - Runtime documents are maintained as a write-through cache that can flush to vault-backed state.
 - Email knowledge context uses a dedicated store with retention cleanup.
 - App-specific cache mappings are defined in [`docs/features/storage/governance/cache`](docs/features/storage/governance/cache).
 
-**Known gaps:** SQLite file-at-rest encryption is not DB-native; it depends on the mounted system drive. Not all domains have migrated to SQLite-backed projections. Some surfaces still read legacy props or vault-derived files directly.
 
 ---
 
@@ -617,6 +626,8 @@ Comprehensive domain-by-domain audit conducted in v1.2. Reports are located in [
 | **IPC Payload Validation** _(v1.2)_ | Zod schema `.safeParse()` on all IPC handlers | Typed payloads at IPC boundary |
 | **Network Timeout** _(v1.2)_ | `wrappedFetch` with `AbortController` on all HTTP calls | All network calls timeout-bounded |
 | **Path Traversal** _(v1.2)_ | `resolvedPath.startsWith(vaultRoot)` in `virtualDriveProvider.ts` | Filesystem ops vault-bounded |
+| **SQLite Encryption** _(v1.3)_ | `sqliteCryptoUtil.ts` (AES-256-GCM + PBKDF2) | Per-database file protection |
+| **Ingestion Guardrails** _(v1.3)_ | Backpressure gate (200) + PII Redaction regex | Scrubbed intake pipeline |
 
 
 ---
@@ -629,15 +640,14 @@ Tracked across atomic docs and audit reports. The highest-impact gaps are:
 
 | Area | Gap | Severity |
 |---|---|---|
-| **Runtime Doctor** | No unified Doctor service — `systemHealthService` covers only OS/process health | High |
-| **WhatsApp Channel** | No WhatsApp adapter or webhook bridge in `src/main/services` | Medium |
-| **In-App Chat** | No persistent chat workspace, threading, or SQLite conversation cache | Medium |
 | **Shutdown Unmount** | `driveControllerService.dispose()` not wired into process shutdown | High |
 | **Vault Mount Orchestration** | Vault mount/unmount not automated around sync windows | Medium |
-| **SQLite Encryption** | DB-native encryption not implemented; depends on system drive | Medium |
 | **Key Rotation** | No dedicated encryption key-rotation workflow | Medium |
 | **Cross-Channel Identity** | No shared identity reconciliation across external channel adapters | Low |
 | **Context Rotation Policy** | No dedicated chat-room lifecycle-to-session-rollover policy | Low |
+| ~~**SQLite Encryption**~~ | ~~DB-native encryption not implemented; depends on system drive~~ | ✅ Resolved in v1.3 |
+| ~~**WhatsApp Channel**~~ | ~~No WhatsApp adapter or webhook bridge~~ | ✅ Resolved in v1.3 |
+| ~~**Google Ecosystem**~~ | ~~No unified Google API client/service exists~~ | ✅ Resolved in v1.3 |
 | ~~**Notification Subsystem**~~ | ~~Rate limiting and event schema enforcement~~ | ✅ Resolved in v1.2 |
 
 

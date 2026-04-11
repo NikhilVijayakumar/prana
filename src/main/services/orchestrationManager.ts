@@ -16,8 +16,8 @@
  *
  * File: src/main/services/orchestrationManager.ts
  */
-
 import { v4 as generateUUID } from 'uuid';
+import { BrowserWindow } from 'electron';
 import { queueService } from './queueService';
 import { auditLogService, AUDIT_ACTIONS } from './auditLogService';
 import { registryRuntimeStoreService } from './registryRuntimeStoreService';
@@ -423,6 +423,18 @@ export class OrchestrationManager {
         message: `Orchestration failed: ${errorMsg}`,
         auditTrailRef: intentAuditRef,
       };
+    }
+  }
+
+  /**
+   * Broadcast escalation requirement to renderer UI components
+   */
+  public broadcastEscalation(taskId: string, reason: string): void {
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('app:escalation-required', { taskId, reason });
+      }
     }
   }
 

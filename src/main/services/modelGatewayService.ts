@@ -1,4 +1,5 @@
 import { sqliteConfigStoreService } from './sqliteConfigStoreService';
+import { wrappedFetch } from "../utils/network/globalFetchWrapper";
 
 type ProviderId = 'lmstudio' | 'openrouter' | 'gemini';
 
@@ -199,7 +200,7 @@ const fetchWithTimeout = async (
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
+    const response = await wrappedFetch(url, {
       ...init,
       signal: controller.signal,
     });

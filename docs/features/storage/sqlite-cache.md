@@ -3,10 +3,10 @@
 ````md id="7h2xq9"
 # Feature: SQLite Cache — Encrypted Operational Layer
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Status:** Stable / Core  
-**Engine:** SQLCipher (AES-256 Authenticated Encryption)  
-**Capability:** Provides a high-performance, encrypted relational store that acts as the **operational source of truth**, with **Structural Blueprint Tracking** to enforce Vault alignment under the Data Security & Sync Protocol.
+**Engine:** AES-256-GCM (Custom Buffer-Level Encryption)  
+**Capability:** Provides a high-performance, encrypted relational store that acts as the **operational source of truth**, with **Structural Blueprint Tracking** to enforce Vault alignment. Database files are protected at rest independently of the host filesystem.
 
 ---
 
@@ -18,7 +18,7 @@ It ensures:
 - deterministic state management
 - enforcement of Storage Governance Rules (Rule 2, Rule 3)
 - structural mirroring with Vault via Blueprint Tracking
-- encrypted at-rest protection via SQLCipher
+- encrypted at-rest protection via AES-256-GCM + PBKDF2
 
 ---
 
@@ -193,14 +193,15 @@ Proceed with Sync
 
 ## 8. Security Model
 
-* SQLCipher enforces:
-
-  * AES-256 encryption
-  * authenticated encryption
+* **AES-256-GCM** enforces:
+  - authenticated encryption (at rest)
+  - integrity verification (AuthTag)
+* **PBKDF2** key derivation:
+  - utilizes `vault.archivePassword` and `vault.archiveSalt`
+  - strict minimum of 100,000 iterations
 * Keys must:
-
-  * never be stored in plaintext
-  * be provided via runtime config
+  - never be stored in plaintext
+  - be provided via runtime config
 
 ---
 

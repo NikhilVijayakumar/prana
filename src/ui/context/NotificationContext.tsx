@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Notification, NotificationListFilters } from '../../../main/services/notificationStoreService';
-import { NotificationCentreTelemetry } from '../../../main/services/notificationCentreService';
+import type { Notification, NotificationListFilters } from '../../main/services/notificationStoreService';
+import type { NotificationCentreTelemetry } from '../../main/services/notificationCentreService';
 
 export type NotificationPriority = 'INFO' | 'WARN' | 'CRITICAL' | 'ACTION';
 

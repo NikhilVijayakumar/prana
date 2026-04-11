@@ -52,7 +52,6 @@ interface OnboardingViewProps {
   stepStatusById: Record<string, 'PENDING' | 'DRAFT' | 'APPROVED'>;
   phaseTrackerById: Record<string, PhaseTrackerStatus>;
   currentStep: number;
-  totalSteps: number;
   currentStepConfig: OnboardingStepConfig;
   currentStepFields: DynamicFieldRecord[];
   canDirectorApproveAll: boolean;
@@ -162,7 +161,6 @@ export const OnboardingView: FC<OnboardingViewProps> = ({
   stepStatusById,
   phaseTrackerById,
   currentStep,
-  totalSteps,
   currentStepConfig,
   currentStepFields,
   canDirectorApproveAll,

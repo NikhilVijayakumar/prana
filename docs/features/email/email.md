@@ -1,6 +1,6 @@
 # 📧 Feature: Email Intelligence & Orchestration Pipeline (Enhanced)
 
-**Status:** Stable / Policy-Gated
+**Status:** Stable / Hardened (v1.3)
 **Services:** `emailOrchestratorService.ts` · `emailBrowserAgentService.ts` · `emailKnowledgeContextStoreService.ts`
 **Storage Domain:** `email_artifacts` (SQLite) / `knowledge_documents` (Vault)
 **Capability:** Automates the intake, triage, and draft-assembly of email communications while enforcing a strict "Human-in-the-Loop" send policy.
@@ -135,6 +135,10 @@ Responsibilities:
   * body
 * Normalize content
 * Deduplicate via UID
+
+**v1.3 Ingestion Guardrails:**
+- **Backpressure:** Ingestion pauses if pending items in `emailOrchestratorService` exceed `200`.
+- **PII Redaction:** Sensitive text (SSN, Credit Cards, US Phones, Emails) is scrubbed at intake using Regex patterns before persistence.
 
 **Output:**
 
@@ -396,9 +400,9 @@ System MUST track:
 | IMAP Transport Ops    | No packaged Python runtime contract yet    | Medium |
 | Attachment Handling   | No structured binary processing pipeline   | Medium |
 | Thread Modeling       | Weak conversation threading across emails  | Medium |
-| Backpressure Control  | No throttling under large inbox load       | High   |
-| Retry Strategy        | No formal retry/backoff policy             | Medium |
-| Privacy Filters       | No PII classification/redaction layer      | Medium |
+| ~~Backpressure Control~~ | ~~No throttling under large inbox load load~~ | ✅ v1.3 |
+| **Retry Strategy**        | No formal retry/backoff policy             | Medium |
+| ~~Privacy Filters~~       | ~~No PII classification/redaction layer~~      | ✅ v1.3 |
 
 ---
 
@@ -466,6 +470,5 @@ This module is now strongly aligned with:
 |---|---|---|
 | **wrappedFetch** | All HTTP-bound email operations use `wrappedFetch` with timeout enforcement | Enforced |
 | **UID Idempotency** | Per-account UID deduplication prevents duplicate processing | Enforced |
-| **Human-in-the-Loop** | All outbound operations require human-confirmed handoff â€” no autonomous sending | Enforced |
+| **Human-in-the-Loop** | All outbound operations require human-confirmed handoff — no autonomous sending | Enforced |
 | **IPC Validation** | Email IPC handlers accept typed payloads | Enforced |
-

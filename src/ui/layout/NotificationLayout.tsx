@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { NotificationProvider } from '../../context/NotificationContext';
-import { ToastProvider } from '../../context/ToastContext';
-import { ToastContainer } from '../notifications/ToastContainer';
-import { NotificationBadge } from '../notifications/NotificationBadge';
-import { NotificationPanel } from '../notifications/NotificationPanel';
-import { NotificationSettingsDialog } from '../notifications/NotificationSettings';
+import { NotificationProvider } from '../context/NotificationContext';
+import { ToastProvider } from '../context/ToastContext';
+import { ToastContainer } from '../shared-components/notifications/ToastContainer';
+import { NotificationBadge } from '../shared-components/notifications/NotificationBadge';
+import { NotificationPanel } from '../shared-components/notifications/NotificationPanel';
+import { NotificationSettingsDialog } from '../shared-components/notifications/NotificationSettings';
 import { Box, AppBar, Toolbar, IconButton } from '@mui/material';
 import { Settings as SettingsIcon } from '@mui/icons-material';
 

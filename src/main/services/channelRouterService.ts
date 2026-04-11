@@ -31,6 +31,19 @@ export interface TelegramIngressPayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface WhatsAppIngressPayload {
+  message: string;
+  senderId: string; // The user phone number
+  senderName?: string;
+  chatId?: string; // The group JID or chat ID
+  timestampIso?: string;
+  sessionId?: string;
+  explicitTargetPersonaId?: string;
+  isDirector?: boolean;
+  dataClassification?: DataClassification;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ChannelRoutingResult {
   accepted: boolean;
   status: 'accepted' | 'blocked' | 'escalated' | 'rejected' | 'failed';
@@ -320,6 +333,21 @@ export const channelRouterService = {
 
     if (envelope.channelId === 'telegram') {
       return this.routeTelegramMessage({
+        message: envelope.messageText,
+        senderId: envelope.senderId,
+        senderName: envelope.senderName,
+        chatId: envelope.roomId,
+        timestampIso: envelope.timestampIso,
+        sessionId: envelope.sessionId,
+        explicitTargetPersonaId: envelope.explicitTargetPersonaId,
+        isDirector: envelope.isDirector,
+        dataClassification: envelope.dataClassification,
+        metadata: envelope.metadata,
+      });
+    }
+
+    if (envelope.channelId === 'whatsapp') {
+      return this.routeWhatsAppMessage({
         message: envelope.messageText,
         senderId: envelope.senderId,
         senderName: envelope.senderName,
@@ -697,6 +725,85 @@ export const channelRouterService = {
       conversationId: persisted.conversation.conversationId,
       conversationKey: persisted.conversation.conversationKey,
       sessionId,
+    };
+  },
+
+  async routeWhatsAppMessage(payload: WhatsAppIngressPayload): Promise<ChannelRoutingResult> {
+    const trimmedMessage = payload.message.trim();
+    if (!trimmedMessage) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: 'WhatsApp message cannot be empty.',
+      };
+    }
+
+    const runtimeChannelDetails = await dependencies.getRuntimeChannelDetails();
+    const globallyAllowedChannels = getChannelAllowlist(runtimeChannelDetails);
+    
+    if (globallyAllowedChannels.size > 0 && !globallyAllowedChannels.has('whatsapp')) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: 'WhatsApp channel is disabled in onboarding runtime policy.',
+      };
+    }
+
+    // 1. Enforce Whitelisted Group Sandboxing
+    const incomingChatId = payload.chatId ?? '';
+    const whitelistedGroups = new Set((runtimeChannelDetails?.whitelistedGroups ?? []).map(normalize));
+    
+    if (whitelistedGroups.size > 0 && !whitelistedGroups.has(normalize(incomingChatId))) {
+      return {
+        accepted: false,
+        status: 'rejected',
+        message: 'WhatsApp message originates from a non-whitelisted group JID. Ignoring.',
+      };
+    }
+
+    // 2. Enforce Level-0 Fallback for Unknown Numbers
+    const incomingSenderId = payload.senderId;
+    const whitelistedNumbers = new Set((runtimeChannelDetails?.whitelistedNumbers ?? []).map(normalize));
+    
+    let permissionLevel = 'Full';
+    if (whitelistedNumbers.size > 0 && !whitelistedNumbers.has(normalize(incomingSenderId))) {
+      permissionLevel = 'Level 0 - General Info only';
+    }
+
+    const intent: DirectorIntent = {
+      id: dependencies.createId(),
+      timestamp: payload.timestampIso ?? dependencies.nowIso(),
+      message: trimmedMessage,
+      explicitTargetPersonaId: payload.explicitTargetPersonaId ?? extractExplicitTarget(trimmedMessage),
+      sessionId: payload.sessionId ?? `whatsapp-${dependencies.createId()}`,
+      metadata: {
+        channel: 'whatsapp',
+        senderId: payload.senderId,
+        senderName: payload.senderName,
+        chatId: payload.chatId,
+        permissionLevel,
+        ...(payload.metadata ?? {}),
+      },
+    };
+
+    const orchestration = await dependencies.orchestrator.orchestrateIntent(intent);
+    if (!orchestration.success) {
+      return {
+        accepted: false,
+        status: 'failed',
+        message: orchestration.message,
+        auditTrailRef: orchestration.auditTrailRef,
+        sessionId: intent.sessionId,
+      };
+    }
+
+    return {
+      accepted: true,
+      status: 'accepted',
+      message: 'Message routed successfully via WhatsApp adapter.',
+      workOrderId: orchestration.workOrderId,
+      personaId: orchestration.personaId,
+      sessionId: intent.sessionId,
     };
   },
 

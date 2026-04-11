@@ -76,7 +76,7 @@ const PUBLISHED_DOC_PREFIX = 'org/administration/published';
 const GOOGLE_SYNC_SUMMARY_PATH = 'org/administration/integrations/google-workspace.sync-summary.json';
 const GOOGLE_SYNC_CRON_JOB_ID = 'job-google-drive-sync';
 const GOOGLE_SYNC_CRON_TARGET = 'GOOGLE_DRIVE_SYNC';
-const GOOGLE_SYNC_CRON_EXPRESSION = '0 */12 * * *';
+const GOOGLE_SYNC_CRON_EXPRESSION = '0 0 * * *';
 
 const resolveCredentials = (): GoogleBridgeCredentials | null => {
   const googleConfig = sqliteConfigStoreService.readSnapshotSync()?.config?.google;
@@ -90,6 +90,30 @@ const resolveCredentials = (): GoogleBridgeCredentials | null => {
   }
 
   return { clientId, clientSecret, refreshToken, adminEmail };
+};
+
+const refreshAccessToken = async (credentials: GoogleBridgeCredentials): Promise<string> => {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      refresh_token: credentials.refreshToken,
+      grant_type: 'refresh_token',
+    }).toString(),
+  });
+
+  if (!res.ok) {
+    throw new Error(`[GoogleBridge] Token refresh failed: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json() as { access_token?: string };
+  if (!data.access_token) {
+    throw new Error('[GoogleBridge] Token refresh returned no access_token.');
+  }
+
+  return data.access_token;
 };
 
 class FileBackedDocsPublisher implements GoogleDocsPublisherProtocol {
@@ -178,60 +202,226 @@ class LiveGoogleSheetsGateway implements GoogleSheetsGatewayProtocol {
   ) {}
 
   async listStaffRows(): Promise<GoogleSheetStaffRow[]> {
-    // Live Google Sheets API integration placeholder.
-    console.log(
-      `[GoogleBridge] Live Sheets gateway not yet wired. Credentials for: ${this._credentials.adminEmail}, Sheet: ${this._spreadsheetId}`,
-    );
-    return [];
+    const accessToken = await refreshAccessToken(this._credentials);
+    const range = encodeURIComponent('Staff!A:L');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${this._spreadsheetId}/values/${range}`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!res.ok) {
+      console.error(`[GoogleBridge] Sheets fetch failed: ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json() as { values?: string[][] };
+    const rows = data.values ?? [];
+    if (rows.length < 2) return [];
+
+    const headers = rows[0];
+    return rows.slice(1).map((row, rowIdx) => {
+      const record: Record<string, string> = {};
+      headers.forEach((h, i) => { record[h] = row[i] ?? ''; });
+      return {
+        employee_id: record.employee_id ?? '',
+        full_name: record.full_name ?? '',
+        department: record.department ?? '',
+        role: record.role ?? '',
+        email: record.email ?? '',
+        status: record.status ?? '',
+        manager: record.manager ?? '',
+        join_date: record.join_date ?? '',
+        employment_type: record.employment_type ?? '',
+        location: record.location ?? '',
+        kpi_profile: record.kpi_profile ?? '',
+        sheet_row_ref: record.sheet_row_ref ?? `row-${rowIdx + 2}`,
+      };
+    });
   }
 }
 
 class LiveGoogleFormsGateway implements GoogleFormsGatewayProtocol {
-  constructor(private readonly _credentials: GoogleBridgeCredentials) {}
+  private readonly _formId: string;
+
+  constructor(private readonly _credentials: GoogleBridgeCredentials, formId?: string) {
+    this._formId = formId || '';
+  }
 
   async listFeedbackResponses(): Promise<GoogleFormFeedbackResponse[]> {
-    // Live Google Forms API integration placeholder.
-    console.log(
-      `[GoogleBridge] Live Forms gateway not yet wired. Credentials for: ${this._credentials.adminEmail}`,
-    );
-    return [];
+    if (!this._formId) {
+      console.warn('[GoogleBridge] No Form ID configured. Returning empty responses.');
+      return [];
+    }
+
+    const accessToken = await refreshAccessToken(this._credentials);
+    const url = `https://forms.googleapis.com/v1/forms/${this._formId}/responses`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!res.ok) {
+      console.error(`[GoogleBridge] Forms fetch failed: ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json() as { responses?: Array<Record<string, any>> };
+    const responses = data.responses ?? [];
+
+    return responses.map((entry, index) => {
+      const answers = entry.answers ?? {};
+      const getValue = (qId: string): string => {
+        const a = answers[qId];
+        return a?.textAnswers?.answers?.[0]?.value ?? '';
+      };
+      const getNumber = (qId: string): number => {
+        const v = getValue(qId);
+        const n = Number(v);
+        return Number.isNaN(n) ? 0 : n;
+      };
+
+      // Map by question order — keys are Google Form question IDs
+      const qIds = Object.keys(answers);
+      return {
+        responseId: entry.responseId ?? `response-${index + 1}`,
+        submittedAt: entry.lastSubmittedTime ?? new Date().toISOString(),
+        employeeId: qIds.length > 0 ? getValue(qIds[0]) : '',
+        team: qIds.length > 1 ? getValue(qIds[1]) : '',
+        role: qIds.length > 2 ? getValue(qIds[2]) : '',
+        happinessScore: qIds.length > 3 ? getNumber(qIds[3]) : 0,
+        workloadScore: qIds.length > 4 ? getNumber(qIds[4]) : 0,
+        goingWell: qIds.length > 5 ? getValue(qIds[5]) : '',
+        needsImprovement: qIds.length > 6 ? getValue(qIds[6]) : '',
+        supportRequested: qIds.length > 7 ? getValue(qIds[7]) : '',
+      };
+    });
   }
 }
 
 class LiveGoogleDocsPublisher implements GoogleDocsPublisherProtocol {
-  constructor(_credentials: GoogleBridgeCredentials) {}
+  constructor(private readonly _credentials: GoogleBridgeCredentials) {}
 
   async publishPolicyToDoc(policyId: string, htmlContent: string): Promise<GoogleDocsPublishResult> {
     const now = new Date().toISOString();
-    console.log(
-      `[GoogleBridge] Live Docs publisher not yet wired. Policy: ${policyId}, Content length: ${htmlContent.length}`,
-    );
-    return {
-      status: 'SKIPPED',
-      message: 'Live Google Docs publisher not yet implemented. Use file-backed mode.',
-      documentId: null,
-      publishedAt: now,
-    };
+
+    try {
+      const accessToken = await refreshAccessToken(this._credentials);
+      const boundary = `----PranaBoundary${Date.now()}`;
+      const metadata = JSON.stringify({
+        name: `Policy - ${policyId}`,
+        mimeType: 'application/vnd.google-apps.document',
+      });
+
+      const multipartBody = [
+        `--${boundary}`,
+        'Content-Type: application/json; charset=UTF-8',
+        '',
+        metadata,
+        `--${boundary}`,
+        'Content-Type: text/html; charset=UTF-8',
+        '',
+        htmlContent,
+        `--${boundary}--`,
+      ].join('\r\n');
+
+      const res = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': `multipart/related; boundary=${boundary}`,
+          },
+          body: multipartBody,
+        },
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return {
+          status: 'FAILED',
+          message: `Drive upload failed: ${res.status} — ${errText}`,
+          documentId: null,
+          publishedAt: now,
+        };
+      }
+
+      const file = await res.json() as { id?: string };
+      return {
+        status: 'PUBLISHED',
+        message: `Policy ${policyId} published to Google Docs via Drive multipart upload.`,
+        documentId: file.id ?? null,
+        publishedAt: now,
+      };
+    } catch (error) {
+      return {
+        status: 'FAILED',
+        message: error instanceof Error ? error.message : 'Unknown publish failure.',
+        documentId: null,
+        publishedAt: now,
+      };
+    }
   }
 }
 
 class LiveGoogleDocsPuller implements GoogleDocsPullerProtocol {
   constructor(
-    _credentials: GoogleBridgeCredentials,
+    private readonly _credentials: GoogleBridgeCredentials,
     private readonly _conversionService: DocumentConversionService | null,
   ) {}
 
   async pullDocToVault(documentId: string, vaultTargetPath: string): Promise<GoogleDocsPullResult> {
     const now = new Date().toISOString();
-    console.log(
-      `[GoogleBridge] Live Docs puller not yet wired. Doc: ${documentId}, Target: ${vaultTargetPath}, Converter: ${this._conversionService ? 'available' : 'unavailable'}`,
-    );
-    return {
-      status: 'SKIPPED',
-      message: 'Live Google Docs puller not yet implemented. Use file-backed mode.',
-      vaultPath: null,
-      pulledAt: now,
-    };
+
+    try {
+      const accessToken = await refreshAccessToken(this._credentials);
+
+      // Export as HTML via Drive export endpoint
+      const exportUrl = `https://www.googleapis.com/drive/v3/files/${documentId}/export?mimeType=text/html`;
+      const res = await fetch(exportUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return {
+          status: 'FAILED',
+          message: `Drive export failed: ${res.status} — ${errText}`,
+          vaultPath: null,
+          pulledAt: now,
+        };
+      }
+
+      const htmlContent = await res.text();
+
+      if (this._conversionService) {
+        const converted = await this._conversionService.convertContent({
+          sourceFormat: 'html',
+          targetFormat: 'markdown',
+          content: htmlContent,
+        });
+        await runtimeDocumentStoreService.writeText(vaultTargetPath, converted.content);
+      } else {
+        await runtimeDocumentStoreService.writeText(vaultTargetPath, htmlContent);
+      }
+
+      await runtimeDocumentStoreService.flushPendingToVault(`sync: pull google doc ${documentId}`);
+
+      return {
+        status: 'PULLED',
+        message: `Document ${documentId} pulled from Google Drive and stored in vault.`,
+        vaultPath: vaultTargetPath,
+        pulledAt: now,
+      };
+    } catch (error) {
+      return {
+        status: 'FAILED',
+        message: error instanceof Error ? error.message : 'Unknown pull failure.',
+        vaultPath: null,
+        pulledAt: now,
+      };
+    }
   }
 }
 

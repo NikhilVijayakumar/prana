@@ -1,119 +1,89 @@
-import { syncStoreService, type EmbeddingRecord } from './syncStoreService';
-import { memoryIndexService } from './memoryIndexService';
+import { pipeline } from '@xenova/transformers';
 
 export interface VectorSearchResult {
   embeddingId: string;
-  namespace: string;
-  contentHash: string;
   score: number;
-  metadata: Record<string, unknown>;
-  updatedAt: string;
+  metadata: Record<string, any>;
 }
 
-const cosine = (left: number[], right: number[]): number => {
-  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
-    return 0;
+export interface VectorSearchQuery {
+  namespace?: string;
+  query: string;
+  limit?: number;
+}
+
+export class VectorSearchService {
+  private extractor: any = null;
+  private semanticCache = new Map<string, { vector: number[], metadata: Record<string, any>, namespace?: string }>();
+
+  constructor() {
+    this.initExtractor();
   }
 
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-
-  for (let index = 0; index < left.length; index += 1) {
-    dot += left[index] * right[index];
-    leftNorm += left[index] * left[index];
-    rightNorm += right[index] * right[index];
-  }
-
-  const denominator = Math.sqrt(leftNorm) * Math.sqrt(rightNorm);
-  if (denominator === 0) {
-    return 0;
-  }
-
-  return dot / denominator;
-};
-
-const tokenize = (text: string): string[] => {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 1);
-};
-
-const toVector = (text: string, size: number): number[] => {
-  const tokens = tokenize(text);
-  const vector = new Array<number>(size).fill(0);
-  for (const token of tokens) {
-    let hash = 0;
-    for (let index = 0; index < token.length; index += 1) {
-      hash = (hash * 33 + token.charCodeAt(index)) >>> 0;
+  private async initExtractor() {
+    try {
+      this.extractor = await pipeline('feature-extraction', 'Xenova/bge-micro-v2');
+      console.log("[VectorSearchService] BGE-Micro initialized successfully.");
+    } catch (err) {
+      console.warn("[VectorSearchService] Failed to initialize BGE-micro-v2:", err);
     }
-    vector[hash % vector.length] += 1;
   }
 
-  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
-  if (norm === 0) {
-    return vector;
-  }
-  return vector.map((value) => value / norm);
-};
-
-export const vectorSearchService = {
-  async indexMemoryNamespace(namespace = 'vault-memory'): Promise<{ indexed: number }> {
-    const chunks = await memoryIndexService.getChunks();
-    for (const chunk of chunks) {
-      await syncStoreService.upsertEmbedding({
-        embeddingId: chunk.id,
-        namespace,
-        contentHash: chunk.id,
-        vector: chunk.vector,
-        metadata: {
-          relativePath: chunk.relativePath,
-          title: chunk.title,
-          classification: chunk.classification,
-          chunkIndex: chunk.chunkIndex,
-          text: chunk.text,
-          keywords: chunk.keywords,
-        },
-      });
+  private cosineSimilarity(vecA: number[], vecB: number[]): number {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
     }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
 
-    return {
-      indexed: chunks.length,
-    };
-  },
+  public async indexDocument(docId: string, text: string, metadata: Record<string, any> = {}, namespace?: string): Promise<void> {
+    if (!this.extractor) {
+      await this.initExtractor();
+    }
+    if (!this.extractor) return; 
 
-  async query(input: {
-    namespace?: string;
-    query: string;
-    limit?: number;
-  }): Promise<VectorSearchResult[]> {
-    const namespace = input.namespace ?? 'vault-memory';
-    const embeddings = await syncStoreService.listEmbeddingsByNamespace(namespace);
-    if (embeddings.length === 0) {
-      return [];
+    metadata.text = metadata.text || text;
+
+    const out = await this.extractor(text, { pooling: 'mean', normalize: true });
+    const vector = Array.from(out.data) as number[];
+    this.semanticCache.set(docId, { vector, metadata, namespace });
+  }
+
+  public async search(query: string, k: number = 5): Promise<{docId: string, score: number}[]> {
+     const results = await this.query({ query, limit: k });
+     return results.map(r => ({ docId: r.embeddingId, score: r.score }));
+  }
+
+  public async query(input: VectorSearchQuery): Promise<VectorSearchResult[]> {
+    if (!this.extractor) {
+      await this.initExtractor();
+    }
+    if (!this.extractor || this.semanticCache.size === 0) return [];
+
+    const out = await this.extractor(input.query, { pooling: 'mean', normalize: true });
+    const queryVector = Array.from(out.data) as number[];
+
+    const results: VectorSearchResult[] = [];
+    for (const [docId, doc] of this.semanticCache.entries()) {
+      if (input.namespace && doc.namespace && doc.namespace !== input.namespace) continue;
+      
+      const score = this.cosineSimilarity(queryVector, doc.vector);
+      results.push({ embeddingId: docId, score, metadata: doc.metadata });
     }
 
-    const vectorSize = embeddings[0]?.vector.length || 64;
-    const queryVector = toVector(input.query, vectorSize);
-    const limit = Math.max(1, Math.min(50, input.limit ?? 8));
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, input.limit ?? 5);
+  }
 
-    return embeddings
-      .map((embedding) => ({
-        embeddingId: embedding.embeddingId,
-        namespace: embedding.namespace,
-        contentHash: embedding.contentHash,
-        score: cosine(queryVector, embedding.vector),
-        metadata: embedding.metadata,
-        updatedAt: embedding.updatedAt,
-      }))
-      .filter((result) => result.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, limit);
-  },
+  public clear(): void {
+    this.semanticCache.clear();
+  }
+}
 
-  async previewNamespace(namespace = 'vault-memory'): Promise<EmbeddingRecord[]> {
-    return syncStoreService.listEmbeddingsByNamespace(namespace);
-  },
-};
+export const vectorSearchService = new VectorSearchService();

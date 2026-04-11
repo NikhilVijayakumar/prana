@@ -24,7 +24,6 @@ export const OnboardingContainer: FC = () => {
         stepStatusById={vm.stepStatusById}
         phaseTrackerById={vm.phaseTrackerById}
         currentStep={vm.currentStep}
-        totalSteps={vm.totalSteps}
         currentStepConfig={vm.currentStepConfig}
         currentStepFields={vm.currentStepFields}
         canDirectorApproveAll={vm.canDirectorApproveAll}

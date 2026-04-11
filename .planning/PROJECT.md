@@ -18,57 +18,39 @@ Internal operators and administrators.
 ## Requirements
 
 ### Validated
-- [x] Upgrade Astra to v1.0.4 and fix strict compilation constraints. — v1.1
-- [x] Complete robust error handling & "Fail Fast" initializers. — v1.1
-- [x] Audit existing implementations against specs in `docs/features` — v1.2
-- [x] Resolve all partial implementations across 11 sub-domains — v1.2
-- [x] Identify and fix gaps between current implementation and documentation — v1.2
-- [x] Detect and resolve security gaps related to feature implementations (Zod, wrappedFetch, Path Traversal) — v1.2
+- [x] **v1.3**: Communication (WhatsApp/Loops), Storage (Vector/AES-256-GCM), Queue (DLQ/DAG/Throttling), Pipeline (Backpressure/PDF), Google Ecosystem (REST).
+- [x] **v1.2**: Security (Zod/wrappedFetch/Path Traversal), Domain Audit (11 domains), Documentation Reconcilation.
+- [x] **v1.1**: Error Handling (Fail Fast), Initialization Architecture, Astra v1.0.4 Upgrade.
 
 ### Active
-- [ ] Implement WhatsApp adapter and agent loop protection for Communication.
-- [ ] Design and implement Vector search RAG structures and DB encryption extensions for Storage.
-- [ ] Establish dead letter queues, DAG tasks, and adaptive throttling controls for Queue Services.
-- [ ] Introduce backpressure handling, binary PII redaction, and Puppeteer PDF generation in pipeline.
-- [ ] Develop robust Google Ecosystem Integration (Drive, Docs, Sheets, Slides, Forms) for read/write operations.
+(Initializing v1.4 via `/gsd-new-milestone`...)
 
 ### Out of Scope
 - Hosted web versions (purely Electron app)
 - Developing brand new features outside of existing documentation
 
-## Current Milestone: v1.3 Feature Expansion & Ecosystem Integration
+## Current State: v1.3 Shipped (2026-04-11)
 
-**Goal:** Bridge feature engine deficits by adding advanced communication integrations, expanding storage RAG indexing, resolving deferred queue mechanisms, and deeply integrating with the Google Ecosystem for robust document operations.
+**Key Accomplishments:**
+- Hardened persistence with **AES-256-GCM** encryption.
+- Zero-dependency **Google REST Ecosystem** integration (Port 3111 OAuth).
+- Universal Queue with **DAG-based task dependencies** and **Dead Letter Queues**.
+- Ingestion Pipeline with **Backpressure (200 threshold)** and **PII Redaction**.
 
-**Target features:**
-- **Communication:** WhatsApp adapter and agent loop protection.
-- **Storage:** Vector search RAG structures and DB encryption extensions.
-- **Queue Services:** Dead letter queues, DAG tasks, and adaptive throttling controls.
-- **Pipeline Constraints:** Backpressure handling, binary PII redaction, and Puppeteer-driven PDF generation in the Email/Visual pipelines.
-- **Google Ecosystem:** Read/write operation integration for Google Drive, Docs, Sheets, Slides, and Forms.
+## Next Milestone Goals (v1.4)
+- [ ] **Automated Workflows**: Orchestrate multi-step task chains utilizing the new DAG engine.
+- [ ] **Visual Redaction**: Implement binary PII redaction (OCR + Blur) for document assets.
+- [ ] **Unified Agent Interface**: Streamline the interaction between Communication Adapters and the Knowledge Vault.
 
 ## Key Decisions
 | Decision | Rationale | Outcome |
 | --- | --- | --- |
 | Adopt pure IPC bounded context (Cold-Vault) | Enforce security | ✅ Good |
 | Strict Schema Validation (Zod) at IPC boundary | Prevent payload corruption | ✅ Good |
+| Native REST for Google Integration | Eliminate heavy SDK dependencies and reduce bundle size | ✅ Good |
 
 ## Evolution
-
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `/gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
-
 ---
-*Last updated: 2026-04-11 after v1.3 milestone definitions*
+*Last updated: 2026-04-11 after v1.3 milestone archival*

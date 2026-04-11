@@ -41,6 +41,10 @@ All HTTP calls within Prana route through `wrappedFetch` (from `globalFetchWrapp
 ### Filesystem Path Traversal Prevention
 All filesystem operations are vault-bounded: `resolvedPath.startsWith(vaultRoot)` is enforced by `virtualDriveProvider.ts`. Files outside defined vault directories cannot be accessed.
 
+### SQLite Encryption at Rest (v1.3)
+All SQLite database files (`.sqlite`) are encrypted using **AES-256-GCM** with keys derived via **PBKDF2** (using `vault.archivePassword` and `vault.archiveSalt`). This provides at-rest protection independently of the system drive mount state.
+
+
 ## Required Runtime Config Contract
 
 Prana validates required keys before startup can reach operational state. These fields are mandatory:
@@ -110,21 +114,16 @@ Notes:
 - Telegram adapter supports groups and uses `chatId` as room/account context.
 - Telegram token must not be stored in vault artifacts.
 
-### 3. Google Ecosystem Integration
-
-Provide:
-
-- Google credentials in runtime config: `clientId`, `clientSecret`, `refreshToken`, `adminEmail`.
-- Integration data identifiers: Drive folder IDs, document IDs, optional spreadsheet IDs.
-- Sync metadata persistence expectations: `file_id`, `type`, `last_modified`, `sync_status`, `last_synced_at`.
-- Manual/cron sync source metadata (`MANUAL` or `CRON`) for auditing.
+- `google.refreshToken`
+- `google.adminEmail`
 
 Cloud prerequisites:
 
-1. Create Google Cloud project.
-2. Enable required APIs (Drive, Sheets, Docs/Slides/Forms as needed).
-3. Configure OAuth consent screen.
-4. Generate client credentials and obtain refresh token.
+1. Create Google Cloud project and enable APIs (Drive, Sheets, Docs, Forms).
+2. Configure OAuth consent screen with `http://localhost:3111` as a valid redirect URI.
+3. Prana uses an **ephemeral OAuth server** on Port 3111 to capture the authorization code during the initial handshake.
+4. Native `fetch()` REST gateways are used for all operations (zero-dependency).
+
 
 ### 4. Email Integration (IMAP Pulse)
 
@@ -145,17 +144,28 @@ Notes:
 - Email worker expects password via `PRANA_IMAP_PASSWORD` internally, injected by main process service.
 - Never persist mailbox passwords in vault documents.
 
-### 5. Cron / Queue Scheduling
-
-Provide:
-
 - Job definitions: `id`, `name`, `expression`, `target`, `status`, `recovery_policy`.
 - Recovery policy per job: `SKIP`, `RUN_ONCE`, or `CATCH_UP`.
-- Runtime handler mapping for each `target` executor key.
+- **Advanced Features (v1.3):**
+  - **DAG Dependencies:** Tasks can specify `dependency_task_ids` in `payloadMeta`. The orchestrator will not claim a task until all dependencies are `COMPLETED`.
+  - **Adaptive Throttling:** If a lane encounters >5 failures, its parallelism is dynamically throttled to 0 (Circuit Breaker).
+  - **Dead Letter Queue (DLQ):** Tasks that exhaust retries are moved to `DLQ` state for manual inspection.
 
-Notes:
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator
+    participant R as Registry
+    participant W as Worker
+    O->>R: claimNextTask()
+    R->>R: check dependency_task_ids
+    alt Deps not COMPLETED
+        R-->>O: skip task
+    else Deps OK
+        R-->>O: Lease RUNNING
+        O->>W: execute
+    end
+```
 
-- Recovery and scheduling should start only after storage and integrity gates pass.
 
 ### 6. Storage Governance
 

@@ -1,3 +1,4 @@
+import { encryptSqliteBuffer, decryptSqliteBuffer } from './sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -86,16 +87,25 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
   await mkdir(getAppDataRoot(), { recursive: true });
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
   await mkdir(getAppDataRoot(), { recursive: true });
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    const raw = await readFile(getDbPath());
+    try {
+      database = new sqlRuntime.Database(await decryptSqliteBuffer(Buffer.from(raw)));
+    } catch {
+      database = new sqlRuntime.Database(new Uint8Array(raw));
+      await persistDatabase(database);
+    }
+  } else {
+    database = new sqlRuntime.Database();
+  }
 
   database.run(`
     CREATE TABLE IF NOT EXISTS history_digests (

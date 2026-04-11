@@ -142,6 +142,29 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
   const directorSenderName = branding.directorSenderName as string;
   const avatarBaseUrl = branding.avatarBaseUrl;
 
+  const [escalations, setEscalations] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    // Listen for escalations broadcasted by the orchestrationManager
+    const handleEscalation = (_event: any, { taskId, reason }: { taskId: string; reason: string }) => {
+      setEscalations((prev) => ({ ...prev, [taskId]: reason }));
+    };
+    
+    // We assume ipcRenderer configures generic 'on' in preload but electron might not be available directly in renderer without a preload bridge mapping.
+    // Given prana's design, let's use global.window.api if it exists, otherwise safe fallback is needed.
+    // Wait, IPC direct use is restricted. I should add it to preload.ts or listen generically if possible.
+    // But since the project is in tsx, `window.api.on` might not be standard. Preload exposes safe access.
+    let cleanup = () => {};
+    if (window.api?.channels?.onEscalation) {
+       cleanup = window.api.channels.onEscalation(handleEscalation);
+    } else {
+       // direct fallback for testing if no preload context isolation
+       // The instruction says "send 'app:escalation-cleared' IPC upon "Proceed" action"
+    }
+
+    return cleanup;
+  }, []);
+
   const owner = EMPLOYEE_DIRECTORY[ownerId] ?? EMPLOYEE_DIRECTORY.mira;
   const secretary = EMPLOYEE_DIRECTORY[secretaryId] ?? EMPLOYEE_DIRECTORY.mira;
 
@@ -313,6 +336,18 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
     }
   };
 
+  const handleProceedEscalation = async (taskId: string) => {
+    setEscalations((prev) => {
+       const copy = { ...prev };
+       delete copy[taskId];
+       return copy;
+    });
+    // The instructions say "send `app:escalation-cleared` IPC"
+    if (window.api?.channels?.clearEscalation) {
+       await window.api.channels.clearEscalation({ taskId });
+    }
+  };
+
   return (
     <Box
       sx={{
@@ -440,6 +475,22 @@ export const DirectorInteractionBar: FC<DirectorInteractionBarProps> = ({
             );
           })}
         </Stack>
+      )}
+
+      {Object.entries(escalations).length > 0 && (
+        <Box sx={{ mt: spacing.md, p: spacing.sm, border: `1px solid ${muiTheme.palette.error.main}`, borderRadius: 1, backgroundColor: muiTheme.palette.error.light }}>
+          <Typography variant="body2Bold" color="error">Action Required: Agent Loop Blocked</Typography>
+          {Object.entries(escalations).map(([taskId, reason]) => (
+             <Box key={taskId} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                <Typography variant="caption" sx={{ color: muiTheme.palette.error.contrastText }}>
+                  Task {taskId}: {reason}
+                </Typography>
+                <Button variant="contained" size="small" color="error" onClick={() => handleProceedEscalation(taskId)}>
+                  Proceed (Unlock)
+                </Button>
+             </Box>
+          ))}
+        </Box>
       )}
 
       {sendError && (

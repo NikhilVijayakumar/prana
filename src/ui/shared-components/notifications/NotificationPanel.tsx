@@ -28,7 +28,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useNotifications } from '../../context/NotificationContext';
-import { NotificationListFilters } from '../../../../main/services/notificationStoreService';
+import type { NotificationListFilters } from '../../../main/services/notificationStoreService';
 
 type TabValue = 'all' | 'unread' | 'critical' | 'warnings';
 
