@@ -162,3 +162,10 @@ out/
 /reference/
 /.tmp-appdata/email-orchestrator.json
 /.tmp-appdata/memory-index.json
+/.prana/vault-temp/working/data/registry-sync/registry-sync.snapshot.json
+/refactor.js
+/refactor_fetch.js
+/refactor_ipc.js
+/refactor_reqs.js
+/refactor_vault.js
+/test.js
