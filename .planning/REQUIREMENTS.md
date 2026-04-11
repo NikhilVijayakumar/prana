@@ -1,25 +1,27 @@
-# Milestone v1.2 Requirements
+# Milestone v1.3 Requirements
 
-## Security Hardening
-- [x] **SEC-01**: Application isolates all untrusted feature contexts via IPC strict messaging.
-- [x] **SEC-02**: File system permissions strictly prevent writing outside of expected vault directories.
-- [x] **SEC-03**: Network and integration layers properly handle timeouts and limit external exposure.
+## Communication Integrations
+- [ ] **COMM-01**: Implement WhatsApp adapter plugin to allow bounded message transmission via WhatsApp.
+- [ ] **COMM-02**: Develop agent loop protection mechanisms to prevent infinite reply loops between automated agents.
 
-## Feature Completeness Audit 
-- [x] **AUDIT-01**: Codebase explicitly implements all capabilities documented in `docs/features/communication.md`.
-- [x] **AUDIT-02**: Codebase explicitly implements all capabilities documented in `docs/features/cron`.
-- [x] **AUDIT-03**: Codebase explicitly implements all capabilities documented in `docs/features/email.md`.
-- [x] **AUDIT-04**: Codebase explicitly implements all capabilities documented in `docs/features/Integration`.
-- [x] **AUDIT-05**: Codebase explicitly implements all capabilities documented in `docs/features/notification`.
-- [x] **AUDIT-06**: Codebase explicitly implements all capabilities documented in `docs/features/Onboarding`.
-- [x] **AUDIT-07**: Codebase explicitly implements all capabilities documented in `docs/features/queue-scheduling`.
-- [x] **AUDIT-08**: Codebase explicitly implements all capabilities documented in `docs/features/splash`.
-- [x] **AUDIT-09**: Codebase explicitly implements all capabilities documented in `docs/features/storage`.
-- [x] **AUDIT-10**: Codebase explicitly implements all capabilities documented in `docs/features/vaidyar`.
-- [x] **AUDIT-11**: Codebase explicitly implements all capabilities documented in `docs/features/visual`.
+## Storage Enhancements
+- [ ] **STORE-01**: Design and implement Vector search RAG structures within SQLite storage boundaries.
+- [ ] **STORE-02**: Integrate DB encryption extensions for at-rest SQLite vault protection.
 
-## Documentation Consistency
-- [x] **DOCS-01**: Documentation matches the newly hardened system and any deviated code has been documented correctly.
+## Queue Services Optimization
+- [ ] **QUEUE-01**: Implement Dead Letter Queues (DLQ) to capture and manage irreversibly failed tasks.
+- [ ] **QUEUE-02**: Build DAG (Directed Acyclic Graph) task dependency capabilities to allow sequential execution lanes.
+- [ ] **QUEUE-03**: Introduce adaptive throttling controls to self-regulate queue processing rates under load.
+
+## Pipeline Constraints Management
+- [ ] **PIPE-01**: Integrate backpressure handling mechanisms capable of pausing ingestion across email and visual streams.
+- [ ] **PIPE-02**: Enforce automated binary PII redaction rules on ingested visual / document assets.
+- [ ] **PIPE-03**: Integrate isolated Puppeteer-driven PDF generation rendering for reports.
+
+## Google Ecosystem Integration
+- [ ] **GOOG-01**: Enable read/write operation integrations for Google Drive documents.
+- [ ] **GOOG-02**: Read and write capabilities integrated for Google Docs and Sheets.
+- [ ] **GOOG-03**: Integrated interface for generating or reading Google Slides and Google Forms.
 
 ---
 
@@ -27,24 +29,22 @@
 (None deferred currently)
 
 ### Out of Scope
-- Building new features that are entirely completely undocumented or unrelated to the `docs/features` specifications.
+- Developing entirely new domains outside the scope of bridging v1.2 feature engine deficits.
 
 ## Traceability
 
 | Requirement | Addressed In |
 |---|---|
-| SEC-01 | Phase 1 |
-| SEC-02 | Phase 1 |
-| SEC-03 | Phase 1 |
-| AUDIT-01 | Phase 2 |
-| AUDIT-02 | Phase 2 |
-| AUDIT-03 | Phase 2 |
-| AUDIT-04 | Phase 2 |
-| AUDIT-05 | Phase 2 |
-| AUDIT-06 | Phase 2 |
-| AUDIT-07 | Phase 2 |
-| AUDIT-08 | Phase 2 |
-| AUDIT-09 | Phase 2 |
-| AUDIT-10 | Phase 2 |
-| AUDIT-11 | Phase 2 |
-| DOCS-01 | Phase 3 |
+| COMM-01 | |
+| COMM-02 | |
+| STORE-01 | |
+| STORE-02 | |
+| QUEUE-01 | |
+| QUEUE-02 | |
+| QUEUE-03 | |
+| PIPE-01 | |
+| PIPE-02 | |
+| PIPE-03 | |
+| GOOG-01 | |
+| GOOG-02 | |
+| GOOG-03 | |
