@@ -1,5 +1,4 @@
 import { FC } from 'react';
-// @ts-expect-error - Astra typings bug drops AppStateHandler named export
 import { AppStateHandler, StateType } from 'astra';
 import { useVaultKnowledgeViewModel } from '../viewmodel/useVaultKnowledgeViewModel';
 import { VaultKnowledgeView } from './VaultKnowledgeView';
