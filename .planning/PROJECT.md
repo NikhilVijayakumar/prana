@@ -23,13 +23,13 @@ Internal operators and administrators.
 - [x] **v1.1**: Error Handling (Fail Fast), Initialization Architecture, Astra v1.0.4 Upgrade.
 
 ### Active
-(Initializing v1.4 via `/gsd-new-milestone`...)
+[x] **v1.4**: Dependency Hygiene (npm install warning cleanup, MUI typography variant compatibility).
 
 ### Out of Scope
 - Hosted web versions (purely Electron app)
 - Developing brand new features outside of existing documentation
 
-## Current State: v1.3 Shipped (2026-04-11)
+## Current State: v1.4 Shipped (2026-04-11)
 
 **Key Accomplishments:**
 - Hardened persistence with **AES-256-GCM** encryption.
@@ -41,6 +41,7 @@ Internal operators and administrators.
 - [ ] **Automated Workflows**: Orchestrate multi-step task chains utilizing the new DAG engine.
 - [ ] **Visual Redaction**: Implement binary PII redaction (OCR + Blur) for document assets.
 - [ ] **Unified Agent Interface**: Streamline the interaction between Communication Adapters and the Knowledge Vault.
+- [ ] **Dependency Hygiene**: Remove npm install peer dependency override warnings by reconciling React, MUI, and type package versions.
 
 ## Key Decisions
 | Decision | Rationale | Outcome |

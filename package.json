@@ -28,10 +28,10 @@
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.3.9",
-    "@mui/material": "^7.3.9",
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
+    "@mui/icons-material": "7.3.10",
+    "@mui/material": "7.3.10",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "@xenova/transformers": "^2.17.2",
     "astra": "github:NikhilVijayakumar/astra",
@@ -44,9 +44,13 @@
     "mammoth": "^1.12.0",
     "marked": "^17.0.5",
     "react-router-dom": "^7.13.1",
+    "sharp": "^0.34.5",
     "sql.js": "^1.14.1",
     "turndown": "^7.2.2",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
@@ -55,7 +59,7 @@
     "@playwright/test": "^1.54.2",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^22.19.1",
-    "@types/react": "^19.2.7",
+    "@types/react": "19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "cross-env": "^10.1.0",
@@ -68,19 +72,11 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "json-schema-to-typescript": "^15.0.4",
     "prettier": "^3.7.4",
-    "react": "^19.2.1",
-    "react-dom": "^19.2.1",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
     "ts-morph": "^27.0.2",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
     "vitest": "^4.1.0"
-  },
-  "overrides": {
-    "react": "$react",
-    "react-dom": "$react-dom",
-    "@mui/material": "$@mui/material",
-    "@mui/icons-material": "$@mui/icons-material",
-    "@emotion/react": "$@emotion/react",
-    "@emotion/styled": "$@emotion/styled"
   }
 }
