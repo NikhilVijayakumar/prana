@@ -289,9 +289,6 @@ let latestStartupReport: StartupStatusReport = {
   overallStatus: 'DEGRADED',
   overallProgress: 0,
   stages: createInitialStages(),
-  diagnostics: {
-    virtualDrives: driveControllerService.getDiagnostics(),
-  },
 };
 
 let runningSequence: Promise<StartupStatusReport> | null = null;
