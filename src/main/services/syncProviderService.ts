@@ -465,8 +465,22 @@ const pullLatestFromRemoteVaultAndMerge = async (
       }
 
       await runtimeDocumentStoreService.seedFromVaultWorkspace(vaultService.getWorkingRootPath());
-      return applyRemoteSnapshotIfNewer(installMode);
+      return await applyRemoteSnapshotIfNewer(installMode);
     });
+  } catch (error) {
+    console.warn('[Sync] Failed to mount virtual drive, skipping direct node merge integration.', error);
+    lastPullAt = nowIso();
+    lastPullStatus = 'FAILED';
+    lastPullMessage = error instanceof Error ? error.message : 'Failed to mount virtual drive';
+    return {
+      installMode,
+      pulled: false,
+      merged: false,
+      pullStatus: 'FAILED',
+      mergeStatus: 'FAILED',
+      integrityStatus: 'UNKNOWN',
+      skippedReason: lastPullMessage,
+    };
   } finally {
     await vaultService.cleanupTemporaryWorkspace(true);
   }
