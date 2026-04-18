@@ -1,8 +1,12 @@
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'node:crypto';
-import { getRuntimeBootstrapConfig } from './runtimeConfigService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 
 const getDbKey = (): Buffer => {
-  const vaultConfig = getRuntimeBootstrapConfig().vault;
+  const config = getPranaRuntimeConfig();
+  if (!config?.vault) {
+    throw new Error('[PRANA_CONFIG_ERROR] Vault config not available for DB key derivation');
+  }
+  const vaultConfig = config.vault;
   return pbkdf2Sync(
     vaultConfig.archivePassword,
     vaultConfig.archiveSalt,
