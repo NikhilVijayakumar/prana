@@ -1,0 +1,92 @@
+{
+  "name": "prana",
+  "summaryLines": 3,
+  "maxDepth": 3,
+  "sections": [
+    "navigation",
+    "global",
+    "vision",
+    "dependencies",
+    "systemMap",
+    "featureDetails",
+    "conceptMap",
+    "editMap",
+    "flows",
+    "docsManifest",
+    "rules",
+    "api",
+    "maintenance"
+  ],
+  "conceptMap": [
+    { "name": "Startup Orchestrator", "impl": "startupOrchestratorService", "path": "src/main/services/startupOrchestratorService.ts" },
+    { "name": "Virtual Drive", "impl": "driveControllerService", "path": "src/main/services/driveControllerService.ts" },
+    { "name": "Vault", "impl": "vaultService", "path": "src/main/services/vaultService.ts" },
+    { "name": "SQLite Cache", "impl": "sqliteConfigStoreService", "path": "src/main/services/sqliteConfigStoreService.ts" },
+    { "name": "Context Engine", "impl": "contextEngineService", "path": "src/main/services/contextEngineService.ts" },
+    { "name": "Sync Engine", "impl": "syncEngineService", "path": "src/main/services/syncEngineService.ts" },
+    { "name": "Cron Scheduler", "impl": "cronSchedulerService", "path": "src/main/services/cronSchedulerService.ts" },
+    { "name": "Queue Orchestrator", "impl": "queueOrchestratorService", "path": "src/main/services/queueOrchestratorService.ts" },
+    { "name": "Vaidyar (Health)", "impl": "vaidyarService", "path": "src/main/services/vaidyarService.ts" },
+    { "name": "Email", "impl": "emailOrchestratorService", "path": "src/main/services/emailOrchestratorService.ts" },
+    { "name": "Channel Router", "impl": "channelRouterService", "path": "src/main/services/channelRouterService.ts" },
+    { "name": "Notifications", "impl": "notificationCentreService", "path": "src/main/services/notificationCentreService.ts" },
+    { "name": "Runtime Config", "impl": "runtimeConfigService", "path": "src/main/services/runtimeConfigService.ts" },
+    { "name": "UI Components", "impl": "Astra", "path": "src/ui/common/components/" }
+  ],
+  "editMap": [
+    { "task": "Add runtime service", "path": "src/main/services/" },
+    { "task": "Add UI component", "path": "src/ui/common/components/" },
+    { "task": "Add feature doc", "path": "docs/features/" },
+    { "task": "Update storage contract", "path": "docs/features/storage/governance/" },
+    { "task": "Add screen", "path": "src/ui/[screen-family]/" }
+  ],
+  "flows": [
+    { "name": "Add runtime service", "steps": ["Create docs/features/[feature].md", "Define service contract", "Implement in src/main/services/", "Add IPC handler in preload.ts", "Update index.md"] },
+    { "name": "Add UI screen", "steps": ["Create docs/features/splash/[screen].md", "Create Container → ViewModel → View", "Export in src/ui/common/components/index.ts", "Update index.md"] },
+    { "name": "Add feature doc", "steps": ["Create docs/features/[domain]/[feature].md", "Add to wiki-steps.json conceptMap", "Run generate:index"] }
+  ],
+  "rules": [
+    "Atomic docs first - one document, one runtime responsibility",
+    "Service-oriented main process - all state flows through structured IPC",
+    "MVVM renderer - Container → ViewModel → View pattern",
+    "Never use process.env directly - flow config through IPC",
+    "Use Zod validation on all IPC handlers",
+    "All components use theme tokens - never hardcode colors"
+  ],
+  "featureDetails": {
+    "core": [
+      { "area": "Virtual Drive", "doc": "docs/features/storage/virtual-drive.md", "services": ["driveControllerService", "mountRegistryService", "virtualDriveProvider"] },
+      { "area": "Vault", "doc": "docs/features/storage/vault.md", "services": ["vaultService", "vaultLifecycleManager", "vaultRegistryService"] },
+      { "area": "SQLite Cache", "doc": "docs/features/storage/sqlite-cache.md", "services": ["runtimeDocumentStoreService", "sqliteConfigStoreService", "sqliteCryptoUtil"] },
+      { "area": "Data Integrity", "doc": "docs/features/storage/data-integrity-protocol.md", "services": ["dataFilterService"] },
+      { "area": "Sync Engine", "doc": "docs/features/storage/sync-engine.md", "services": ["syncEngineService", "syncProviderService", "syncStoreService", "conflictResolver"] },
+      { "area": "Storage Governance", "doc": "docs/features/storage/governance/index.md", "services": ["governanceRepoService"] }
+    ],
+    "runtime": [
+      { "area": "Startup", "doc": "docs/features/boot/startup-orchestrator.md", "services": ["startupOrchestratorService", "runtimeConfigService"] },
+      { "area": "Cron", "doc": "docs/features/cron/cron.md", "services": ["cronSchedulerService", "queueService"] },
+      { "area": "Queue Scheduling", "doc": "docs/features/queue-scheduling/queue-scheduling.md", "services": ["queueOrchestratorService", "taskRegistryService"] },
+      { "area": "Context Engine", "doc": "docs/features/context/context-engine.md", "services": ["contextEngineService", "contextOptimizerService", "contextDigestStoreService"] },
+      { "area": "Authentication", "doc": "docs/features/auth/authentication.md", "services": ["authService", "authStoreService"] },
+      { "area": "Splash", "doc": "docs/features/splash/splash-system-initialization.md", "services": ["ipcService", "envService"] }
+    ],
+    "onboarding": [
+      { "area": "Pipeline", "doc": "docs/features/Onboarding/onboarding-pipeline-orchestrator.md", "services": ["businessContextRegistryService", "businessAlignmentService"] },
+      { "area": "Model Config", "doc": "docs/features/Onboarding/onboarding-model-configuration.md", "services": ["runtimeModelAccessService"] },
+      { "area": "Channel Config", "doc": "docs/features/Onboarding/onboarding-channel-configuration.md", "services": ["channelRegistryService"] },
+      { "area": "Registry Approval", "doc": "docs/features/Onboarding/onboarding-registry-approval.md", "services": ["businessContextValidationService"] }
+    ],
+    "integration": [
+      { "area": "Email", "doc": "docs/features/email/email.md", "services": ["emailOrchestratorService", "emailImapService", "emailBrowserAgentService"] },
+      { "area": "Channel Router", "doc": "docs/features/chat/communication.md", "services": ["channelRouterService", "orchestrationManager"] },
+      { "area": "Google", "doc": "docs/features/Integration/google-ecosystem-integration.md", "services": ["googleBridgeService", "googleOAuthServer"] },
+      { "area": "PDF Viewer", "doc": "docs/features/Integration/viewer-pdf-screen.md", "services": ["pdfGeneratorService"] },
+      { "area": "Markdown Viewer", "doc": "docs/features/Integration/viewer-markdown-screen.md", "services": ["documentConversionService"] }
+    ],
+    "diagnostics": [
+      { "area": "Vaidyar", "doc": "docs/features/vaidyar/vaidyar.md", "services": ["vaidyarService", "systemHealthService", "auditLogService"] },
+      { "area": "Notifications", "doc": "docs/features/notification/notification-centre.md", "services": ["notificationCentreService", "hookSystemService", "notificationStoreService"] },
+      { "area": "Visual Audit", "doc": "docs/features/visual/visual-identity-engine.md", "services": ["visualIdentityService", "visualAuditService"] }
+    ]
+  }
+}
