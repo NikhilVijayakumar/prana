@@ -11,6 +11,7 @@ import { googleBridgeService } from './googleBridgeService';
 import { driveControllerService, VirtualDriveDiagnosticsSnapshot } from './driveControllerService';
 import { notificationCentreService } from './notificationCentreService';
 import { vaidyarService } from './vaidyarService';
+import { hostDependencyCapabilityService } from './hostDependencyCapabilityService';
 
 export type StartupState =
   | 'INIT'
@@ -23,6 +24,7 @@ export type StartupState =
 
 export type StartupStageId =
   | 'integration'
+  | 'host-dependencies'
   | 'governance'
   | 'vault'
   | 'storage-mirror-validation'
@@ -75,6 +77,7 @@ const nowIso = (): string => new Date().toISOString();
  */
 const WATCHDOG_TIMEOUT_MS: Record<StartupStageId, number> = {
   'integration': 30 * 1000,        // 30 seconds
+  'host-dependencies': 15 * 1000,  // 15 seconds (binary availability checks)
   'governance': 45 * 1000,         // 45 seconds (includes repo clone if needed)
   'vault': 60 * 1000,              // 60 seconds (vault initialization + pull)
   'storage-mirror-validation': 30 * 1000, // 30 seconds
@@ -96,16 +99,22 @@ const executeWithWatchdog = async <T>(
     return operation();
   }
 
-  return Promise.race([
-    operation(),
-    new Promise<T>((_, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`Stage '${stageId}' exceeded timeout of ${timeoutMs}ms`));
-      }, timeoutMs);
-      // Ensure timer is cleared if operation completes
-      void operation().finally(() => clearTimeout(timer));
-    }),
-  ]);
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`Stage '${stageId}' exceeded timeout of ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 };
 
 /**
@@ -115,6 +124,7 @@ const executeWithWatchdog = async <T>(
 const stageToTargetState = (id: StartupStageId): StartupState => {
   const mapping: Record<StartupStageId, StartupState> = {
     'integration': 'FOUNDATION',
+    'host-dependencies': 'FOUNDATION',
     'governance': 'IDENTITY_VERIFIED',
     'vault': 'STORAGE_READY',
     'storage-mirror-validation': 'STORAGE_MIRROR_VALIDATING',
@@ -132,13 +142,14 @@ const stageToTargetState = (id: StartupStageId): StartupState => {
  */
 const stageProgressAllocation = (id: StartupStageId): { start: number; end: number } => {
   const allocations: Record<StartupStageId, { start: number; end: number }> = {
-    'integration': { start: 0, end: 8 },
-    'governance': { start: 8, end: 16 },
-    'vault': { start: 16, end: 28 },
-    'storage-mirror-validation': { start: 28, end: 36 },
-    'vaidyar': { start: 36, end: 48 },
-    'sync-recovery': { start: 48, end: 68 },
-    'cron-recovery': { start: 68, end: 90 },
+    'integration': { start: 0, end: 6 },
+    'host-dependencies': { start: 6, end: 14 },
+    'governance': { start: 14, end: 22 },
+    'vault': { start: 22, end: 34 },
+    'storage-mirror-validation': { start: 34, end: 42 },
+    'vaidyar': { start: 42, end: 54 },
+    'sync-recovery': { start: 54, end: 72 },
+    'cron-recovery': { start: 72, end: 90 },
   };
   return allocations[id] || { start: 0, end: 100 };
 };
@@ -206,6 +217,17 @@ const createInitialStages = (): StartupStageReport[] => [
   {
     id: 'integration',
     label: 'Integration Contract Check',
+    status: 'PENDING',
+    state: 'INIT',
+    progress: 0,
+    message: 'Waiting...',
+    isBlocking: true,
+    startedAt: null,
+    finishedAt: null,
+  },
+  {
+    id: 'host-dependencies',
+    label: 'Host Dependency Capability Check',
     status: 'PENDING',
     state: 'INIT',
     progress: 0,
@@ -393,6 +415,7 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
         'FAILED',
         `Integration contract failed. Missing=${integration.summary.missing}, Invalid=${integration.summary.invalid}`,
       );
+      skipStage(stages, 'host-dependencies', 'Skipped due to integration failure.');
       skipStage(stages, 'governance', 'Skipped due to integration failure.');
       skipStage(stages, 'vault', 'Skipped due to integration failure.');
       skipStage(stages, 'storage-mirror-validation', 'Skipped due to integration failure.');
@@ -430,6 +453,7 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
       'FAILED',
       error instanceof Error ? error.message : 'Integration contract check failed.',
     );
+    skipStage(stages, 'host-dependencies', 'Skipped due to integration failure.');
     skipStage(stages, 'governance', 'Skipped due to integration failure.');
     skipStage(stages, 'vault', 'Skipped due to integration failure.');
     skipStage(stages, 'storage-mirror-validation', 'Skipped due to integration failure.');
@@ -450,6 +474,54 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
       currentState: determineCurrentState(stages),
       overallProgress: calculateOverallProgress(stages),
     });
+    return latestStartupReport;
+  }
+
+  markStage(stages, 'host-dependencies', 'PENDING', 'Checking required host dependencies (SSH, Git, virtual drive runtime)...');
+  try {
+    const capability = await executeWithWatchdog('host-dependencies', () => hostDependencyCapabilityService.evaluate());
+    if (!capability.passed) {
+      const missingDetails = capability.diagnostics
+        .filter((entry) => !entry.available)
+        .map((entry) => `${entry.dependency}: ${entry.message}`)
+        .join('; ');
+
+      markStage(
+        stages,
+        'host-dependencies',
+        'FAILED',
+        `Missing host dependencies: ${capability.missing.join(', ')}. ${missingDetails}`,
+      );
+
+      skipStage(stages, 'governance', 'Skipped because required host dependencies are unavailable.');
+      skipStage(stages, 'vault', 'Skipped because required host dependencies are unavailable.');
+      skipStage(stages, 'storage-mirror-validation', 'Skipped because required host dependencies are unavailable.');
+      skipStage(stages, 'vaidyar', 'Skipped because required host dependencies are unavailable.');
+      skipStage(stages, 'sync-recovery', 'Skipped because required host dependencies are unavailable.');
+      skipStage(stages, 'cron-recovery', 'Skipped because required host dependencies are unavailable.');
+
+      latestStartupReport = buildStatusReport(startedAt, stages);
+      return latestStartupReport;
+    }
+
+    markStage(stages, 'host-dependencies', 'SUCCESS', 'Required host dependencies are available.');
+  } catch (error) {
+    markStage(
+      stages,
+      'host-dependencies',
+      'FAILED',
+      error instanceof Error ? error.message : 'Host dependency capability check failed.',
+      'HOST_DEPENDENCY_CHECK_FAILED',
+    );
+
+    skipStage(stages, 'governance', 'Skipped because host dependency capability check failed.');
+    skipStage(stages, 'vault', 'Skipped because host dependency capability check failed.');
+    skipStage(stages, 'storage-mirror-validation', 'Skipped because host dependency capability check failed.');
+    skipStage(stages, 'vaidyar', 'Skipped because host dependency capability check failed.');
+    skipStage(stages, 'sync-recovery', 'Skipped because host dependency capability check failed.');
+    skipStage(stages, 'cron-recovery', 'Skipped because host dependency capability check failed.');
+
+    latestStartupReport = buildStatusReport(startedAt, stages);
     return latestStartupReport;
   }
 

@@ -15,6 +15,7 @@ const ensureGoogleSyncSchedulerJobMock = vi.fn();
 const runBootstrapDiagnosticsMock = vi.fn();
 const getBlockingSignalsMock = vi.fn();
 const notificationCentreInitializeMock = vi.fn();
+const evaluateHostDependencyCapabilitiesMock = vi.fn();
 
 vi.mock('./governanceRepoService', () => ({
   ensureGovernanceRepoReady: ensureGovernanceRepoReadyMock,
@@ -79,6 +80,12 @@ vi.mock('./notificationCentreService', () => ({
   },
 }));
 
+vi.mock('./hostDependencyCapabilityService', () => ({
+  hostDependencyCapabilityService: {
+    evaluate: evaluateHostDependencyCapabilitiesMock,
+  },
+}));
+
 describe('startupOrchestratorService', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -98,6 +105,7 @@ describe('startupOrchestratorService', () => {
     runBootstrapDiagnosticsMock.mockReset();
     getBlockingSignalsMock.mockReset();
     notificationCentreInitializeMock.mockReset();
+    evaluateHostDependencyCapabilitiesMock.mockReset();
 
     getRuntimeIntegrationStatusMock.mockReturnValue({
       ready: true,
@@ -138,6 +146,33 @@ describe('startupOrchestratorService', () => {
     });
     getBlockingSignalsMock.mockReturnValue([]);
     notificationCentreInitializeMock.mockResolvedValue(undefined);
+    evaluateHostDependencyCapabilitiesMock.mockResolvedValue({
+      passed: true,
+      missing: [],
+      diagnostics: [
+        {
+          dependency: 'ssh',
+          available: true,
+          source: 'PATH',
+          command: 'ssh -V',
+          message: 'SSH binary is available on PATH.',
+        },
+        {
+          dependency: 'git',
+          available: true,
+          source: 'PATH',
+          command: 'git --version',
+          message: 'Git binary is available on PATH.',
+        },
+        {
+          dependency: 'virtual-drive',
+          available: true,
+          source: 'PATH',
+          command: 'rclone version',
+          message: 'Virtual drive runtime (rclone) is available on PATH.',
+        },
+      ],
+    });
     cronGetTelemetryMock.mockResolvedValue({
       schedulerActive: true,
       enabledJobs: 3,
@@ -172,6 +207,47 @@ describe('startupOrchestratorService', () => {
 
     expect(report.overallStatus).toBe('BLOCKED');
     expect(report.stages.find((stage) => stage.id === 'integration')?.status).toBe('FAILED');
+    expect(report.stages.find((stage) => stage.id === 'host-dependencies')?.status).toBe('SKIPPED');
+    expect(report.stages.find((stage) => stage.id === 'governance')?.status).toBe('SKIPPED');
+    expect(ensureGovernanceRepoReadyMock).not.toHaveBeenCalled();
+    expect(evaluateHostDependencyCapabilitiesMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks startup when required host dependencies are missing', async () => {
+    evaluateHostDependencyCapabilitiesMock.mockResolvedValue({
+      passed: false,
+      missing: ['git'],
+      diagnostics: [
+        {
+          dependency: 'ssh',
+          available: true,
+          source: 'PATH',
+          command: 'ssh -V',
+          message: 'SSH binary is available on PATH.',
+        },
+        {
+          dependency: 'git',
+          available: false,
+          source: 'PATH',
+          command: 'git --version',
+          message: 'git is not available on PATH.',
+        },
+        {
+          dependency: 'virtual-drive',
+          available: true,
+          source: 'PATH',
+          command: 'rclone version',
+          message: 'Virtual drive runtime (rclone) is available on PATH.',
+        },
+      ],
+    });
+
+    const { startupOrchestratorService } = await import('./startupOrchestratorService');
+    const report = await startupOrchestratorService.runStartupSequence();
+
+    expect(report.overallStatus).toBe('BLOCKED');
+    expect(report.stages.find((stage) => stage.id === 'host-dependencies')?.status).toBe('FAILED');
+    expect(report.stages.find((stage) => stage.id === 'host-dependencies')?.message).toContain('git');
     expect(report.stages.find((stage) => stage.id === 'governance')?.status).toBe('SKIPPED');
     expect(ensureGovernanceRepoReadyMock).not.toHaveBeenCalled();
   });
@@ -188,6 +264,7 @@ describe('startupOrchestratorService', () => {
     const report = await startupOrchestratorService.runStartupSequence();
 
     expect(report.overallStatus).toBe('BLOCKED');
+    expect(report.stages.find((stage) => stage.id === 'host-dependencies')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'governance')?.status).toBe('FAILED');
     expect(report.stages.find((stage) => stage.id === 'vault')?.status).toBe('SKIPPED');
     expect(initializeVaultMock).not.toHaveBeenCalled();
@@ -217,6 +294,7 @@ describe('startupOrchestratorService', () => {
 
     expect(report.overallStatus).toBe('READY');
     expect(report.stages.every((stage) => stage.status === 'SUCCESS')).toBe(true);
+    expect(report.stages.find((stage) => stage.id === 'host-dependencies')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'vaidyar')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.message).toContain('missedEnqueued=2');
     expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.message).toContain('recoveredInterrupted=2');
@@ -251,6 +329,7 @@ describe('startupOrchestratorService', () => {
 
     expect(report.overallStatus).toBe('DEGRADED');
     expect(report.stages.find((stage) => stage.id === 'integration')?.status).toBe('SUCCESS');
+    expect(report.stages.find((stage) => stage.id === 'host-dependencies')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'governance')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'vault')?.status).toBe('SUCCESS');
     expect(report.stages.find((stage) => stage.id === 'cron-recovery')?.status).toBe('FAILED');

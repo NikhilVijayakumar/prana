@@ -151,6 +151,35 @@ Responsibilities:
 
 ---
 
+### 4.1b Host Dependency Capability Gate (NEW)
+
+**Stage ID:** `host-dependencies`
+**Dependency:** `hostDependencyCapabilityService`
+**Blocking:** Yes
+
+Responsibilities:
+
+* Evaluate host runtime dependency capability using one reusable core contract
+* Verify availability of:
+
+  * SSH binary
+  * Git binary
+  * virtual-drive runtime binary (configured path or PATH)
+* Return structured diagnostics (`passed`, `missing`, `diagnostics`) for callers
+
+Constraints:
+
+* MUST run after integration contract success and before governance bootstrap
+* MUST stay UI-agnostic and reusable by startup/settings/diagnostics flows
+* MUST include dependency-specific failure messages in startup stage report
+
+Outcome Conditions:
+
+* SUCCESS → continue to governance identity verification
+* FAILURE → `BLOCKED` (halt startup, skip downstream stages)
+
+---
+
 ### 4.2 Layer 1: Foundation (Governance & Identity)
 
 **Stage ID:** `governance`
