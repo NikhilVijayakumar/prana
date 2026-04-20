@@ -576,65 +576,76 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
     'SUCCESS',
     governanceStatus.clonedNow ? 'Governance repository cloned and ready.' : 'Governance repository already ready.',
   );
+
+  const drivePolicy = driveControllerService.getPolicy();
+  if (drivePolicy.clientManaged) {
+    skipStage(stages, 'vault', 'Skipped: host manages virtual-drive lifecycle policy.');
+    skipStage(stages, 'storage-mirror-validation', 'Skipped: host manages virtual-drive lifecycle policy.');
+  }
+
   const installMode = governanceStatus.clonedNow ? 'FIRST_INSTALL' : 'RETURNING_INSTALL';
 
-  try {
-    markStage(stages, 'vault', 'PENDING', 'Initializing vault and pulling remote changes...');
-    const splashSync = await executeWithWatchdog('vault', async () => {
-      await vaultService.initializeVault();
-      return syncProviderService.initializeOnSplash({ installMode });
-    });
-    markStage(
-      stages,
-      'vault',
-      'SUCCESS',
-      `Mode=${splashSync.installMode}, pull=${splashSync.pullStatus}, merge=${splashSync.mergeStatus}, integrity=${splashSync.integrityStatus}${
-        splashSync.skippedReason ? `, note=${splashSync.skippedReason}` : ''
-      }`,
-    );
-  } catch (error) {
-    markStage(
-      stages,
-      'vault',
-      'FAILED',
-      error instanceof Error ? error.message : 'Vault startup stage failed.',
-    );
+  if (!drivePolicy.clientManaged) {
+    try {
+      markStage(stages, 'vault', 'PENDING', 'Initializing vault and pulling remote changes...');
+      const splashSync = await executeWithWatchdog('vault', async () => {
+        await vaultService.initializeVault();
+        return syncProviderService.initializeOnSplash({ installMode });
+      });
+      markStage(
+        stages,
+        'vault',
+        'SUCCESS',
+        `Mode=${splashSync.installMode}, pull=${splashSync.pullStatus}, merge=${splashSync.mergeStatus}, integrity=${splashSync.integrityStatus}${
+          splashSync.skippedReason ? `, note=${splashSync.skippedReason}` : ''
+        }`,
+      );
+    } catch (error) {
+      markStage(
+        stages,
+        'vault',
+        'FAILED',
+        error instanceof Error ? error.message : 'Vault startup stage failed.',
+      );
 
-    skipStage(stages, 'storage-mirror-validation', 'Skipped because vault stage failed.');
-    skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
-    skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
-    skipStage(stages, 'vaidyar', 'Skipped because vault stage failed.');
+      skipStage(stages, 'storage-mirror-validation', 'Skipped because vault stage failed.');
+      skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
+      skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
+      skipStage(stages, 'vaidyar', 'Skipped because vault stage failed.');
 
-    latestStartupReport = buildStatusReport(startedAt, stages);
-    return latestStartupReport;
+      latestStartupReport = buildStatusReport(startedAt, stages);
+      return latestStartupReport;
+    }
   }
 
   // Storage mirror validation: ensure cache-vault mirror contract is valid
-  try {
-    markStage(stages, 'storage-mirror-validation', 'PENDING', 'Validating cache-vault mirror contract...');
-    // TODO: Call service method to validate cache/vault mirror contract
-    // For now, a placeholder; actual validation logic can be added to syncProviderService or vaultService
-    markStage(
-      stages,
-      'storage-mirror-validation',
-      'SUCCESS',
-      'Cache-vault mirror contract validated.',
-    );
-  } catch (error) {
-    markStage(
-      stages,
-      'storage-mirror-validation',
-      'FAILED',
-      error instanceof Error ? error.message : 'Storage mirror validation failed.',
-      'STORAGE_MIRROR_VALIDATION_FAILED',
-    );
+  if (!drivePolicy.clientManaged) {
+    try {
+      markStage(stages, 'storage-mirror-validation', 'PENDING', 'Validating cache-vault mirror contract...');
+      // TODO: Call service method to validate cache/vault mirror contract
+      // For now, a placeholder; actual validation logic can be added to syncProviderService or vaultService
+      markStage(
+        stages,
+        'storage-mirror-validation',
+        'SUCCESS',
+        'Cache-vault mirror contract validated.',
+      );
+    } catch (error) {
+      markStage(
+        stages,
+        'storage-mirror-validation',
+        'FAILED',
+        error instanceof Error ? error.message : 'Storage mirror validation failed.',
+        'STORAGE_MIRROR_VALIDATION_FAILED',
+      );
 
-    skipStage(stages, 'sync-recovery', 'Skipped because storage mirror validation failed.');
-    skipStage(stages, 'cron-recovery', 'Skipped because storage mirror validation failed.');
-    skipStage(stages, 'vaidyar', 'Skipped because storage mirror validation failed.');
+      skipStage(stages, 'sync-recovery', 'Skipped because storage mirror validation failed.');
+      skipStage(stages, 'cron-recovery', 'Skipped because storage mirror validation failed.');
+      skipStage(stages, 'vaidyar', 'Skipped because storage mirror validation failed.');
 
-    latestStartupReport = buildStatusReport(startedAt, stages);
-    return latestStartupReport;
+      latestStartupReport = buildStatusReport(startedAt, stages);
+      return latestStartupReport;
+    }
   }
 
   try {

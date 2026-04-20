@@ -270,6 +270,20 @@ describe('startupOrchestratorService', () => {
     expect(initializeVaultMock).not.toHaveBeenCalled();
   });
 
+  it('skips storage bootstrap stages when drive policy is client-managed', async () => {
+    const { driveControllerService } = await import('./driveControllerService');
+    vi.spyOn(driveControllerService, 'getPolicy').mockReturnValue({ clientManaged: true });
+
+    const { startupOrchestratorService } = await import('./startupOrchestratorService');
+    const report = await startupOrchestratorService.runStartupSequence();
+
+    expect(report.overallStatus).toBe('READY');
+    expect(report.stages.find((stage) => stage.id === 'vault')?.status).toBe('SKIPPED');
+    expect(report.stages.find((stage) => stage.id === 'storage-mirror-validation')?.status).toBe('SKIPPED');
+    expect(initializeVaultMock).not.toHaveBeenCalled();
+    expect(initializeOnSplashMock).not.toHaveBeenCalled();
+  });
+
   it('marks startup READY when all startup stages pass', async () => {
     recoverPendingSyncTasksMock.mockResolvedValue({ recoveredTasks: 4 });
     cronGetTelemetryMock.mockResolvedValue({

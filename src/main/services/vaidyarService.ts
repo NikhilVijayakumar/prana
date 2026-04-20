@@ -213,6 +213,17 @@ const diagnosticsRegistry: VaidyarDiagnosticCheck[] = [
     expected_state: 'pass',
     failure_hint: 'Ensure the vault drive is mounted and crypt credentials are valid.',
     execution_fn: async () => {
+      const policy = driveControllerService.getPolicy();
+      if (policy.clientManaged) {
+        return {
+          pass: true,
+          message: 'Vault mount ownership is delegated to host policy (client-managed).',
+          metadata: {
+            clientManaged: true,
+          },
+        };
+      }
+
       const diagnostics = driveControllerService.getDiagnostics();
       const vaultRecord = diagnostics.records.find((record) => record.id === 'vault');
       const pass = Boolean(vaultRecord && vaultRecord.stage === 'MOUNTED');
@@ -235,6 +246,17 @@ const diagnosticsRegistry: VaidyarDiagnosticCheck[] = [
     expected_state: 'pass',
     failure_hint: 'Re-establish secure system drive mount or disable fail-closed posture only if policy permits.',
     execution_fn: async () => {
+      const policy = driveControllerService.getPolicy();
+      if (policy.clientManaged) {
+        return {
+          pass: true,
+          message: 'System drive posture enforcement is delegated to host policy (client-managed).',
+          metadata: {
+            clientManaged: true,
+          },
+        };
+      }
+
       const diagnostics = driveControllerService.getDiagnostics();
       const systemRecord = diagnostics.records.find((record) => record.id === 'system');
       const blocked =

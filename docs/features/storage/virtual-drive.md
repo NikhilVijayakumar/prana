@@ -209,6 +209,32 @@ DEGRADED (fallback mode)
 
 ---
 
+## 7.1 Client-Owned Policy Contract
+
+Prana runtime owns **mount mechanics**. Host applications own **drive policy**.
+
+### Runtime Core Responsibilities (Prana)
+
+* Mount/open and unmount/eject execution
+* Provider abstraction and diagnostics snapshots
+* Lifecycle hooks and fail-closed posture defaults
+* Session-safe vault mount orchestration
+
+### Host Application Responsibilities (Client-Owned Policy)
+
+* Drive schema/folder structure decisions
+* Artifact placement strategy (what goes to drive)
+* Encryption-policy selection and key-source flow
+* Optional lifecycle ownership flags (for example client-managed mount timing)
+
+### Compatibility Rules
+
+* Default behavior remains runtime-managed when no host policy override is configured
+* Client-managed policy must not require Chakra-specific logic in Prana core
+* Vault encryption baseline remains active and is not removed by policy decoupling
+
+---
+
 ## 8. Security Posture Model
 
 | Mode            | Description            | Risk Level |

@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VirtualDriveDiagnosticsSnapshot } from './driveControllerService'
 
 const getDiagnosticsMock = vi.fn()
+const getDrivePolicyMock = vi.fn()
 const getSystemHealthSnapshotMock = vi.fn()
 
 vi.mock('./driveControllerService', () => ({
   driveControllerService: {
-    getDiagnostics: getDiagnosticsMock
+    getDiagnostics: getDiagnosticsMock,
+    getPolicy: getDrivePolicyMock
   }
 }))
 
@@ -62,9 +64,11 @@ describe('vaidyarService', () => {
   beforeEach(async () => {
     vi.resetModules()
     getDiagnosticsMock.mockReset()
+    getDrivePolicyMock.mockReset()
     getSystemHealthSnapshotMock.mockReset()
 
     getDiagnosticsMock.mockReturnValue(buildHealthyDiagnostics())
+    getDrivePolicyMock.mockReturnValue({ clientManaged: false })
     getSystemHealthSnapshotMock.mockReturnValue({
       cpuUsagePercent: 10,
       memoryUsagePercent: 40,
@@ -129,5 +133,37 @@ describe('vaidyarService', () => {
 
     const events = vaidyarService.getRecentEvents(10)
     expect(events.some((event) => event.eventType === 'diagnostic:system_blocked')).toBe(true)
+  })
+
+  it('keeps storage checks non-blocking when virtual drive policy is client-managed', async () => {
+    const { vaidyarService } = await import('./vaidyarService')
+
+    getDrivePolicyMock.mockReturnValue({ clientManaged: true })
+    getDiagnosticsMock.mockReturnValue({
+      ...buildHealthyDiagnostics(),
+      overallStatus: 'Blocked',
+      failClosed: true,
+      records: [
+        {
+          ...buildHealthyDiagnostics().records[0],
+          stage: 'FAILED',
+          posture: 'UNAVAILABLE',
+          usedFallbackPath: true
+        },
+        {
+          ...buildHealthyDiagnostics().records[1],
+          stage: 'FAILED',
+          posture: 'UNAVAILABLE'
+        }
+      ]
+    })
+
+    const report = await vaidyarService.runBootstrapDiagnostics()
+
+    expect(report.overall_status).toBe('Healthy')
+    expect(report.blocked_signals).toEqual([])
+    const storageChecks = report.layers.find((layer) => layer.name === 'Storage')?.checks ?? []
+    expect(storageChecks.find((check) => check.check_id === 'vault_mount')?.status).toBe('Healthy')
+    expect(storageChecks.find((check) => check.check_id === 'system_drive_posture')?.status).toBe('Healthy')
   })
 })

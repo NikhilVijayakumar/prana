@@ -1,7 +1,35 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { driveControllerService } from './driveControllerService';
 import { mountRegistryService } from './mountRegistryService';
+import { sqliteConfigStoreService } from './sqliteConfigStoreService';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('mountRegistryService', () => {
+  it('defaults virtual drive policy to core-managed mode', () => {
+    vi.spyOn(sqliteConfigStoreService, 'readSnapshotSync').mockReturnValue(null);
+
+    expect(driveControllerService.getPolicy()).toEqual({ clientManaged: false });
+  });
+
+  it('enables client-managed virtual drive policy from runtime config', () => {
+    vi.spyOn(sqliteConfigStoreService, 'readSnapshotSync').mockReturnValue({
+      seededAt: new Date().toISOString(),
+      source: 'runtime-props',
+      config: {
+        virtualDrives: {
+          policy: {
+            clientManaged: true,
+          },
+        },
+      },
+    } as unknown as ReturnType<typeof sqliteConfigStoreService.readSnapshotSync>);
+
+    expect(driveControllerService.getPolicy()).toEqual({ clientManaged: true });
+  });
+
   it('tracks independent system and vault drive records', () => {
     mountRegistryService.reset();
     mountRegistryService.upsert({

@@ -35,6 +35,10 @@ export interface VirtualDriveDiagnosticsSnapshot {
   checks: VirtualDriveHealthCheck[];
 }
 
+export interface VirtualDrivePolicySnapshot {
+  clientManaged: boolean;
+}
+
 interface NormalizedDriveSettings {
   mountPoint: string;
   sourcePath: string;
@@ -51,6 +55,7 @@ interface NormalizedVirtualDriveConfig {
   providerId: string;
   obscuredFileNames: boolean;
   rcloneBinaryPath: string | null;
+  policy: VirtualDrivePolicySnapshot;
   drives: Record<VirtualDriveId, NormalizedDriveSettings>;
 }
 
@@ -67,7 +72,20 @@ const sessionDepthByDrive = new Map<VirtualDriveId, number>();
 
 const nowIso = (): string => new Date().toISOString();
 const isWindows = (): boolean => process.platform === 'win32';
-const getRuntimeVirtualDriveConfig = () => sqliteConfigStoreService.readSnapshotSync()?.config?.virtualDrives;
+const getRuntimeVirtualDriveConfig = (): unknown => sqliteConfigStoreService.readSnapshotSync()?.config?.virtualDrives;
+
+const getVirtualDrivePolicySnapshot = (): VirtualDrivePolicySnapshot => {
+  const runtimeConfig = getRuntimeVirtualDriveConfig() as {
+    clientManaged?: boolean;
+    policy?: {
+      clientManaged?: boolean;
+    };
+  } | undefined;
+
+  return {
+    clientManaged: runtimeConfig?.clientManaged === true || runtimeConfig?.policy?.clientManaged === true,
+  };
+};
 
 const normalizeDriveMountPoint = (driveLetter: string): string => {
   const normalized = driveLetter.trim().replace(/\\+$/g, '');
@@ -97,9 +115,40 @@ const resolveUnixMountPoint = (mountPoint: string, driveId: VirtualDriveId): str
 };
 
 const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
-  const runtimeConfig = getRuntimeVirtualDriveConfig() as Record<string, any> | undefined;
-  const systemConfig = (runtimeConfig?.system ?? {}) as Record<string, any>;
-  const vaultConfig = (runtimeConfig?.vault ?? {}) as Record<string, any>;
+  const runtimeConfig = getRuntimeVirtualDriveConfig() as {
+    enabled?: boolean;
+    failClosed?: boolean;
+    obscuredFileNames?: boolean;
+    provider?: {
+      type?: string;
+      rcloneBinaryPath?: string;
+    };
+    rcloneBinaryPath?: string;
+    clientManaged?: boolean;
+    policy?: {
+      clientManaged?: boolean;
+    };
+    system?: {
+      mountPoint?: string;
+      sourceSubpath?: string;
+      remoteName?: string;
+      cryptPassword?: string;
+      fallbackSubpath?: string;
+      allowFallback?: boolean;
+    };
+    vault?: {
+      mountPoint?: string;
+      sourceSubpath?: string;
+      remoteName?: string;
+      cryptPassword?: string;
+      requireSessionMount?: boolean;
+    };
+    systemDriveLetter?: string;
+    vaultDriveLetter?: string;
+    systemCryptPassword?: string;
+  } | undefined;
+  const systemConfig = runtimeConfig?.system ?? {};
+  const vaultConfig = runtimeConfig?.vault ?? {};
   const vaultArchivePassword = sqliteConfigStoreService.readSnapshotSync()?.config?.vault?.archivePassword?.trim() ?? '';
 
   const systemMountPoint = normalizeDriveMountPoint(
@@ -123,6 +172,7 @@ const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
       : typeof runtimeConfig?.rcloneBinaryPath === 'string'
         ? runtimeConfig.rcloneBinaryPath
         : null,
+    policy: getVirtualDrivePolicySnapshot(),
     drives: {
       system: {
         mountPoint: resolveUnixMountPoint(systemMountPoint, 'system'),
@@ -542,6 +592,10 @@ const computeDiagnostics = (): VirtualDriveDiagnosticsSnapshot => {
 };
 
 export const driveControllerService = {
+  getPolicy(): VirtualDrivePolicySnapshot {
+    return getVirtualDrivePolicySnapshot();
+  },
+
   async initializeSystemDrive(): Promise<VirtualDriveMountResult> {
     const config = getNormalizedVirtualDriveConfig();
     await mkdir(config.drives.system.fallbackPath, { recursive: true });
