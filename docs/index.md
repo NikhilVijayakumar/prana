@@ -7,6 +7,7 @@
 - **Add UI component** → src/ui/common/components/
 - **Add feature doc** → docs/features/
 - **Update storage contract** → docs/features/storage/governance/
+- **Update top-level docs index** → scripts/wiki-steps.json then node scripts/generate-index.cjs
 - **Add screen** → src/ui/[screen-family]/
 - **Build/config** → package.json, electron.vite.config.ts
 
@@ -17,7 +18,7 @@
 | Key | Value |
 |-----|------|
 | Name | prana |
-| Version | 1.1.5 |
+| Version | 1.1.6 |
 | License | N/A |
 
 ## High-Level Vision
@@ -117,6 +118,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   │   ├── hiringSimService.ts
 │   │   ├── hookSystemService.test.ts
 │   │   ├── hookSystemService.ts
+│   │   ├── hostDependencyCapabilityService.ts
 │   │   ├── ipcService.ts
 │   │   ├── localExecutionProviderService.ts
 │   │   ├── loopProtectionService.ts
@@ -335,7 +337,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 ### Runtime Systems
 
 - **Startup** ([docs/features/boot/startup-orchestrator.md](docs/features/boot/startup-orchestrator.md))
-  - Services: startupOrchestratorService, runtimeConfigService
+  - Services: startupOrchestratorService, hostDependencyCapabilityService, runtimeConfigService
 - **Cron** ([docs/features/cron/cron.md](docs/features/cron/cron.md))
   - Services: cronSchedulerService, queueService
 - **Queue Scheduling** ([docs/features/queue-scheduling/queue-scheduling.md](docs/features/queue-scheduling/queue-scheduling.md))
@@ -386,6 +388,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 | Concept | Implementation | Location |
 |--------|---------------|----------|
 | Startup Orchestrator | startupOrchestratorService | src/main/services/startupOrchestratorService.ts |
+| Host Dependency Capability | hostDependencyCapabilityService | src/main/services/hostDependencyCapabilityService.ts |
 | Virtual Drive | driveControllerService | src/main/services/driveControllerService.ts |
 | Vault | vaultService | src/main/services/vaultService.ts |
 | SQLite Cache | sqliteConfigStoreService | src/main/services/sqliteConfigStoreService.ts |
@@ -413,10 +416,10 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 ## Critical Flows
 
 ### Add runtime service
-Create docs/features/[feature].md → Define service contract → Implement in src/main/services/ → Add IPC handler in preload.ts → Update index.md
+Create docs/features/[feature].md → Define service contract → Implement in src/main/services/ → Add IPC handler in preload.ts → Update scripts/wiki-steps.json if mappings changed → Run node scripts/generate-index.cjs
 
 ### Add UI screen
-Create docs/features/splash/[screen].md → Create Container → ViewModel → View → Export in src/ui/common/components/index.ts → Update index.md
+Create docs/features/splash/[screen].md → Create Container → ViewModel → View → Export in src/ui/common/components/index.ts → Update scripts/wiki-steps.json if mappings changed → Run node scripts/generate-index.cjs
 
 ### Add feature doc
 Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap → Run generate:index
@@ -486,6 +489,8 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **pr/astra/response/Mapping-Prana.md** → Prana -> Astra Mapping (Response) Status: Completed
 - **pr/astra/response/plan.md** → Astra Plan and Deep Analysis (Prana Request) Date: 2026-03-28
 - **pr/astra/response/README.md** → Prana <- Astra PR Response Status: Ready for Prana consumption
+- **pr/chakra/drive-decoupling-client-owned-policy-proposal.md** → PR Request for Prana: Decouple Virtual Drive Policy to Client App Status: Proposal only
+- **pr/chakra/splash-dependency-precheck-proposal.md** → PR Request for Prana: Reusable Host Dependency Capability Service Status: Proposal only (do not implement in Chakra)
 - **pr/dhi/01-fix-startup-orchestrator-module-evaluation.md** → Fix: Early Module Evaluation Crash in StartupOrchestratorService Context
 - **pr/dhi/circular-sqlite-crypto-dependency.md** → Bug Report: Circular Dependency in SQLite Crypto ↔ Config Store Issue Description
 - **pr/dhi/client-controlled-drive-mounting.md** → Feature Request: Client-Controlled Virtual Drive Mounting Repository: prana
@@ -500,6 +505,7 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - Never use process.env directly - flow config through IPC
 - Use Zod validation on all IPC handlers
 - All components use theme tokens - never hardcode colors
+- docs/index.md is generated output - update scripts/wiki-steps.json and run node scripts/generate-index.cjs
 
 ## API Surface
 
@@ -509,5 +515,5 @@ See: src/ui/common/components/index.ts for UI component exports.
 ## Maintenance
 
 - Config: scripts/wiki-steps.json
-- Generated: 2026-04-19
-- Version: 1.1.5
+- Generated: 2026-04-21
+- Version: 1.1.6

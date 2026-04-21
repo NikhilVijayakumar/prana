@@ -19,6 +19,7 @@
   ],
   "conceptMap": [
     { "name": "Startup Orchestrator", "impl": "startupOrchestratorService", "path": "src/main/services/startupOrchestratorService.ts" },
+    { "name": "Host Dependency Capability", "impl": "hostDependencyCapabilityService", "path": "src/main/services/hostDependencyCapabilityService.ts" },
     { "name": "Virtual Drive", "impl": "driveControllerService", "path": "src/main/services/driveControllerService.ts" },
     { "name": "Vault", "impl": "vaultService", "path": "src/main/services/vaultService.ts" },
     { "name": "SQLite Cache", "impl": "sqliteConfigStoreService", "path": "src/main/services/sqliteConfigStoreService.ts" },
@@ -41,8 +42,8 @@
     { "task": "Add screen", "path": "src/ui/[screen-family]/" }
   ],
   "flows": [
-    { "name": "Add runtime service", "steps": ["Create docs/features/[feature].md", "Define service contract", "Implement in src/main/services/", "Add IPC handler in preload.ts", "Update index.md"] },
-    { "name": "Add UI screen", "steps": ["Create docs/features/splash/[screen].md", "Create Container → ViewModel → View", "Export in src/ui/common/components/index.ts", "Update index.md"] },
+    { "name": "Add runtime service", "steps": ["Create docs/features/[feature].md", "Define service contract", "Implement in src/main/services/", "Add IPC handler in preload.ts", "Update scripts/wiki-steps.json if mappings changed", "Run node scripts/generate-index.cjs"] },
+    { "name": "Add UI screen", "steps": ["Create docs/features/splash/[screen].md", "Create Container → ViewModel → View", "Export in src/ui/common/components/index.ts", "Update scripts/wiki-steps.json if mappings changed", "Run node scripts/generate-index.cjs"] },
     { "name": "Add feature doc", "steps": ["Create docs/features/[domain]/[feature].md", "Add to wiki-steps.json conceptMap", "Run generate:index"] }
   ],
   "rules": [
@@ -51,7 +52,8 @@
     "MVVM renderer - Container → ViewModel → View pattern",
     "Never use process.env directly - flow config through IPC",
     "Use Zod validation on all IPC handlers",
-    "All components use theme tokens - never hardcode colors"
+    "All components use theme tokens - never hardcode colors",
+    "docs/index.md is generated output - update scripts/wiki-steps.json and run node scripts/generate-index.cjs"
   ],
   "featureDetails": {
     "core": [
@@ -63,7 +65,7 @@
       { "area": "Storage Governance", "doc": "docs/features/storage/governance/index.md", "services": ["governanceRepoService"] }
     ],
     "runtime": [
-      { "area": "Startup", "doc": "docs/features/boot/startup-orchestrator.md", "services": ["startupOrchestratorService", "runtimeConfigService"] },
+      { "area": "Startup", "doc": "docs/features/boot/startup-orchestrator.md", "services": ["startupOrchestratorService", "hostDependencyCapabilityService", "runtimeConfigService"] },
       { "area": "Cron", "doc": "docs/features/cron/cron.md", "services": ["cronSchedulerService", "queueService"] },
       { "area": "Queue Scheduling", "doc": "docs/features/queue-scheduling/queue-scheduling.md", "services": ["queueOrchestratorService", "taskRegistryService"] },
       { "area": "Context Engine", "doc": "docs/features/context/context-engine.md", "services": ["contextEngineService", "contextOptimizerService", "contextDigestStoreService"] },

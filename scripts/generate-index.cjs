@@ -88,6 +88,7 @@ function sectionNavigation() {
 - **Add UI component** → src/ui/common/components/
 - **Add feature doc** → docs/features/
 - **Update storage contract** → docs/features/storage/governance/
+- **Update top-level docs index** → scripts/wiki-steps.json then node scripts/generate-index.cjs
 - **Add screen** → src/ui/[screen-family]/
 - **Build/config** → package.json, electron.vite.config.ts
 
