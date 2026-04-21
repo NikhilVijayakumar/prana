@@ -161,13 +161,13 @@ src/
   services/                        # Cross-layer shared services
 
 docs/
-  modules/
-    index.md                       # Atomic documentation index
+  features/
+    index.md                       # Atomic documentation index (manual navigation)
+    boot/                          # Bootstrap/runtime orchestration contracts
+    storage/                       # Storage runtime + governance contracts
     audit/                         # Implementation-to-doc mismatch audits
-    storage/                       # Multi-app storage governance contracts
-    ui/                            # Per-screen atomic UI contracts
-    *.md                           # Individual module contracts (~35 files)
-  module/                          # Legacy bridge/reference docs
+    *.md                           # Domain-level feature contracts
+  index.md                         # Generated documentation index (script output)
   core/                            # Core architecture notes
   system/                          # System-level documentation
   integration_guide/               # Integration reference material
@@ -723,6 +723,7 @@ This repository is designed to stay **generic as a runtime library** while shipp
 
 | Resource | Link |
 |---|---|
+| Generated docs index | [`docs/index.md`](docs/index.md) |
 | Atomic docs index | [`docs/features/index.md`](docs/features/index.md) |
 | Storage rules | [`docs/features/storage/governance/rule.md`](docs/features/storage/governance/rule.md) |
 | Storage contract audit | [`docs/features/audit/storage-contract-audit.md`](docs/features/audit/storage-contract-audit.md) |
