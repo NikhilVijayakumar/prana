@@ -233,6 +233,12 @@ Prana runtime owns **mount mechanics**. Host applications own **drive policy**.
 * Client-managed policy must not require Chakra-specific logic in Prana core
 * Vault encryption baseline remains active and is not removed by policy decoupling
 
+### Runtime Effects of Client-Managed Policy
+
+* Startup orchestrator may skip runtime-owned storage mirror validation stages when policy ownership is delegated to the host.
+* Vaidyar storage posture checks remain non-blocking for delegated policy checks and report ownership as host-managed.
+* Mount/unmount runtime mechanics remain in Prana even when policy ownership is delegated.
+
 ---
 
 ## 8. Security Posture Model

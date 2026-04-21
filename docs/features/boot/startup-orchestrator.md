@@ -61,8 +61,10 @@ It guarantees that:
 ### 3.1 Core States (Implemented v1.3.1)
 
 ```text
-INIT → FOUNDATION → IDENTITY_VERIFIED → STORAGE_READY → STORAGE_MIRROR_VALIDATING → INTEGRITY_VERIFIED → OPERATIONAL
+INIT → FOUNDATION → IDENTITY_VERIFIED → STORAGE_READY → STORAGE_MIRROR_VALIDATING* → INTEGRITY_VERIFIED → OPERATIONAL
 ```
+
+`*` `STORAGE_MIRROR_VALIDATING` runs when runtime-managed storage policy is active. In host client-managed policy mode, the mirror stage is intentionally skipped and ownership remains with the host contract.
 
 **Note:** `STORAGE_MIRROR_VALIDATING` is an explicit blocking state added in v1.3.1 to enforce Cache ↔ Vault mirror contract validation immediately after vault initialization.
 
@@ -243,10 +245,12 @@ Responsibilities:
 
 * MUST execute only after `STORAGE_READY`
 * MUST validate before proceeding to Integrity layer
+* MUST be skipped when host client-managed policy delegates storage mirror ownership to host policy
 
 **Outcome Conditions:**
 
 * SUCCESS → `STORAGE_MIRROR_VALIDATING`
+* SKIPPED (client-managed policy) → continue directly to integrity diagnostics
 * FAILURE → `BLOCKED_STORAGE` (halt, skip downstream)
 
 ---
