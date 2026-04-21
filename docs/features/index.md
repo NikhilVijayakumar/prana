@@ -17,7 +17,7 @@
 
 ## 🟢 Layer 1: Bootstrap & Foundation
 *Modules governing the "Cold-Vault" startup sequence and system integrity.*
-* [Startup Orchestrator](boot/startup-orchestrator.md) — **Critical Path: Bootstrap Sequence**
+* [Startup Orchestrator](boot/startup-orchestrator.md) — **Critical Path: Bootstrap Sequence + Host Dependency Capability Gate**
 * [Props Config Principle](props-config-principle.md) — **Cold-Vault Configuration Input**
 * [Prana Doctor](boot/prana-doctor.md) — **Post-Bootstrap Diagnostics & Health**
 * [Notification Centre](notification/notification-centre.md) — **System-Wide Event & Alert Routing**
@@ -26,7 +26,7 @@
 
 ## 🔵 Layer 2: Secure Persistence
 *The orchestration of encrypted drives, hot-cache, and durable archives.*
-* [Virtual Drive](storage/virtual-drive.md) — **Encrypted Mount Management**
+* [Virtual Drive](storage/virtual-drive.md) — **Encrypted Mount Runtime + Client-Managed Policy Contract**
 * [Vault](storage/vault.md) — **AES-256-GCM Durable Archive Operations**
 * [SQLite Cache](storage/sqlite-cache.md) — **Hot Operational State (SQL.js)**
 * [Encryption Service](storage/encryption-service.md) — **Distributed Cryptography Logic**
