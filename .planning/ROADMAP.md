@@ -15,6 +15,17 @@ Plans:
 - [x] 01-01-PLAN.md — Add reusable host dependency capability service + startup diagnostics integration
 - [x] 01-02-PLAN.md — Decouple virtual-drive policy ownership to host-managed runtime contract
 
+### Phase 2: please update documention and index based on our implementation
+
+**Goal:** Align documentation and indexes with phase 01 runtime contract implementations so docs are authoritative and script-generated index content stays canonical.
+**Requirements**: DOC-ALIGN-01, DOC-ALIGN-02
+**Depends on:** Phase 1
+**Plans:** 2 plans
+
+Plans:
+- [x] 02-01-PLAN.md — Update index generation sources and regenerate docs/index.md from script
+- [x] 02-02-PLAN.md — Reconcile touched docs and navigation indexes to match implemented runtime contracts
+
 ---
 
 ## Current Milestone: v1.4 (Planned)
