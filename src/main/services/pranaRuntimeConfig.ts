@@ -91,6 +91,7 @@ const PranaRuntimeConfigSchema = z.object({
     directorSenderName: z.string().optional(),
     avatarBaseUrl: z.string().optional(),
   }).optional(),
+  sqliteRoot: z.string().optional(),
 });
 
 export type PranaRuntimeConfig = z.infer<typeof PranaRuntimeConfigSchema>;
