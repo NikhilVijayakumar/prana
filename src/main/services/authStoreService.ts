@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
-import { getAppDataRoot } from './governanceRepoService';
+import { getSqliteRoot } from './governanceRepoService';
 
 const DB_FILE_NAME = 'auth.sqlite';
 const LEGACY_AUTH_FILE_NAME = 'auth.json';
@@ -23,8 +23,8 @@ let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
-const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
-const getLegacyAuthPath = (): string => join(getAppDataRoot(), LEGACY_AUTH_FILE_NAME);
+const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
+const getLegacyAuthPath = (): string => join(getSqliteRoot(), LEGACY_AUTH_FILE_NAME);
 
 const resolveSqlJsAsset = (fileName: string): string => {
   const candidates = [
@@ -52,13 +52,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdir(getSqliteRoot(), { recursive: true });
   await writeFile(getDbPath(), Buffer.from(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdir(getSqliteRoot(), { recursive: true });
 
   const database = existsSync(getDbPath())
     ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))

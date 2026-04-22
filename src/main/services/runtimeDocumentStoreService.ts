@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
-import { getAppDataRoot } from './governanceRepoService';
+import { getSqliteRoot } from './governanceRepoService';
 import { vaultService } from './vaultService';
 import { syncStoreService } from './syncStoreService';
 
@@ -37,7 +37,7 @@ let dbPromise: Promise<Database> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
-const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
+const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
 
 const resolveSqlJsAsset = (fileName: string): string => {
   const candidates = [
@@ -65,13 +65,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdir(getSqliteRoot(), { recursive: true });
   await writeFile(getDbPath(), Buffer.from(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdir(getSqliteRoot(), { recursive: true });
 
   const database = existsSync(getDbPath())
     ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
