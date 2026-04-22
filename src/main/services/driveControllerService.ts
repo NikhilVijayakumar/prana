@@ -66,6 +66,14 @@ interface VaultSessionHandle {
 const SYSTEM_DRIVE_DEFAULT = 'S:';
 const VAULT_DRIVE_DEFAULT = 'V:';
 
+const WEAK_PASSWORDS = new Set(['default', 'password', '', 'changeme', 'prana']);
+
+const warnIfWeakPassword = (password: string): void => {
+  if (WEAK_PASSWORDS.has(password.toLowerCase())) {
+    console.warn('[Prana] SECURITY WARNING: virtual drive is using a default/weak crypt password. Set systemConfig.cryptPassword or CHAKRA_VAULT_ARCHIVE_PASSWORD to a strong secret.');
+  }
+};
+
 const childByDrive = new Map<VirtualDriveId, ChildProcess>();
 const inflightMounts = new Map<VirtualDriveId, Promise<VirtualDriveMountResult>>();
 const sessionDepthByDrive = new Map<VirtualDriveId, number>();
@@ -164,7 +172,7 @@ const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
 
   return {
     enabled: runtimeConfig?.enabled !== false,
-    failClosed: runtimeConfig?.failClosed === true,
+    failClosed: runtimeConfig?.failClosed ?? (process.env.NODE_ENV !== 'development'),
     providerId: String(runtimeConfig?.provider?.type ?? 'rclone'),
     obscuredFileNames: runtimeConfig?.obscuredFileNames !== false,
     rcloneBinaryPath: typeof runtimeConfig?.provider?.rcloneBinaryPath === 'string'
@@ -178,11 +186,15 @@ const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
         mountPoint: resolveUnixMountPoint(systemMountPoint, 'system'),
         sourcePath: resolveDriveSourcePath(systemConfig.sourceSubpath ?? 'db'),
         remoteName: String(systemConfig.remoteName ?? 'SYSTEM_DRIVE'),
-        cryptPassword: String(
-          systemConfig.cryptPassword
-          ?? runtimeConfig?.systemCryptPassword
-          ?? vaultArchivePassword,
-        ).trim(),
+        cryptPassword: (() => {
+          const pw = String(
+            systemConfig.cryptPassword
+            ?? runtimeConfig?.systemCryptPassword
+            ?? vaultArchivePassword,
+          ).trim();
+          warnIfWeakPassword(pw);
+          return pw;
+        })(),
         fallbackPath: resolve(
           resolveDriveSourcePath(systemConfig.sourceSubpath ?? 'db'),
           systemConfig.fallbackSubpath ?? 'live',
