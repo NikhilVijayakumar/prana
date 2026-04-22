@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { executeCommand } from './processService';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 
 const APP_DATA_DIR = '.prana';
 const LEGACY_APP_DATA_DIR = '.dhi';
@@ -43,6 +44,19 @@ export const getAppDataRoot = (): string => {
 
 export const setAppDataRootOverride = (nextPath: string | null): void => {
   appDataRootOverride = nextPath;
+};
+
+let sqliteRootOverride: string | null = null;
+
+export const getSqliteRoot = (): string => {
+  if (sqliteRootOverride) return sqliteRootOverride;
+  const configRoot = getPranaRuntimeConfig()?.sqliteRoot;
+  if (configRoot) return configRoot;
+  return getAppDataRoot();
+};
+
+export const setSqliteRootOverride = (nextPath: string | null): void => {
+  sqliteRootOverride = nextPath;
 };
 
 /**
