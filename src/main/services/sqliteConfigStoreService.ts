@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, getStableAppDataRoot } from './governanceRepoService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 import type { PranaRuntimeConfig } from './pranaRuntimeConfig';
 
 const DB_FILE_NAME = 'runtime-config.sqlite';
@@ -21,7 +22,12 @@ let cachedDatabase: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
-const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
+const getConfigCacheRoot = (): string => {
+  const cacheLocation = getPranaRuntimeConfig()?.storage?.cacheLocation;
+  return cacheLocation === 'drive' ? getAppDataRoot() : getStableAppDataRoot();
+};
+
+const getDbPath = (): string => join(getConfigCacheRoot(), DB_FILE_NAME);
 
 const resolveSqlJsAsset = (fileName: string): string => {
   const candidates = [
@@ -49,13 +55,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdir(getConfigCacheRoot(), { recursive: true });
   await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdir(getConfigCacheRoot(), { recursive: true });
 
   let database: Database;
   if (existsSync(getDbPath())) {

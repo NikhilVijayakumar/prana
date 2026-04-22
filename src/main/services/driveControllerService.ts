@@ -1,6 +1,6 @@
 import { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
+import { access, mkdir, rm } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 import { sqliteConfigStoreService } from './sqliteConfigStoreService';
@@ -270,10 +270,25 @@ const updateSystemDataRoot = async (record: VirtualDriveRecord | null, config: N
 
   if (record.stage === 'MOUNTED') {
     const mountedRoot = isWindows() ? record.mountPoint : join(record.mountPoint, 'live');
-    setAppDataRootOverride(mountedRoot);
-    if (!isWindows()) {
+
+    if (isWindows()) {
+      // Verify the drive letter is actually accessible before using it
+      try {
+        await access(mountedRoot);
+      } catch {
+        // Drive letter exists as a mount record but is not yet accessible
+        if (config.drives.system.allowFallback) {
+          setAppDataRootOverride(config.drives.system.fallbackPath);
+        } else {
+          setAppDataRootOverride(null);
+        }
+        return;
+      }
+    } else {
       await mkdir(mountedRoot, { recursive: true });
     }
+
+    setAppDataRootOverride(mountedRoot);
     return;
   }
 

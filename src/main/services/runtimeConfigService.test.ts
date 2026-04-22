@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   MIN_SYNC_PUSH_INTERVAL_MS,
   MIN_VAULT_KDF_ITERATIONS,
   validatePranaRuntimeConfig,
+  setPranaRuntimeConfig,
   type PranaRuntimeConfig,
 } from './pranaRuntimeConfig';
 import { sqliteConfigStoreService } from './sqliteConfigStoreService';
@@ -32,8 +33,15 @@ const createValidRuntimeConfig = (): PranaRuntimeConfig => ({
 
 describe('runtimeConfigService validation hardening', () => {
   beforeEach(async () => {
+    // Must set in-memory runtime config before any DB operation —
+    // sqliteCryptoUtil.getDbKey() depends on it for encryption key derivation.
+    setPranaRuntimeConfig(createValidRuntimeConfig());
     await sqliteConfigStoreService.__resetForTesting();
     await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(createValidRuntimeConfig());
+  });
+
+  afterEach(() => {
+    setPranaRuntimeConfig(null);
   });
 
   it('fails validation when required runtime keys are missing or invalid', async () => {
@@ -57,6 +65,7 @@ describe('runtimeConfigService validation hardening', () => {
     };
 
     await sqliteConfigStoreService.__resetForTesting();
+    // Keep valid runtime config for DB encryption; seed and validate with invalid config
     await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
     const result = validatePranaRuntimeConfig(overrideConfig);
 
@@ -87,13 +96,14 @@ describe('runtimeConfigService validation hardening', () => {
     };
 
     await sqliteConfigStoreService.__resetForTesting();
+    // Keep valid runtime config for DB encryption; seed with override for validation
     await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
     const status = getRuntimeIntegrationStatus();
 
     expect(status.ready).toBe(false);
     expect(status.summary.total).toBe(11);
     expect(status.summary.missing).toBeGreaterThanOrEqual(2);
-    expect(status.keys.find((key) => key.key === 'governance.repoUrl')?.issue).toBe('missing');
+    expect(status.keys.find((key) => key.key === 'governance.repoUrl')?.issue).toBe('invalid_string');
     expect(status.keys.find((key) => key.key === 'sync.cronEnabled')?.issue).toBe('missing');
   });
 
@@ -108,6 +118,7 @@ describe('runtimeConfigService validation hardening', () => {
     };
 
     await sqliteConfigStoreService.__resetForTesting();
+    setPranaRuntimeConfig(createValidRuntimeConfig());
     await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
 
     expect(() => getRuntimeBootstrapConfig()).toThrow('[PRANA_CONFIG_ERROR]');
@@ -127,6 +138,7 @@ describe('runtimeConfigService validation hardening', () => {
     };
 
     await sqliteConfigStoreService.__resetForTesting();
+    // Keep valid runtime config for DB encryption; seed with overrides for validation
     await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(overrideConfig);
     const result = validatePranaRuntimeConfig(overrideConfig);
 

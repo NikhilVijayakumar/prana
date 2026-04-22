@@ -70,6 +70,7 @@ Common optional groups used by feature integrations:
 - `google.adminEmail`
 - `branding.*`
 - `virtualDrives.*`
+- `storage.cacheLocation` (`'local' | 'drive'`, default `'local'`): Controls whether the SQLite config cache follows the mounted virtual drive (`'drive'`) or stays in the home-based app data directory (`'local'`). When set to `'local'`, the config cache is stable and drive-independent. When set to `'drive'`, the config cache relocates to the active system drive mount point after mount.
 
 ## Feature Dependency Matrix
 

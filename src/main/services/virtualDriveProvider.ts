@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { access, mkdir } from 'node:fs/promises';
 import { isAbsolute, resolve, normalize } from 'node:path';
 import { executeCommand } from './processService';
 import { getGovernanceRepoPath } from './governanceRepoService';
@@ -67,6 +67,29 @@ const detectMountFailure = (stderr: string): string | null => {
 };
 
 const isWindows = (): boolean => process.platform === 'win32';
+
+const MOUNT_READY_MAX_WAIT_MS = 5_000;
+const MOUNT_READY_INITIAL_DELAY_MS = 100;
+
+const waitForMountReady = async (mountPoint: string, maxWaitMs = MOUNT_READY_MAX_WAIT_MS): Promise<boolean> => {
+  let elapsed = 0;
+  let delay = MOUNT_READY_INITIAL_DELAY_MS;
+
+  while (elapsed < maxWaitMs) {
+    try {
+      await access(mountPoint);
+      return true;
+    } catch {
+      // Mount point not yet accessible, retry after delay
+    }
+
+    await new Promise<void>((r) => setTimeout(r, delay));
+    elapsed += delay;
+    delay = Math.min(delay * 2, 1_000);
+  }
+
+  return false;
+};
 
 export class PATH_TRAVERSAL_VIOLATION extends Error {
   constructor(message: string) {
@@ -210,15 +233,33 @@ export const rcloneVirtualDriveProvider: VirtualDriveProvider = {
           return;
         }
 
-        settled = true;
-        resolvePromise({
-          success: true,
-          providerId: 'rclone',
-          mountPoint: request.mountPoint,
-          sourcePath: request.sourcePath,
-          message: `${request.driveId} drive mounted through provider ${remoteName}.`,
-          child,
-          stderr: stderr || stdout || null,
+        void waitForMountReady(request.mountPoint).then((ready) => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          if (ready) {
+            resolvePromise({
+              success: true,
+              providerId: 'rclone',
+              mountPoint: request.mountPoint,
+              sourcePath: request.sourcePath,
+              message: `${request.driveId} drive mounted through provider ${remoteName}.`,
+              child,
+              stderr: stderr || stdout || null,
+            });
+          } else {
+            resolvePromise({
+              success: false,
+              providerId: 'rclone',
+              mountPoint: request.mountPoint,
+              sourcePath: request.sourcePath,
+              message: `Mount provider spawned but mount point '${request.mountPoint}' did not become accessible within ${MOUNT_READY_MAX_WAIT_MS}ms.`,
+              child,
+              stderr: stderr || stdout || null,
+            });
+          }
         });
       });
     });

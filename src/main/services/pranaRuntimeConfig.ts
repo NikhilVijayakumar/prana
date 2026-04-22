@@ -79,6 +79,9 @@ const PranaRuntimeConfigSchema = z.object({
       requireSessionMount: z.boolean().optional(),
     }).optional(),
   }).optional(),
+  storage: z.object({
+    cacheLocation: z.enum(['local', 'drive']).optional(),
+  }).optional(),
   registryRoot: z.string().optional(),
   branding: z.object({
     appBrandName: z.string().optional(),
@@ -116,19 +119,22 @@ const mapZodErrorToIssues = (zodError: z.ZodError): PranaConfigValidationIssue[]
     let code: PranaConfigValidationIssueCode = 'missing';
 
     if (issue.code === 'invalid_type') {
+      // Zod v3 provides 'received' as a string; Zod v4 may omit it entirely
       const received = (issue as any).received;
+      const isMissing = received === 'undefined' || received === undefined;
       if (issue.expected === 'string') {
         expectedType = 'string';
-        code = received === 'undefined' ? 'missing' : 'invalid_string';
+        code = isMissing ? 'missing' : 'invalid_string';
       } else if (issue.expected === 'number') {
         expectedType = 'number';
-        code = received === 'undefined' ? 'missing' : 'invalid_number';
+        code = isMissing ? 'missing' : 'invalid_number';
       } else if (issue.expected === 'boolean') {
         expectedType = 'boolean';
-        code = received === 'undefined' ? 'missing' : 'invalid_boolean';
+        code = isMissing ? 'missing' : 'invalid_boolean';
       }
     } else if (issue.code === 'too_small') {
-      const typeStr = (issue as any).type;
+      // Zod v3 uses 'type', Zod v4 uses 'origin'
+      const typeStr = (issue as any).origin ?? (issue as any).type;
       if (typeStr === 'string') {
           expectedType = 'string';
           code = 'invalid_string';

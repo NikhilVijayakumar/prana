@@ -45,6 +45,18 @@ export const setAppDataRootOverride = (nextPath: string | null): void => {
   appDataRootOverride = nextPath;
 };
 
+/**
+ * Returns the home-based app data root, ignoring any drive mount override.
+ * Use this for services that must remain stable regardless of virtual drive state.
+ */
+export const getStableAppDataRoot = (): string => {
+  try {
+    return resolveAppDataDir(app.getPath('home'));
+  } catch {
+    return resolveAppDataDir(homedir());
+  }
+};
+
 export const getGovernanceRepoPath = (): string => {
   const path = getRuntimeBootstrapConfig().governance.repoPath;
   if (path && path.trim().length > 0) {
