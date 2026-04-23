@@ -649,6 +649,10 @@ export const driveControllerService = {
     await unmountMountedDrive('vault');
   },
 
+  getActiveChildren(): ChildProcess[] {
+    return [...childByDrive.values()];
+  },
+
   async dispose(): Promise<void> {
     sessionDepthByDrive.set('vault', 0);
     await unmountMountedDrive('vault');

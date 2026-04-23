@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 export type MemoryClassification = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED';
 
@@ -162,7 +162,7 @@ const ensureLoaded = async (): Promise<void> => {
     return;
   }
 
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   const indexPath = getIndexPath();
 
   if (!existsSync(indexPath)) {
@@ -416,7 +416,7 @@ export const memoryIndexService = {
     chunks.clear();
     lastIndexedAt = null;
 
-    await mkdir(getAppDataRoot(), { recursive: true });
+    await mkdirSafe(getAppDataRoot());
     const seeded: PersistedMemoryIndex = {
       documents: [],
       chunks: [],

@@ -1,10 +1,10 @@
 import { encryptSqliteBuffer, decryptSqliteBuffer } from './sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { agentRegistryService } from './agentRegistryService';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 import { syncStoreService } from './syncStoreService';
 
 const DB_FILE_NAME = 'registry-runtime.sqlite';
@@ -115,13 +115,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
 
   let database: Database;
   if (existsSync(getDbPath())) {

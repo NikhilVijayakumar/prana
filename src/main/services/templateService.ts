@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js'
-import { getAppDataRoot } from './governanceRepoService'
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService'
 import { runtimeDocumentStoreService } from './runtimeDocumentStoreService'
 
 const DB_FILE_NAME = 'visual-identity.sqlite'
@@ -276,13 +276,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export()
-  await mkdir(getAppDataRoot(), { recursive: true })
+  await mkdirSafe(getAppDataRoot())
   await writeFile(getDbPath(), Buffer.from(bytes))
 }
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime()
-  await mkdir(getAppDataRoot(), { recursive: true })
+  await mkdirSafe(getAppDataRoot())
 
   const database = existsSync(getDbPath())
     ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))

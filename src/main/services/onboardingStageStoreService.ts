@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 const DB_FILE_NAME = 'onboarding-stage.sqlite';
 const META_CURRENT_STEP = 'current_step';
@@ -87,13 +87,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   await writeFile(getDbPath(), Buffer.from(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
 
   let database: Database;
   if (existsSync(getDbPath())) {

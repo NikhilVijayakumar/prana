@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 import { hookSystemService } from './hookSystemService';
 import {
   CronJobRecoveryPolicy,
@@ -204,7 +204,7 @@ const runJobAction = async (job: CronJob): Promise<void> => {
 };
 
 const ensureStoreExists = async (): Promise<void> => {
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   const path = getStorePath();
 
   if (!existsSync(path)) {
@@ -832,7 +832,7 @@ export const cronSchedulerService = {
       failedTasks: 0,
       completedAt: null,
     };
-    await mkdir(getAppDataRoot(), { recursive: true });
+    await mkdirSafe(getAppDataRoot());
     const seeded: PersistedCronState = {
       jobs: defaultJobs(),
       updatedAt: nowIso(),

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, normalize, relative, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, randomUUID } from 'node:crypto';
-import { getAppDataRoot, getGovernanceRepoPath, getGovernanceRepoUrl } from './governanceRepoService';
+import { getAppDataRoot, getGovernanceRepoPath, getGovernanceRepoUrl, mkdirSafe } from './governanceRepoService';
 import { driveControllerService } from './driveControllerService';
 import { executeCommand } from './processService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
@@ -349,7 +349,7 @@ const parseCsvHeaders = async (filePath: string): Promise<string[]> => {
 const ensureVaultStore = async (): Promise<void> => {
   await mkdir(getTempRootDir(), { recursive: true });
   await mkdir(getSnapshotDir(), { recursive: true });
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   await mkdir(getStageDir(), { recursive: true });
   await mkdir(getRawDir(), { recursive: true });
   await mkdir(getDcmDir(), { recursive: true });

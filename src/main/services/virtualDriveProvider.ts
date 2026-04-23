@@ -71,6 +71,24 @@ const isWindows = (): boolean => process.platform === 'win32';
 const MOUNT_READY_MAX_WAIT_MS = 5_000;
 const MOUNT_READY_INITIAL_DELAY_MS = 100;
 
+const UNMOUNT_VERIFY_MAX_WAIT_MS = 3_000;
+
+const verifyMountGone = async (mountPoint: string): Promise<void> => {
+  let elapsed = 0;
+  let delay = 100;
+  while (elapsed < UNMOUNT_VERIFY_MAX_WAIT_MS) {
+    try {
+      await access(mountPoint);
+    } catch {
+      return;
+    }
+    await new Promise<void>((r) => setTimeout(r, delay));
+    elapsed += delay;
+    delay = Math.min(delay * 2, 500);
+  }
+  console.warn(`[Prana] Mount point '${mountPoint}' still accessible ${UNMOUNT_VERIFY_MAX_WAIT_MS}ms after unmount.`);
+};
+
 const waitForMountReady = async (mountPoint: string, maxWaitMs = MOUNT_READY_MAX_WAIT_MS): Promise<boolean> => {
   let elapsed = 0;
   let delay = MOUNT_READY_INITIAL_DELAY_MS;
@@ -269,6 +287,7 @@ export const rcloneVirtualDriveProvider: VirtualDriveProvider = {
     if (request.child?.pid) {
       if (isWindows()) {
         await executeCommand('taskkill', ['/PID', String(request.child.pid), '/T', '/F'], 15_000);
+        await verifyMountGone(request.mountPoint);
         return;
       }
     }

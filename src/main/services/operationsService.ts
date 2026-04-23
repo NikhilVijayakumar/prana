@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getAppDataRoot, getGovernanceRepoPath } from './governanceRepoService';
+import { getAppDataRoot, getGovernanceRepoPath, mkdirSafe } from './governanceRepoService';
 import { authService } from './authService';
 import { modelGatewayService } from './modelGatewayService';
 import { skillSystemService } from './skillSystemService';
@@ -1924,7 +1924,7 @@ const getOperationsStatePath = (): string => {
 };
 
 const ensureSettingsStore = async (): Promise<void> => {
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   const settingsPath = getSettingsFilePath();
   if (!existsSync(settingsPath)) {
     const runtimeSync = getRuntimeBootstrapConfig().sync;
@@ -2048,7 +2048,7 @@ const pruneLegacyDemoState = (state: PersistedOperationsState): PersistedOperati
 };
 
 const ensureOperationsStateStore = async (): Promise<void> => {
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   const statePath = getOperationsStatePath();
 
   if (!existsSync(statePath)) {

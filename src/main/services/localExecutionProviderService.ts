@@ -6,9 +6,9 @@
  */
 
 import crypto from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSyncSafe } from './governanceRepoService';
 import { wrappedFetch } from "../utils/network/globalFetchWrapper";
 
 export type ModelProviderType = 'lm-studio' | 'openrouter' | 'gemini-cli';
@@ -160,7 +160,7 @@ export class LocalExecutionProviderService {
       data[type] = config;
     }
 
-    mkdirSync(getAppDataRoot(), { recursive: true });
+    mkdirSyncSafe(getAppDataRoot());
     writeFileSync(this.getStoragePath(), JSON.stringify(data, null, 2), 'utf8');
   }
 

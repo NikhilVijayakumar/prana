@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { mkdir, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -11,6 +11,40 @@ import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 const APP_DATA_DIR = '.prana';
 const LEGACY_APP_DATA_DIR = '.dhi';
 let appDataRootOverride: string | null = null;
+
+// WinFsp returns EPERM when mkdir targets the drive root (e.g. "S:\") — the root
+// already exists as the mount point. Detect and swallow only this specific case.
+const isWindowsDriveRoot = (p: string): boolean => /^[A-Za-z]:[/\\]?$/.test(p.trim());
+
+const swallowDriveRootEperm = (err: unknown, p: string): void => {
+  if (
+    err !== null &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code: string }).code === 'EPERM' &&
+    isWindowsDriveRoot(p)
+  ) {
+    return;
+  }
+  throw err;
+};
+
+export const mkdirSafe = async (p: string): Promise<void> => {
+  try {
+    await mkdir(p, { recursive: true });
+  } catch (err: unknown) {
+    swallowDriveRootEperm(err, p);
+  }
+};
+
+export const mkdirSyncSafe = (p: string): void => {
+  try {
+    mkdirSync(p, { recursive: true });
+  } catch (err: unknown) {
+    swallowDriveRootEperm(err, p);
+  }
+};
+
 export interface GovernanceRepoStatus {
   sshVerified: boolean;
   repoReady: boolean;
@@ -257,7 +291,7 @@ export const ensureGovernanceRepoReady = async (): Promise<GovernanceRepoStatus>
     };
   }
 
-  await mkdir(dirname(repoPath), { recursive: true });
+  await mkdirSafe(dirname(repoPath));
 
   if (existsSync(repoPath)) {
     const entries = await readdir(repoPath);

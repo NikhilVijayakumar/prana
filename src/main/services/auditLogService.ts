@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 const AUDIT_LOG_FILE = 'audit_log.jsonl';
 
@@ -134,7 +134,7 @@ const appendAuditEntry = async (
     },
   };
 
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   await appendFile(getAuditLogPath(), `${JSON.stringify(entry)}\n`, 'utf8');
   return txnId;
 };

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getAppDataRoot } from './governanceRepoService';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
 
 const STATE_FILE = 'administration-integration-state.json';
@@ -373,7 +373,7 @@ const readIntegrationState = async (): Promise<PersistedAdministrationIntegratio
 };
 
 const writeIntegrationState = async (state: PersistedAdministrationIntegrationState): Promise<void> => {
-  await mkdir(getAppDataRoot(), { recursive: true });
+  await mkdirSafe(getAppDataRoot());
   await writeFile(getStateFilePath(), JSON.stringify(state, null, 2), 'utf8');
 };
 

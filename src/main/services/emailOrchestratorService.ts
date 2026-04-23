@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runtimeDocumentStoreService } from './runtimeDocumentStoreService'
-import { getAppDataRoot } from './governanceRepoService'
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService'
 import { emailBrowserAgentService } from './emailBrowserAgentService'
 import { cronSchedulerService } from './cronSchedulerService'
 import { emailKnowledgeContextStoreService } from './emailKnowledgeContextStoreService'
@@ -157,7 +157,7 @@ const defaultStore = (): EmailOrchestratorStore => ({
 })
 
 const ensureStore = async (): Promise<void> => {
-  await mkdir(getAppDataRoot(), { recursive: true })
+  await mkdirSafe(getAppDataRoot())
   if (!existsSync(getStorePath())) {
     await writeFile(getStorePath(), JSON.stringify(defaultStore(), null, 2), 'utf8')
   }
