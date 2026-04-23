@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
-import { getSqliteRoot } from './governanceRepoService';
+import { getSqliteRoot, mkdirSafe } from './governanceRepoService';
 import { syncStoreService } from './syncStoreService';
 
 const DB_FILE_NAME = 'business-context.sqlite';
@@ -48,13 +48,13 @@ const getSqlRuntime = async (): Promise<SqlJsStatic> => {
 
 const persistDatabase = async (database: Database): Promise<void> => {
   const bytes = database.export();
-  await mkdir(getSqliteRoot(), { recursive: true });
+  await mkdirSafe(getSqliteRoot());
   await writeFile(getDbPath(), Buffer.from(bytes));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
   const sqlRuntime = await getSqlRuntime();
-  await mkdir(getSqliteRoot(), { recursive: true });
+  await mkdirSafe(getSqliteRoot());
 
   const database = existsSync(getDbPath())
     ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))

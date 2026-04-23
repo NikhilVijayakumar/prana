@@ -2,7 +2,7 @@ import { ChildProcess, spawn } from 'node:child_process';
 import { access, mkdir } from 'node:fs/promises';
 import { isAbsolute, resolve, normalize } from 'node:path';
 import { executeCommand } from './processService';
-import { getGovernanceRepoPath } from './governanceRepoService';
+import { getMountsBaseDir, getGovernanceRepoPath } from './governanceRepoService';
 import type { VirtualDriveId } from './mountRegistryService';
 
 export interface VirtualDriveProviderMountRequest {
@@ -131,7 +131,7 @@ const ensureParentReady = async (mountPoint: string): Promise<void> => {
     return;
   }
 
-  const baseDir = resolve(getGovernanceRepoPath(), '.mounts');
+  const baseDir = getMountsBaseDir();
   const target = isAbsolute(mountPoint) ? mountPoint : resolve(baseDir, mountPoint);
   
   if (!isAbsolute(mountPoint)) {

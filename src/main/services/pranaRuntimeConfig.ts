@@ -20,6 +20,7 @@ const PranaRuntimeConfigSchema = z.object({
     tempZipExtension: z.string().optional(),
     outputPrefix: z.string().optional(),
     appKey: z.string().optional(),
+    appRootPath: z.string().optional(),
     archivePassword: z.string().min(1, { message: 'Missing required runtime field: vault.archivePassword' }),
     archiveSalt: z.string().min(1, { message: 'Missing required runtime field: vault.archiveSalt' }),
     kdfIterations: z.number().int().min(MIN_VAULT_KDF_ITERATIONS, { message: `Invalid required runtime field: vault.kdfIterations must be an integer >= ${MIN_VAULT_KDF_ITERATIONS}.` }),
@@ -63,8 +64,10 @@ const PranaRuntimeConfigSchema = z.object({
       type: z.string().optional(),
       rcloneBinaryPath: z.string().optional(),
     }).optional(),
+    mountsBaseDir: z.string().optional(),
     system: z.object({
       mountPoint: z.string().optional(),
+      mountSubpath: z.string().optional(),
       sourceSubpath: z.string().optional(),
       fallbackSubpath: z.string().optional(),
       remoteName: z.string().optional(),

@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { mkdir, readdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { executeCommand } from './processService';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
@@ -86,7 +86,7 @@ export const getSqliteRoot = (): string => {
   if (sqliteRootOverride) return sqliteRootOverride;
   const configRoot = getPranaRuntimeConfig()?.sqliteRoot;
   if (configRoot) return configRoot;
-  return getAppDataRoot();
+  return join(getStableAppDataRoot(), 'sqlite');
 };
 
 export const setSqliteRootOverride = (nextPath: string | null): void => {
@@ -103,6 +103,12 @@ export const getStableAppDataRoot = (): string => {
   } catch {
     return resolveAppDataDir(homedir());
   }
+};
+
+export const getMountsBaseDir = (): string => {
+  const configured = getPranaRuntimeConfig()?.virtualDrives?.mountsBaseDir;
+  if (configured) return configured;
+  return resolve(getGovernanceRepoPath(), '.mounts');
 };
 
 export const getGovernanceRepoPath = (): string => {

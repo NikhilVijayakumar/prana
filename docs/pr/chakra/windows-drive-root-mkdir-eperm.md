@@ -101,6 +101,18 @@ This structure is defined by Chakra's `src/main/config/drive-layout.json` and cr
 
 ## Files Expected to Change in Prana
 
-- `src/main/services/driveControllerService.ts` — readiness probe mkdir logic
-- `src/main/services/authService.ts` — mkdir guard at data root initialization
-- Any other service that calls `mkdir(getSystemDataRoot() | getAppDataRoot(), ...)` without guarding against drive-root EPERM
+- `src/main/services/driveControllerService.ts` — readiness probe mkdir logic (line ~300: `await mkdir(mountedRoot, { recursive: true })` should use `access` not `mkdir`)
+- `src/main/services/authStoreService.ts`, `businessContextStoreService.ts`, `contextDigestStoreService.ts`, `runtimeDocumentStoreService.ts` — all four call `mkdir(getSqliteRoot(), { recursive: true })` without `mkdirSafe`. Full fix documented in `sqlite-store-mkdir-eperm-fix.md`.
+- `src/main/services/governanceRepoService.ts` — `getSqliteRoot()` (line ~89) falls back to `getAppDataRoot()` which is the bare drive root after mount. Fix: default to `join(getAppDataRoot(), 'cache', 'sqlite')`. Covered in `sqlite-store-mkdir-eperm-fix.md`.
+- Any other service that calls `mkdir(getSystemDataRoot() | getAppDataRoot(), ...)` without `mkdirSafe`
+
+## Chakra Workaround (applied, pending Prana fix)
+
+Until Prana fixes `authStoreService.ts`, Chakra sets the SQLite root override explicitly after `chakra:ensure-drive-layout` completes:
+
+```typescript
+const { setSqliteRootOverride } = await import('prana/main/services/governanceRepoService')
+setSqliteRootOverride(join(driveRoot, 'cache', 'sqlite'))
+```
+
+This routes `getSqliteRoot()` to `S:\cache\sqlite` (matching `drive-layout.json`) before `auth:get-status` is called, so `authStoreService.mkdir(getSqliteRoot())` creates a subdirectory — not the drive root — and the EPERM is avoided.

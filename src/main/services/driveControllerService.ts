@@ -4,7 +4,7 @@ import { access, mkdir, rm } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { getPranaPlatformRuntime } from './pranaPlatformRuntime';
 import { sqliteConfigStoreService } from './sqliteConfigStoreService';
-import { getGovernanceRepoPath, setAppDataRootOverride } from './governanceRepoService';
+import { getMountsBaseDir, getGovernanceRepoPath, setAppDataRootOverride } from './governanceRepoService';
 import { mountRegistryService, VirtualDriveId, VirtualDriveRecord } from './mountRegistryService';
 import { hookSystemService } from './hookSystemService';
 import { getVirtualDriveProvider } from './virtualDriveProvider';
@@ -55,6 +55,8 @@ interface NormalizedVirtualDriveConfig {
   providerId: string;
   obscuredFileNames: boolean;
   rcloneBinaryPath: string | null;
+  systemMountSubpath: string;
+  mountsBaseDir: string;
   policy: VirtualDrivePolicySnapshot;
   drives: Record<VirtualDriveId, NormalizedDriveSettings>;
 }
@@ -119,7 +121,7 @@ const resolveUnixMountPoint = (mountPoint: string, driveId: VirtualDriveId): str
     return mountPoint;
   }
 
-  return resolve(getGovernanceRepoPath(), '.mounts', driveId);
+  return resolve(getMountsBaseDir(), driveId);
 };
 
 const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
@@ -180,6 +182,8 @@ const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
       : typeof runtimeConfig?.rcloneBinaryPath === 'string'
         ? runtimeConfig.rcloneBinaryPath
         : null,
+    systemMountSubpath: systemConfig.mountSubpath ?? 'live',
+    mountsBaseDir: getMountsBaseDir(),
     policy: getVirtualDrivePolicySnapshot(),
     drives: {
       system: {
@@ -281,7 +285,7 @@ const updateSystemDataRoot = async (record: VirtualDriveRecord | null, config: N
   }
 
   if (record.stage === 'MOUNTED') {
-    const mountedRoot = isWindows() ? record.mountPoint : join(record.mountPoint, 'live');
+    const mountedRoot = isWindows() ? record.mountPoint : join(record.mountPoint, config.systemMountSubpath);
 
     if (isWindows()) {
       // Verify the drive letter is actually accessible before using it
@@ -672,7 +676,7 @@ export const driveControllerService = {
   getSystemDataRoot(): string {
     const system = getDriveRecord('system');
     if (system?.stage === 'MOUNTED') {
-      return isWindows() ? system.mountPoint : join(system.mountPoint, 'live');
+      return isWindows() ? system.mountPoint : join(system.mountPoint, getNormalizedVirtualDriveConfig().systemMountSubpath);
     }
 
     return getNormalizedVirtualDriveConfig().drives.system.fallbackPath;
@@ -695,7 +699,7 @@ export const driveControllerService = {
       return;
     }
 
-    const root = resolve(getGovernanceRepoPath(), '.mounts');
+    const root = getMountsBaseDir();
     if (existsSync(root)) {
       await rm(root, { recursive: true, force: true });
     }

@@ -2,6 +2,7 @@ import { basename, join } from 'node:path';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
+import { getPranaRuntimeConfig } from './pranaRuntimeConfig';
 
 export interface VaultAppMetadata {
   appKey: string;
@@ -58,8 +59,13 @@ const listDomainKeys = async (workingRootPath: string): Promise<string[]> => {
   return domainKeys;
 };
 
+const getVaultAppRootPath = (appKey: string): string => {
+  const configured = getPranaRuntimeConfig()?.vault?.appRootPath;
+  return configured ?? `apps/${appKey}`;
+};
+
 const getMetadataPath = (workingRootPath: string, appKey: string): string => {
-  return join(workingRootPath, 'apps', appKey, '.metadata.json');
+  return join(workingRootPath, getVaultAppRootPath(appKey), '.metadata.json');
 };
 
 export const vaultMetadataService = {
@@ -68,7 +74,7 @@ export const vaultMetadataService = {
   async buildCurrentMetadata(workingRootPath: string): Promise<VaultAppMetadata> {
     const identity = deriveAppIdentity();
     const domainKeys = await listDomainKeys(workingRootPath);
-    const rootPath = `apps/${identity.appKey}`;
+    const rootPath = getVaultAppRootPath(identity.appKey);
     const structureHash = checksumFor(JSON.stringify({ rootPath, domainKeys }));
 
     return {
@@ -84,7 +90,7 @@ export const vaultMetadataService = {
   async ensureMetadata(workingRootPath: string): Promise<VaultAppMetadata> {
     const metadata = await this.buildCurrentMetadata(workingRootPath);
     const metadataPath = getMetadataPath(workingRootPath, metadata.appKey);
-    await mkdir(join(workingRootPath, 'apps', metadata.appKey), { recursive: true });
+    await mkdir(join(workingRootPath, getVaultAppRootPath(metadata.appKey)), { recursive: true });
     await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
     return metadata;
   },
