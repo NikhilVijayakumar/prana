@@ -92,6 +92,11 @@ const resolveCredentials = (): GoogleBridgeCredentials | null => {
   return { clientId, clientSecret, refreshToken, adminEmail };
 };
 
+const resolveSpreadsheetId = (): string => {
+  const googleConfig = sqliteConfigStoreService.readSnapshotSync()?.config?.google;
+  return googleConfig?.spreadsheetId ?? '';
+};
+
 const refreshAccessToken = async (credentials: GoogleBridgeCredentials): Promise<string> => {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -439,7 +444,7 @@ export class GoogleBridgeService {
     credentialsOverride?: GoogleBridgeCredentials | null,
   ) {
     this.credentials = credentialsOverride !== undefined ? credentialsOverride : resolveCredentials();
-    const spreadsheetId = '';
+    const spreadsheetId = resolveSpreadsheetId();
 
     this.config = {
       credentials: this.credentials,

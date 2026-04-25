@@ -48,6 +48,7 @@ const PranaRuntimeConfigSchema = z.object({
     clientSecret: z.string().optional(),
     refreshToken: z.string().optional(),
     adminEmail: z.string().optional(),
+    spreadsheetId: z.string().optional(),
   }).optional(),
   skills: z.object({
     path: z.string().optional(),
