@@ -18,7 +18,7 @@
 | Key | Value |
 |-----|------|
 | Name | prana |
-| Version | 1.2.1 |
+| Version | 1.2.3 |
 | License | N/A |
 
 ## High-Level Vision
@@ -70,6 +70,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   │   ├── agents
 │   │   ├── auditLogService.test.ts
 │   │   ├── auditLogService.ts
+│   │   ├── authService.test.ts
 │   │   ├── authService.ts
 │   │   ├── authStoreService.ts
 │   │   ├── businessAlignmentService.ts
@@ -500,6 +501,7 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **pr/chakra/drive-root-directory-collision.md** → Prana Clarification: Intended Drive Root Layout (S:\) Status: Clarification / design intent
 - **pr/chakra/general-email-api.md** → Prana PR: General Purpose Email Sending API PR Title
 - **pr/chakra/google-bridge-spreadsheet-id-hardcoded-empty.md** → Bug: GoogleBridgeService hardcodes empty spreadsheetId — env var ignored File
+- **pr/chakra/otp-hash-verification.md** → Prana PR: OTP Hash + Verification for Forgot Password Flow PR Title
 - **pr/chakra/otp-verification.md** → Prana PR: OTP Verification for Forgot Password Flow PR Title
 - **pr/chakra/rclone-password-must-be-obscured.md** → Prana Bug: rclone crypt password must be obscured before passing to env vars Status: Bug — drive does not mount; silent fallback to unencrypted local storage
 - **pr/chakra/splash-dependency-precheck-proposal.md** → PR Request for Prana: Reusable Host Dependency Capability Service Status: Proposal only (do not implement in Chakra)
@@ -532,4 +534,4 @@ See: src/ui/common/components/index.ts for UI component exports.
 
 - Config: scripts/wiki-steps.json
 - Generated: 2026-05-01
-- Version: 1.2.1
+- Version: 1.2.3
