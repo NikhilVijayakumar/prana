@@ -145,6 +145,7 @@ const getNormalizedVirtualDriveConfig = (): NormalizedVirtualDriveConfig => {
       cryptPassword?: string;
       fallbackSubpath?: string;
       allowFallback?: boolean;
+      mountSubpath?: string;
     };
     vault?: {
       mountPoint?: string;

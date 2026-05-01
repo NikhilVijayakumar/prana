@@ -19,6 +19,15 @@ contextBridge.exposeInMainWorld('api', {
       return () => ipcRenderer.removeListener('app:startup-progress', (_event: any, data: any) => callback(data))
     }
   },
+  auth: {
+    login: (email: string, password: string) => ipcRenderer.invoke('auth:login', { email, password }),
+    forgotPassword: (email: string) => ipcRenderer.invoke('auth:forgot-password', { email }),
+    resetPassword: (newPassword: string) => ipcRenderer.invoke('auth:reset-password', { newPassword }),
+    verifyCode: (code: string, hash: string, expiryTimestamp?: number) =>
+      ipcRenderer.invoke('auth:verify-code', { code, hash, expiryTimestamp }),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    getStatus: () => ipcRenderer.invoke('auth:get-status'),
+  },
   cron: {
     list: () => ipcRenderer.invoke('cron:list'),
     upsert: (payload: {
@@ -66,7 +75,7 @@ contextBridge.exposeInMainWorld('api', {
     pullGoogleDocumentToVault: (payload: { documentId: string; vaultTargetPath: string }) =>
       ipcRenderer.invoke('operations:pull-google-document-to-vault', payload)
   },
-  email: {
+   email: {
     configureAccount: (payload: {
       accountId?: string
       label: string
@@ -157,6 +166,12 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('email:browser-session-snapshot', payload),
     stopBrowserSession: (payload: { sessionId: string }) =>
       ipcRenderer.invoke('email:browser-session-stop', payload)
+  },
+  emailGeneral: {
+    configure: (payload: { apiKey: string; inboxId: string }) =>
+      ipcRenderer.invoke('email-general:configure', payload),
+    send: (payload: { options: { to: string[]; subject: string; templateName: string; data: any } }) =>
+      ipcRenderer.invoke('email-general:send', payload),
   },
   visual: {
     seedDefaultTemplates: () => ipcRenderer.invoke('visual:seed-default-templates'),

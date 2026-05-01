@@ -5,7 +5,6 @@ import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { authStoreService, type AuthStoreRecord } from './authStoreService';
 
 const DEFAULT_PASSWORD = 'Director1';
-const TEMP_PASSWORD_TTL_MS = 10 * 60 * 1000;
 const SESSION_TOKEN_PREFIX = 'prana_session_';
 
 export interface AuthStatus {
@@ -37,7 +36,16 @@ export interface ForgotPasswordResult {
 
 export interface ResetPasswordResult {
   success: boolean;
-  reason?: 'no_temp_password' | 'temp_password_expired' | 'invalid_password';
+  reason?: 'invalid_password';
+}
+
+export interface VerificationResult {
+  success: boolean;
+  reason?: 'invalid_code' | 'code_expired' | 'no_code_requested';
+}
+
+export async function hashCode(code: string): Promise<string> {
+  return bcrypt.hash(code, 10);
 }
 
 const resolveSeedPasswordHash = async (): Promise<string> => {
@@ -99,10 +107,6 @@ const ensureBootstrapReady = async (): Promise<AuthStatus> => {
     repoPath: repoStatus.repoPath,
     repoUrl: repoStatus.repoUrl,
   };
-};
-
-const generateTempPassword = (): string => {
-  return `Temp${Math.floor(Math.random() * 9000 + 1000)}A!`;
 };
 
 /**
@@ -225,15 +229,13 @@ export const authService = {
       };
     }
 
-    const tempPassword = generateTempPassword();
-    record.tempPasswordHash = await bcrypt.hash(tempPassword, 10);
-    record.tempPasswordExpiresAt = Date.now() + TEMP_PASSWORD_TTL_MS;
+    // Stateless: no code generation or storage. App handles code generation and storage.
     record.attemptCount = 0; // Reset brute force counter on successful password reset request
     await authStoreService.save(record);
 
     return {
       success: true,
-      tempPassword,
+      tempPassword: null,
     };
   },
 
@@ -251,26 +253,8 @@ export const authService = {
 
     const record = await ensureAuthStore();
 
-    if (!record.tempPasswordHash || !record.tempPasswordExpiresAt) {
-      return {
-        success: false,
-        reason: 'no_temp_password',
-      };
-    }
-
-    if (Date.now() > record.tempPasswordExpiresAt) {
-      record.tempPasswordHash = null;
-      record.tempPasswordExpiresAt = null;
-      await authStoreService.save(record);
-      return {
-        success: false,
-        reason: 'temp_password_expired',
-      };
-    }
-
+    // No temp password check: app has already verified the code
     record.passwordHash = await bcrypt.hash(newPassword, 10);
-    record.tempPasswordHash = null;
-    record.tempPasswordExpiresAt = null;
     record.lastPasswordResetAt = new Date().toISOString();
     record.attemptCount = 0; // Reset brute force counter on successful password reset
     await authStoreService.save(record);
@@ -278,5 +262,16 @@ export const authService = {
     return {
       success: true,
     };
+  },
+
+  async verifyCode(code: string, hash: string, expiryTimestamp?: number | null): Promise<VerificationResult> {
+    if (!hash) {
+      return { success: false, reason: 'no_code_requested' };
+    }
+    if (expiryTimestamp && Date.now() > expiryTimestamp) {
+      return { success: false, reason: 'code_expired' };
+    }
+    const isMatch = await bcrypt.compare(code, hash);
+    return isMatch ? { success: true } : { success: false, reason: 'invalid_code' };
   },
 };

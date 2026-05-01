@@ -13,34 +13,52 @@ import {
 import { useLanguage } from 'astra';
 import { spacing } from 'astra';
 
-type SSHStatus = 'idle' | 'verifying' | 'verified' | 'failed';
+type FlowStatus = 'idle' | 'verifying_email' | 'email_verified' | 'verifying_code' | 'code_verified' | 'failed';
 
 interface ForgotPasswordViewProps {
   email: string;
-  sshStatus: SSHStatus;
+  code?: string;
+  flowStatus: FlowStatus;
   errorKey: string | null;
-  tempPassword: string | null;
   onEmailChange: (v: string) => void;
-  onVerify: () => void;
-  onProceedReset: () => void;
+  onCodeChange?: (v: string) => void;
+  onVerifyEmail: () => void;
+  onVerifyCode?: () => void;
   onBackToLogin: () => void;
+  isEmailStep?: boolean;
+  isCodeStep?: boolean;
 }
 
 export const ForgotPasswordView: FC<ForgotPasswordViewProps> = ({
   email,
-  sshStatus,
+  code = '',
+  flowStatus,
   errorKey,
-  tempPassword,
   onEmailChange,
-  onVerify,
-  onProceedReset,
+  onCodeChange,
+  onVerifyEmail,
+  onVerifyCode,
   onBackToLogin,
+  isEmailStep = true,
+  isCodeStep = false,
 }) => {
   const muiTheme = useMuiTheme();
   const { literal } = useLanguage();
-  const isVerifying = sshStatus === 'verifying';
-  const isVerified = sshStatus === 'verified';
-  const isFailed = sshStatus === 'failed';
+
+  const isVerifyingEmail = flowStatus === 'verifying_email';
+  const isEmailVerified = flowStatus === 'email_verified';
+  const isVerifyingCode = flowStatus === 'verifying_code';
+  const isCodeVerified = flowStatus === 'code_verified';
+  const isFailed = flowStatus === 'failed';
+
+  const getStatusLabel = () => {
+    if (flowStatus === 'verifying_email') return literal['auth.forgot.verifyingEmail'];
+    if (flowStatus === 'email_verified') return literal['auth.forgot.emailVerified'];
+    if (flowStatus === 'verifying_code') return literal['auth.forgot.verifyingCode'];
+    if (flowStatus === 'code_verified') return literal['auth.forgot.codeVerified'];
+    if (flowStatus === 'failed') return literal['auth.forgot.verificationFailed'];
+    return '';
+  };
 
   return (
     <Box
@@ -56,104 +74,92 @@ export const ForgotPasswordView: FC<ForgotPasswordViewProps> = ({
         gap: spacing.lg,
       }}
     >
-      {/* Header */}
       <Box>
         <Typography variant="h3" sx={{ color: muiTheme.palette.text.primary, mb: spacing.xs }}>
           {literal['auth.forgot.title']}
         </Typography>
         <Typography variant="body2" sx={{ color: muiTheme.palette.text.secondary }}>
-          {literal['auth.forgot.subtitle']}
+          {isEmailStep
+            ? literal['auth.forgot.subtitle']
+            : literal['auth.forgot.codeSubtitle']}
         </Typography>
       </Box>
 
-      {/* Status chip */}
-      {sshStatus !== 'idle' && (
+      {flowStatus !== 'idle' && (
         <Chip
-          label={
-            isVerifying
-              ? literal['auth.forgot.sshVerifying']
-              : isVerified
-              ? literal['auth.forgot.sshVerified']
-              : literal['auth.forgot.sshFailed']
-          }
-          color={isVerified ? 'success' : isFailed ? 'error' : 'default'}
+          label={getStatusLabel()}
+          color={isEmailVerified || isCodeVerified ? 'success' : isFailed ? 'error' : 'default'}
           size="small"
           sx={{ alignSelf: 'flex-start' }}
         />
       )}
 
-      {/* Error */}
       {errorKey && (
         <Alert severity="error" sx={{ borderRadius: '8px' }}>
           {literal[errorKey] ?? errorKey}
         </Alert>
       )}
 
-      {/* Email field */}
-      <TextField
-        label={literal['auth.forgot.emailLabel']}
-        type="email"
-        value={email}
-        onChange={(e) => onEmailChange(e.target.value)}
-        disabled={isVerifying || isVerified}
-        fullWidth
-        autoFocus
-        size="small"
-      />
-
-      {/* Temp password reveal */}
-      {isVerified && tempPassword && (
-        <Box
-          sx={{
-            p: spacing.md,
-            borderRadius: '8px',
-            backgroundColor: muiTheme.palette.action.hover,
-            border: `1px solid ${muiTheme.palette.divider}`,
-          }}
-        >
-          <Typography variant="micro" sx={{ color: muiTheme.palette.text.secondary, mb: spacing.xs, display: 'block' }}>
-            {literal['auth.forgot.tempPasswordLabel']}
-          </Typography>
-          <Typography
-            variant="body1"
-            sx={{
-              color: muiTheme.palette.text.primary,
-              fontFamily: 'monospace',
-              letterSpacing: '0.1em',
-            }}
-          >
-            {tempPassword}
-          </Typography>
-        </Box>
+      {isEmailStep && (
+        <TextField
+          label={literal['auth.forgot.emailLabel']}
+          type="email"
+          value={email}
+          onChange={(e) => onEmailChange(e.target.value)}
+          disabled={isVerifyingEmail || isEmailVerified}
+          fullWidth
+          autoFocus
+          size="small"
+        />
       )}
 
-      {/* Actions */}
-      {!isVerified ? (
+      {isCodeStep && (
+        <TextField
+          label={literal['auth.forgot.codeLabel']}
+          type="text"
+          value={code}
+          onChange={(e) => onCodeChange?.(e.target.value)}
+          disabled={isVerifyingCode || isCodeVerified}
+          fullWidth
+          autoFocus
+          size="small"
+          inputProps={{ maxLength: 6, pattern: '[0-9]*' }}
+          placeholder="000000"
+        />
+      )}
+
+      {isEmailStep && !isEmailVerified && (
         <Button
           variant="contained"
           fullWidth
-          disabled={isVerifying || !email}
-          onClick={onVerify}
+          disabled={isVerifyingEmail || !email}
+          onClick={onVerifyEmail}
           sx={{ py: spacing.sm }}
         >
-          {isVerifying ? (
+          {isVerifyingEmail ? (
             <CircularProgress size={18} color="inherit" />
           ) : (
             literal['auth.forgot.submit']
           )}
         </Button>
-      ) : (
+      )}
+
+      {isCodeStep && !isCodeVerified && onVerifyCode && (
         <Button
           variant="contained"
           fullWidth
-          onClick={onProceedReset}
+          disabled={isVerifyingCode || !code || code.length < 6}
+          onClick={onVerifyCode}
           sx={{ py: spacing.sm }}
         >
-          {literal['auth.forgot.proceedReset']}
+          {isVerifyingCode ? (
+            <CircularProgress size={18} color="inherit" />
+          ) : (
+            literal['auth.forgot.verifyCode']
+          )}
         </Button>
       )}
 
-      {/* Back to login */}
       <Box sx={{ textAlign: 'center' }}>
         <Link
           component="button"

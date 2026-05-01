@@ -239,15 +239,26 @@ export const registerIpcHandlers = (options?: {
     return authService.forgotPassword(payload.email)
   })
 
-  ipcMain.handle('auth:reset-password', async (_event, payload: { newPassword: string }) => {
+   ipcMain.handle('auth:reset-password', async (_event, payload: { newPassword: string }) => {
 
-                     const schema = z.object({ newPassword: z.string() });
+                      const schema = z.object({ newPassword: z.string() });
+                      const parsed = schema.safeParse(payload);
+                      if (!parsed.success) {
+                         throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                      }
+                    
+    return authService.resetPassword(payload.newPassword)
+  })
+
+  ipcMain.handle('auth:verify-code', async (_event, payload: { code: string; hash: string; expiryTimestamp?: number }) => {
+
+                     const schema = z.object({ code: z.string(), hash: z.string(), expiryTimestamp: z.number().optional() });
                      const parsed = schema.safeParse(payload);
                      if (!parsed.success) {
                         throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
                      }
-                   
-    return authService.resetPassword(payload.newPassword)
+                    
+    return authService.verifyCode(payload.code, payload.hash, payload.expiryTimestamp)
   })
 
   ipcMain.handle('auth:logout', async () => {
@@ -999,15 +1010,46 @@ export const registerIpcHandlers = (options?: {
     }
   )
 
-  ipcMain.handle('email:browser-session-stop', async (_event, payload: { sessionId: string }) => {
+   ipcMain.handle('email:browser-session-stop', async (_event, payload: { sessionId: string }) => {
 
-                     const schema = z.object({ sessionId: z.string() });
+                      const schema = z.object({ sessionId: z.string() });
+                      const parsed = schema.safeParse(payload);
+                      if (!parsed.success) {
+                         throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                      }
+                    
+    return emailOrchestratorService.stopBrowserFallbackSession(payload)
+  })
+
+  // General Email API (stateless, app-configured)
+  ipcMain.handle('email-general:configure', async (_event, payload: { apiKey: string; inboxId: string }) => {
+
+                     const schema = z.object({ apiKey: z.string(), inboxId: z.string() });
                      const parsed = schema.safeParse(payload);
                      if (!parsed.success) {
                         throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
                      }
-                   
-    return emailOrchestratorService.stopBrowserFallbackSession(payload)
+                    
+    // Note: templateRenderer must be configured directly in main process, as functions can't be sent via IPC
+    const { configureEmailService } = await import('./emailService');
+    configureEmailService({
+      apiKey: payload.apiKey,
+      inboxId: payload.inboxId,
+      templateRenderer: async () => { throw new Error('templateRenderer must be configured directly'); }
+    });
+    return { success: true };
+  })
+
+  ipcMain.handle('email-general:send', async (_event, payload: { options: { to: string[]; subject: string; templateName: string; data: any } }) => {
+
+                     const schema = z.object({ options: z.object({ to: z.array(z.string()), subject: z.string(), templateName: z.string(), data: z.any() }) });
+                     const parsed = schema.safeParse(payload);
+                     if (!parsed.success) {
+                        throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                     }
+                    
+    const { sendEmail } = await import('./emailService');
+    return sendEmail(payload.options);
   })
 
   ipcMain.handle('vault:list-files', async () => {

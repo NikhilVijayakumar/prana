@@ -24,6 +24,11 @@ export interface SSHVerifyPayload {
   tempPassword: string | null;
 }
 
+export interface CodeVerifyPayload {
+  verified: boolean;
+  reason?: string;
+}
+
 export interface SSHStatusPayload {
   verified: boolean;
   message: string;
@@ -115,7 +120,7 @@ export class AuthRepo {
     } as ServerResponse<SSHVerifyPayload>;
   }
 
-  async resetPassword(newPassword: string): Promise<ServerResponse<boolean>> {
+    async resetPassword(newPassword: string): Promise<ServerResponse<boolean>> {
     const result = await safeIpcCall<RawAuthResetPasswordResponse>(
       'auth.resetPassword',
       () => window.api.auth.resetPassword(newPassword),
@@ -128,6 +133,24 @@ export class AuthRepo {
       statusMessage: result.reason,
       data: result.success,
     } as ServerResponse<boolean>;
+  }
+
+  async verifyCode(code: string, hash: string, expiryTimestamp?: number): Promise<ServerResponse<CodeVerifyPayload>> {
+    const result = await safeIpcCall<{ success: boolean; reason?: string }>(
+      'auth.verifyCode',
+      () => window.api.auth.verifyCode(code, hash, expiryTimestamp),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
+    return {
+      isSuccess: result.success,
+      isError: !result.success,
+      status: HttpStatusCode.SUCCESS,
+      statusMessage: result.reason,
+      data: {
+        verified: result.success,
+        reason: result.reason,
+      },
+    } as ServerResponse<CodeVerifyPayload>;
   }
 
   async checkSSHStatus(): Promise<ServerResponse<SSHStatusPayload>> {

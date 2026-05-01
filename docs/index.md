@@ -18,7 +18,7 @@
 | Key | Value |
 |-----|------|
 | Name | prana |
-| Version | 1.1.6 |
+| Version | 1.2.1 |
 | License | N/A |
 
 ## High-Level Vision
@@ -37,6 +37,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 | @whiskeysockets/baileys | ^7.0.0-rc.9 |
 | @xenova/transformers | ^2.17.2 |
 | astra | github:NikhilVijayakumar/astra |
+| agentmail | ^0.5.0 |
 | bcryptjs | ^3.0.3 |
 | cron-parser | ^5.5.0 |
 | dompurify | ^3.3.3 |
@@ -103,6 +104,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   │   ├── emailImapService.ts
 │   │   ├── emailKnowledgeContextStoreService.ts
 │   │   ├── emailOrchestratorService.ts
+│   │   ├── emailService.ts
 │   │   ├── envService.ts
 │   │   ├── feedbackSentimentService.test.ts
 │   │   ├── feedbackSentimentService.ts
@@ -111,6 +113,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   │   ├── googleBridgeService.test.ts
 │   │   ├── googleBridgeService.ts
 │   │   ├── googleOAuthServer.ts
+│   │   ├── googleSheetsCacheService.ts
 │   │   ├── governanceLifecycleQueueStoreService.test.ts
 │   │   ├── governanceLifecycleQueueStoreService.ts
 │   │   ├── governanceRepoService.ts
@@ -204,6 +207,8 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   │   ├── weeklyReviewCompilerService.ts
 │   │   ├── workOrderFlow.test.ts
 │   │   ├── workOrderService.ts
+│   ├── types
+│   │   ├── email.types.ts
 │   ├── utils
 │   │   ├── network
 │   ├── workers
@@ -489,8 +494,19 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **pr/astra/response/Mapping-Prana.md** → Prana -> Astra Mapping (Response) Status: Completed
 - **pr/astra/response/plan.md** → Astra Plan and Deep Analysis (Prana Request) Date: 2026-03-28
 - **pr/astra/response/README.md** → Prana <- Astra PR Response Status: Ready for Prana consumption
+- **pr/chakra/client-configurable-sqlite-root-path.md** → Prana PR: Client-Configurable SQLite Root Path Status: Implemented — sqliteRoot field in PranaRuntimeConfig; all store services use mkdirSafe via getSqliteRoot()
 - **pr/chakra/drive-decoupling-client-owned-policy-proposal.md** → PR Request for Prana: Decouple Virtual Drive Policy to Client App Status: Proposal only
+- **pr/chakra/drive-layout-config-root-move.md** → Prana Clarification: drive-layout.json Is Now at the Project Root Status: Informational / path update required
+- **pr/chakra/drive-root-directory-collision.md** → Prana Clarification: Intended Drive Root Layout (S:\) Status: Clarification / design intent
+- **pr/chakra/general-email-api.md** → Prana PR: General Purpose Email Sending API PR Title
+- **pr/chakra/google-bridge-spreadsheet-id-hardcoded-empty.md** → Bug: GoogleBridgeService hardcodes empty spreadsheetId — env var ignored File
+- **pr/chakra/otp-verification.md** → Prana PR: OTP Verification for Forgot Password Flow PR Title
+- **pr/chakra/rclone-password-must-be-obscured.md** → Prana Bug: rclone crypt password must be obscured before passing to env vars Status: Bug — drive does not mount; silent fallback to unencrypted local storage
 - **pr/chakra/splash-dependency-precheck-proposal.md** → PR Request for Prana: Reusable Host Dependency Capability Service Status: Proposal only (do not implement in Chakra)
+- **pr/chakra/sqlite-store-mkdir-eperm-fix.md** → Prana Bug: SQLite Store Services EPERM on Windows Drive Root Status: Fixed
+- **pr/chakra/virtual-drive-security-enforcement.md** → Prana PR: Virtual Drive Security Enforcement Status: Proposal
+- **pr/chakra/windows-drive-root-mkdir-eperm.md** → Prana Bug Report: Windows EPERM on mkdir at WinFsp drive root Summary
+- **pr/chakra/windows-virtual-drive-spawn-readiness-bug.md** → Prana Bug Report: Windows virtual drive spawn readiness can break auth startup Summary
 - **pr/dhi/01-fix-startup-orchestrator-module-evaluation.md** → Fix: Early Module Evaluation Crash in StartupOrchestratorService Context
 - **pr/dhi/circular-sqlite-crypto-dependency.md** → Bug Report: Circular Dependency in SQLite Crypto ↔ Config Store Issue Description
 - **pr/dhi/client-controlled-drive-mounting.md** → Feature Request: Client-Controlled Virtual Drive Mounting Repository: prana
@@ -515,5 +531,5 @@ See: src/ui/common/components/index.ts for UI component exports.
 ## Maintenance
 
 - Config: scripts/wiki-steps.json
-- Generated: 2026-04-21
-- Version: 1.1.6
+- Generated: 2026-05-01
+- Version: 1.2.1
