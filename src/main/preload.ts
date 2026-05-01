@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
   auth: {
     login: (email: string, password: string) => ipcRenderer.invoke('auth:login', { email, password }),
     forgotPassword: (email: string) => ipcRenderer.invoke('auth:forgot-password', { email }),
+    verifyOtp: (otp: string) => ipcRenderer.invoke('auth:verify-otp', { otp }),
     resetPassword: (newPassword: string) => ipcRenderer.invoke('auth:reset-password', { newPassword }),
     verifyCode: (code: string, hash: string, expiryTimestamp?: number) =>
       ipcRenderer.invoke('auth:verify-code', { code, hash, expiryTimestamp }),

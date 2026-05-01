@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { ensureGovernanceRepoReady } from './governanceRepoService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { authStoreService, type AuthStoreRecord } from './authStoreService';
+import { sendEmail } from './emailService';
 
 const DEFAULT_PASSWORD = 'Director1';
 const SESSION_TOKEN_PREFIX = 'prana_session_';
@@ -30,7 +31,7 @@ export interface LoginResult {
 
 export interface ForgotPasswordResult {
   success: boolean;
-  reason?: 'ssh_unavailable' | 'email_mismatch';
+  reason?: 'ssh_unavailable' | 'email_mismatch' | 'email_send_failed';
   tempPassword: string | null;
 }
 
@@ -43,6 +44,15 @@ export interface VerificationResult {
   success: boolean;
   reason?: 'invalid_code' | 'code_expired' | 'no_code_requested';
 }
+
+export interface OtpVerificationResult {
+  success: boolean;
+  reason?: 'invalid_otp' | 'otp_expired' | 'no_otp_requested';
+}
+
+const OTP_TTL_MS = 5 * 60 * 1000;
+
+const generateOtp = (): string => Math.floor(100000 + Math.random() * 900000).toString();
 
 export async function hashCode(code: string): Promise<string> {
   return bcrypt.hash(code, 10);
@@ -67,8 +77,8 @@ const ensureAuthStore = async (): Promise<AuthStoreRecord> => {
       directorName: runtimeConfig.director.name,
       email: runtimeConfig.director.email,
       passwordHash: await resolveSeedPasswordHash(),
-      tempPasswordHash: null,
-      tempPasswordExpiresAt: null,
+      otpHash: null,
+      otpExpiresAt: null,
       lastPasswordResetAt: new Date().toISOString(),
     };
     await authStoreService.save(seededRecord);
@@ -79,8 +89,8 @@ const ensureAuthStore = async (): Promise<AuthStoreRecord> => {
     directorName: existing.directorName || runtimeConfig.director.name,
     email: existing.email || runtimeConfig.director.email,
     passwordHash: existing.passwordHash || (await resolveSeedPasswordHash()),
-    tempPasswordHash: existing.tempPasswordHash ?? null,
-    tempPasswordExpiresAt: existing.tempPasswordExpiresAt ?? null,
+    otpHash: existing.otpHash ?? null,
+    otpExpiresAt: existing.otpExpiresAt ?? null,
     lastPasswordResetAt: existing.lastPasswordResetAt ?? new Date().toISOString(),
   };
 
@@ -229,9 +239,29 @@ export const authService = {
       };
     }
 
-    // Stateless: no code generation or storage. App handles code generation and storage.
+    const otp = generateOtp();
+    record.otpHash = await bcrypt.hash(otp, 10);
+    record.otpExpiresAt = Date.now() + OTP_TTL_MS;
     record.attemptCount = 0; // Reset brute force counter on successful password reset request
     await authStoreService.save(record);
+
+    const emailResult = await sendEmail({
+      to: [record.email],
+      subject: '[Prana] Password Reset OTP',
+      templateName: 'otp-email',
+      data: { otpCode: otp, expiryMinutes: 5 },
+    });
+
+    if (!emailResult.success) {
+      record.otpHash = null;
+      record.otpExpiresAt = null;
+      await authStoreService.save(record);
+      return {
+        success: false,
+        reason: 'email_send_failed',
+        tempPassword: null,
+      };
+    }
 
     return {
       success: true,
@@ -253,10 +283,11 @@ export const authService = {
 
     const record = await ensureAuthStore();
 
-    // No temp password check: app has already verified the code
     record.passwordHash = await bcrypt.hash(newPassword, 10);
     record.lastPasswordResetAt = new Date().toISOString();
     record.attemptCount = 0; // Reset brute force counter on successful password reset
+    record.otpHash = null;
+    record.otpExpiresAt = null;
     await authStoreService.save(record);
 
     return {
@@ -273,5 +304,23 @@ export const authService = {
     }
     const isMatch = await bcrypt.compare(code, hash);
     return isMatch ? { success: true } : { success: false, reason: 'invalid_code' };
+  },
+
+  async verifyOtp(otp: string): Promise<OtpVerificationResult> {
+    const record = await ensureAuthStore();
+
+    if (!record.otpHash || !record.otpExpiresAt) {
+      return { success: false, reason: 'no_otp_requested' };
+    }
+
+    if (Date.now() > record.otpExpiresAt) {
+      record.otpHash = null;
+      record.otpExpiresAt = null;
+      await authStoreService.save(record);
+      return { success: false, reason: 'otp_expired' };
+    }
+
+    const isMatch = await bcrypt.compare(otp, record.otpHash);
+    return isMatch ? { success: true } : { success: false, reason: 'invalid_otp' };
   },
 };

@@ -12,8 +12,8 @@ export interface AuthStoreRecord {
   directorName: string;
   email: string;
   passwordHash: string;
-  tempPasswordHash: string | null;
-  tempPasswordExpiresAt: number | null;
+  otpHash: string | null;
+  otpExpiresAt: number | null;
   lastPasswordResetAt: string;
   attemptCount?: number; // Brute force tracking: failed login attempts
   attemptLockUntil?: number; // Brute force tracking: timestamp when lockout expires
@@ -89,6 +89,54 @@ const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
   await writeQueue;
 };
 
+const normalizeRecord = (payload: Record<string, unknown>): { record: AuthStoreRecord; changed: boolean } | null => {
+  const directorName = typeof payload.directorName === 'string' ? payload.directorName : '';
+  const email = typeof payload.email === 'string' ? payload.email : '';
+  const passwordHash = typeof payload.passwordHash === 'string' ? payload.passwordHash : '';
+  const lastPasswordResetAt =
+    typeof payload.lastPasswordResetAt === 'string' ? payload.lastPasswordResetAt : new Date().toISOString();
+  const attemptCount = typeof payload.attemptCount === 'number' ? payload.attemptCount : undefined;
+  const attemptLockUntil = typeof payload.attemptLockUntil === 'number' ? payload.attemptLockUntil : undefined;
+
+  if (!directorName || !email || !passwordHash) {
+    return null;
+  }
+
+  const legacyOtpHash = typeof payload.tempPasswordHash === 'string' ? payload.tempPasswordHash : null;
+  const legacyOtpExpiresAt =
+    typeof payload.tempPasswordExpiresAt === 'number' && Number.isFinite(payload.tempPasswordExpiresAt)
+      ? payload.tempPasswordExpiresAt
+      : null;
+
+  const hasOtpHash = 'otpHash' in payload;
+  const hasOtpExpiresAt = 'otpExpiresAt' in payload;
+
+  const otpHash = hasOtpHash
+    ? (typeof payload.otpHash === 'string' || payload.otpHash === null ? payload.otpHash : null)
+    : legacyOtpHash;
+  const otpExpiresAt = hasOtpExpiresAt
+    ? (typeof payload.otpExpiresAt === 'number' || payload.otpExpiresAt === null ? payload.otpExpiresAt : null)
+    : legacyOtpExpiresAt;
+
+  return {
+    record: {
+      directorName,
+      email,
+      passwordHash,
+      otpHash,
+      otpExpiresAt,
+      lastPasswordResetAt,
+      attemptCount,
+      attemptLockUntil,
+    },
+    changed:
+      'tempPasswordHash' in payload
+      || 'tempPasswordExpiresAt' in payload
+      || !hasOtpHash
+      || !hasOtpExpiresAt,
+  };
+};
+
 const readRecord = async (): Promise<AuthStoreRecord | null> => {
   const db = await getDatabase();
   const statement = db.prepare('SELECT payload_json FROM auth_meta WHERE key = ?');
@@ -107,8 +155,18 @@ const readRecord = async (): Promise<AuthStoreRecord | null> => {
   }
 
   try {
-    const parsed = JSON.parse(row.payload_json) as AuthStoreRecord;
-    return parsed;
+    const parsed = JSON.parse(row.payload_json) as Record<string, unknown>;
+    const normalized = normalizeRecord(parsed);
+
+    if (!normalized) {
+      return null;
+    }
+
+    if (normalized.changed) {
+      await writeRecord(normalized.record);
+    }
+
+    return normalized.record;
   } catch {
     return null;
   }
@@ -139,24 +197,13 @@ const migrateLegacyJsonIfPresent = async (): Promise<AuthStoreRecord | null> => 
 
   try {
     const raw = await readFile(legacyPath, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<AuthStoreRecord>;
-    const migrated: AuthStoreRecord = {
-      directorName: typeof parsed.directorName === 'string' ? parsed.directorName : '',
-      email: typeof parsed.email === 'string' ? parsed.email : '',
-      passwordHash: typeof parsed.passwordHash === 'string' ? parsed.passwordHash : '',
-      tempPasswordHash: typeof parsed.tempPasswordHash === 'string' ? parsed.tempPasswordHash : null,
-      tempPasswordExpiresAt:
-        typeof parsed.tempPasswordExpiresAt === 'number' && Number.isFinite(parsed.tempPasswordExpiresAt)
-          ? parsed.tempPasswordExpiresAt
-          : null,
-      lastPasswordResetAt:
-        typeof parsed.lastPasswordResetAt === 'string' ? parsed.lastPasswordResetAt : new Date().toISOString(),
-    };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const normalized = normalizeRecord(parsed);
 
-    if (migrated.email && migrated.passwordHash) {
-      await writeRecord(migrated);
+    if (normalized?.record.email && normalized.record.passwordHash) {
+      await writeRecord(normalized.record);
       await rm(legacyPath, { force: true });
-      return migrated;
+      return normalized.record;
     }
   } catch {
     return null;
@@ -179,7 +226,7 @@ export const authStoreService = {
     await writeRecord(record);
   },
 
-  async clearTempPassword(): Promise<void> {
+  async clearOtpState(): Promise<void> {
     const existing = await this.get();
     if (!existing) {
       return;
@@ -187,8 +234,8 @@ export const authStoreService = {
 
     await writeRecord({
       ...existing,
-      tempPasswordHash: null,
-      tempPasswordExpiresAt: null,
+      otpHash: null,
+      otpExpiresAt: null,
     });
   },
 };

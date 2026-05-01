@@ -44,8 +44,13 @@ interface RawAuthLoginResponse {
 
 interface RawAuthForgotPasswordResponse {
   success: boolean;
-  tempPassword: string | null;
-  reason: string;
+  tempPassword?: string | null;
+  reason?: string;
+}
+
+interface RawAuthVerifyOtpResponse {
+  success: boolean;
+  reason?: string;
 }
 
 interface RawAuthResetPasswordResponse {
@@ -115,9 +120,25 @@ export class AuthRepo {
       statusMessage: result.reason,
       data: {
         verified: result.success,
-        tempPassword: result.tempPassword,
+        tempPassword: result.tempPassword ?? null,
       },
     } as ServerResponse<SSHVerifyPayload>;
+  }
+
+  async verifyOtp(otp: string): Promise<ServerResponse<boolean>> {
+    const result = await safeIpcCall<RawAuthVerifyOtpResponse>(
+      'auth.verifyOtp',
+      () => window.api.auth.verifyOtp(otp),
+      (value) => typeof (value as { success?: unknown }).success === 'boolean',
+    );
+
+    return {
+      isSuccess: result.success,
+      isError: !result.success,
+      status: HttpStatusCode.SUCCESS,
+      statusMessage: result.reason ?? (result.success ? 'verified' : 'verification_failed'),
+      data: result.success,
+    } as ServerResponse<boolean>;
   }
 
     async resetPassword(newPassword: string): Promise<ServerResponse<boolean>> {
@@ -135,17 +156,17 @@ export class AuthRepo {
     } as ServerResponse<boolean>;
   }
 
-  async verifyCode(code: string, hash: string, expiryTimestamp?: number): Promise<ServerResponse<CodeVerifyPayload>> {
-    const result = await safeIpcCall<{ success: boolean; reason?: string }>(
+  async verifyCode(code: string, _hash: string, _expiryTimestamp?: number): Promise<ServerResponse<CodeVerifyPayload>> {
+    const result = await safeIpcCall<RawAuthVerifyOtpResponse>(
       'auth.verifyCode',
-      () => window.api.auth.verifyCode(code, hash, expiryTimestamp),
+      () => window.api.auth.verifyOtp(code),
       (value) => typeof (value as { success?: unknown }).success === 'boolean',
     );
     return {
       isSuccess: result.success,
       isError: !result.success,
       status: HttpStatusCode.SUCCESS,
-      statusMessage: result.reason,
+      statusMessage: result.reason ?? (result.success ? 'verified' : 'verification_failed'),
       data: {
         verified: result.success,
         reason: result.reason,

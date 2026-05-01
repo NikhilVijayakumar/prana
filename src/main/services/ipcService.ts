@@ -239,6 +239,17 @@ export const registerIpcHandlers = (options?: {
     return authService.forgotPassword(payload.email)
   })
 
+  ipcMain.handle('auth:verify-otp', async (_event, payload: { otp: string }) => {
+
+                     const schema = z.object({ otp: z.string().length(6, 'OTP must be 6 digits') });
+                     const parsed = schema.safeParse(payload);
+                     if (!parsed.success) {
+                        throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                     }
+                   
+    return authService.verifyOtp(payload.otp)
+  })
+
    ipcMain.handle('auth:reset-password', async (_event, payload: { newPassword: string }) => {
 
                       const schema = z.object({ newPassword: z.string() });
