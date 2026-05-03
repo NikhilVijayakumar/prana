@@ -1,263 +1,61 @@
-# 🧱 SQLite Cache — Enhanced
+# 🧱 SQLite Cache — Stateless ORM Caching Layer
 
-````md id="7h2xq9"
-# Feature: SQLite Cache — Encrypted Operational Layer
-
-**Version:** 1.3.0  
+**Version:** 2.0.0  
 **Status:** Stable / Core  
-**Engine:** AES-256-GCM (Custom Buffer-Level Encryption)  
-**Capability:** Provides a high-performance, encrypted relational store that acts as the **operational source of truth**, with **Structural Blueprint Tracking** to enforce Vault alignment. Database files are protected at rest independently of the host filesystem.
-
----
+**Engine:** Drizzle ORM + `better-sqlite3`
 
 ## 1. Tactical Purpose
+The **SQLite Cache** in Prana is a highly concurrent, general-purpose, **stateless** operational caching layer. 
 
-The **SQLite Cache** is the **authoritative runtime state layer**. All data must enter, mutate, and be validated here before any Vault interaction.
+Unlike traditional stateful frameworks, Prana explicitly avoids defining core tables or enforcing specific database schemas. Instead, Prana provides the optimized plumbing (connection pooling, WAL-mode concurrency, filesystem routing), and delegates complete control over the schemas and data structures to the consuming applications (`dhi`, `chakra`, `rita`).
 
-It ensures:
-- deterministic state management
-- enforcement of Storage Governance Rules (Rule 2, Rule 3)
-- structural mirroring with Vault via Blueprint Tracking
-- encrypted at-rest protection via AES-256-GCM + PBKDF2
+## 2. Core Principles
+1. **Stateless Infrastructure:** Prana contains zero built-in tables for caching (no internal tracking, no `app_registry`). State is entirely owned by the apps.
+2. **Schema Delegation:** Applications inject their own Drizzle ORM schemas into Prana at runtime.
+3. **High Concurrency:** Enabled via SQLite's Write-Ahead Logging (`WAL`) mode, allowing multiple applications to read and write to a shared cache concurrently without locking.
+4. **No Encryption:** Caches are optimized for speed and shared access; they are stored unencrypted in the local `.prana/sqlite/caches` directory (Note: Runtime Config may still use encryption separately, but the Cache layer does not).
 
----
+## 3. Storage Model & Initialization
+Applications share or isolate data based on the `cacheName` they provide during initialization.
 
-## 2. Core Responsibilities
+### 3.1 Initializing a Cache
+Applications use `sqliteCacheService.initCache` to receive a fully typed `drizzle-orm` database instance:
 
-* **Operational Source of Truth:** All writes occur in SQLite before Vault sync
-* **Blueprint Tracking:** Maintains expected Vault structure via `app_vault_blueprint`
-* **App Isolation:** Enforces `app_id`-scoped data ownership
-* **Transactional Integrity:** All writes must be atomic and rollback-safe
-* **Sync Staging Layer:** Acts as the staging ground for Vault writes
-* **Encryption Enforcement:** Ensures all persisted data is encrypted at rest
+```typescript
+import { sqliteCacheService } from 'prana/main/services/sqliteCacheService';
+import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
 
----
+// 1. App defines its specific state/schema
+const dhiData = sqliteTable('dhi_data', { id: integer('id'), value: text('value') });
 
-## 3. Storage Model
-
-### 3.1 Core Tables
-
-```sql
-CREATE TABLE app_registry (
-    app_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    app_key TEXT UNIQUE NOT NULL,
-    app_name TEXT NOT NULL,
-    is_active BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE app_vault_blueprint (
-    blueprint_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    app_id INTEGER NOT NULL,
-    domain_key TEXT NOT NULL,
-    relative_path TEXT NOT NULL,
-    is_required BOOLEAN DEFAULT 1,
-    last_synced_at DATETIME,
-    FOREIGN KEY (app_id) REFERENCES app_registry(app_id),
-    UNIQUE(app_id, domain_key)
-);
-````
-
----
-
-### 3.2 Blueprint Semantics
-
-* Each `domain_key` represents a **Vault domain contract**
-* `relative_path` defines deterministic folder mapping
-* Blueprint must:
-
-  * fully represent Vault structure
-  * remain consistent with `.metadata.json`
-
----
-
-## 4. Operational Blueprint Contract
-
-### 4.1 Source of Truth Hierarchy
-
-| Layer                  | Authority                  |
-| ---------------------- | -------------------------- |
-| Vault `.metadata.json` | Structural Source of Truth |
-| SQLite Blueprint       | Operational Projection     |
-
----
-
-### 4.2 Blueprint States
-
-| State          | Description                      |
-| -------------- | -------------------------------- |
-| SYNCED         | Matches Vault metadata           |
-| STALE          | Outdated vs Vault                |
-| LOCAL_MODIFIED | Changed locally, pending publish |
-| INVALID        | Violates governance rules        |
-
----
-
-### 4.3 Blueprint Rules
-
-* Must exist for every Vault-enabled app
-* Must include all required domain keys
-* Must not contain undefined domains
-* Must be updated before Vault structure changes
-
----
-
-## 5. Synchronization & Conflict Protocol
-
-### 5.1 Handshake Flow
-
-```text
-Load Blueprint (SQLite)
-   ↓
-Fetch Vault Metadata
-   ↓
-Compare Structures
-   ↓
-Resolve Authority
-   ↓
-Proceed with Sync
+// 2. App connects to the unified cache
+const db = sqliteCacheService.initCache('chakra-cache.sqlite', { dhiData });
 ```
 
----
+## 4. DDL and Migrations
+Because Prana is stateless, it does not manage database migrations. Apps are responsible for ensuring their tables exist before performing CRUD operations.
 
-### 5.2 Conflict Scenarios
+To reduce boilerplate, Prana provides an `executeRawSql` helper to bootstrap schemas:
 
-#### Scenario A: Local Change
+```typescript
+// App bootstraps its required tables
+sqliteCacheService.executeRawSql('chakra-cache.sqlite', `
+  CREATE TABLE IF NOT EXISTS dhi_data (
+    id INTEGER PRIMARY KEY,
+    value TEXT
+  );
+`);
+```
 
-* Blueprint updated locally
-* Marked `LOCAL_MODIFIED`
-* Requires explicit publish to Vault
+## 5. Single Unified Cache Database
+Prana recommends using a **single, unified cache file** (e.g., `'chakra-cache.sqlite'`) for all operations across all applications. 
 
----
+- **No Separate Databases:** Applications do not create separate databases for private data. Instead, both shared data (like synchronized Google Sheets) and app-specific private state are stored in different tables within this same unified database.
+- **App Responsibility:** The logic for fetching and parsing Google Sheets is managed entirely by the apps, which then dump that data into tables within the shared cache.
+- **Safe Concurrency:** Because of SQLite's WAL mode, multiple apps can simultaneously access this single database to read shared tables or write to their own private tables without conflicts.
 
-#### Scenario B: Remote Divergence
-
-* Vault metadata differs
-* Vault is authoritative
-* SQLite blueprint must:
-
-  * be overwritten
-  * re-synced before data operations
-
----
-
-#### Scenario C: Irreconcilable Conflict
-
-* Domain mismatch or missing required structure
-* Sync blocked
-* Escalated to Vaidyar
-
----
-
-## 6. Concurrency & Transaction Model
-
-* SQLite operations must be:
-
-  * transactional
-  * ACID-compliant
-* Concurrent writes:
-
-  * allowed per table
-  * must not violate domain constraints
-
----
-
-### 6.1 Sync Isolation
-
-* Blueprint comparison must occur:
-
-  * before any Vault write
-* Sync must operate on:
-
-  * a consistent snapshot of SQLite state
-
----
-
-## 7. Data Ownership Model
-
-| Data            | Owner          | Write Path             |
-| --------------- | -------------- | ---------------------- |
-| Runtime Data    | SQLite         | Direct                 |
-| Vault Structure | Vault Metadata | Synced to SQLite       |
-| Blueprint       | SQLite         | Sync Engine controlled |
-
----
-
-### Rules
-
-* No direct Vault writes without SQLite staging
-* Blueprint updates must go through Sync Engine
-* Services must not bypass SQLite layer
-
----
-
-## 8. Security Model
-
-* **AES-256-GCM** enforces:
-  - authenticated encryption (at rest)
-  - integrity verification (AuthTag)
-* **PBKDF2** key derivation:
-  - utilizes `vault.archivePassword` and `vault.archiveSalt`
-  - strict minimum of 100,000 iterations
-* Keys must:
-  - never be stored in plaintext
-  - be provided via runtime config
-
----
-
-### 8.1 Access Constraints
-
-* Only main process services may access SQLite
-* Renderer must use IPC
-* No direct filesystem access allowed
-
----
-
-## 9. Failure Modes & Recovery
-
-| Scenario           | Behavior                        | Recovery             |
-| ------------------ | ------------------------------- | -------------------- |
-| DB corruption      | Mark INVALID                    | Restore from Vault   |
-| Missing blueprint  | Reconstruct from Vault metadata | Auto-rebuild         |
-| Sync mismatch      | Block sync                      | Reconcile structures |
-| Encryption failure | Abort DB access                 | Reinitialize         |
-
----
-
-### 9.1 Recovery Strategy
-
-* On startup:
-
-  * validate schema + blueprint
-* On failure:
-
-  * rebuild from Vault metadata
-* On persistent error:
-
-  * escalate to Vaidyar
-
----
-
-## 10. Observability
-
-SQLite must emit:
-
-* schema validation results
-* blueprint sync status
-* transaction failures
-* sync staging metrics
-
----
-
-## 11. Known Architectural Gaps (Roadmap)
-
-| Area                 | Gap                              | Impact |
-| -------------------- | -------------------------------- | ------ |
-| Recursive Blueprint  | No deep folder mapping           | High   |
-| Blueprint Versioning | No version tracking              | High   |
-| Migration Engine     | No automated schema evolution    | High   |
-| Corruption Recovery  | No partial recovery tooling      | Medium |
-| Query Isolation      | No per-domain performance tuning | Low    |
-
----
-
+## 6. Separation of Concerns
+| Component | Responsibility |
+| --- | --- |
+| **Prana** | File path resolution (`getSqliteRoot`), `better-sqlite3` instance instantiation, connection management, WAL optimization. |
+| **Consumer App** | Defining Drizzle tables, executing `CREATE TABLE` scripts, executing queries, handling domain logic. |

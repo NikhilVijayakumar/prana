@@ -18,7 +18,7 @@
 | Key | Value |
 |-----|------|
 | Name | prana |
-| Version | 1.2.3 |
+| Version | 1.2.4 |
 | License | N/A |
 
 ## High-Level Vision
@@ -36,11 +36,13 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 | @mui/material | 7.3.10 |
 | @whiskeysockets/baileys | ^7.0.0-rc.9 |
 | @xenova/transformers | ^2.17.2 |
-| astra | github:NikhilVijayakumar/astra |
 | agentmail | ^0.5.0 |
+| astra | github:NikhilVijayakumar/astra |
 | bcryptjs | ^3.0.3 |
+| better-sqlite3 | ^12.9.0 |
 | cron-parser | ^5.5.0 |
 | dompurify | ^3.3.3 |
+| drizzle-orm | ^0.45.2 |
 | html-to-docx | ^1.8.0 |
 | isomorphic-dompurify | ^3.8.0 |
 | js-tiktoken | ^1.0.21 |
@@ -169,6 +171,8 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   │   ├── runtimeModelAccessService.ts
 │   │   ├── skillRegistry.ts
 │   │   ├── skillSystemService.ts
+│   │   ├── sqliteCacheService.test.ts
+│   │   ├── sqliteCacheService.ts
 │   │   ├── sqliteConfigStoreService.ts
 │   │   ├── sqliteCryptoUtil.ts
 │   │   ├── sqliteDataProvider.ts
@@ -474,7 +478,7 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **features/storage/governance/index.md** → Storage Contract Index Purpose
 - **features/storage/governance/rule.md** → Storage Rules Purpose
 - **features/storage/governance/vault/prana.md** → Vault Storage Contract: Prana Scope
-- **features/storage/sqlite-cache.md** → SQLite Cache — Enhanced
+- **features/storage/sqlite-cache.md** → SQLite Cache — Stateless ORM Caching Layer Version: 2.0.0
 - **features/storage/sync-engine.md** → This is already a high-quality core module —arguably the most important in your system. The enhancement below pushes it to production-grade rigor by tightening: deterministic guara
 - **features/storage/vault.md** → Feature: Global Vault Registry & Metadata Protocol Version: 1.5.0
 - **features/storage/vector-search-rag.md** → Vector Search & RAG — Enhanced
@@ -533,5 +537,5 @@ See: src/ui/common/components/index.ts for UI component exports.
 ## Maintenance
 
 - Config: scripts/wiki-steps.json
-- Generated: 2026-05-01
-- Version: 1.2.3
+- Generated: 2026-05-03
+- Version: 1.2.4
