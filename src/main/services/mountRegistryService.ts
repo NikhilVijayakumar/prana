@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { existsSync } from 'node:fs';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
@@ -111,7 +113,7 @@ export const mountRegistryService = {
           id, stage, posture, provider_id, mount_point, source_path,
           resolved_path, used_fallback_path, pid, mounted_at, unmounted_at,
           active_session_count, retry_count, last_error, last_stderr
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         cloned.id,
         cloned.stage,
@@ -134,13 +136,13 @@ export const mountRegistryService = {
     return cloned;
   },
 
-  get(id: VirtualDriveId): VirtualDriveRecord | null {
+  async get(id: VirtualDriveId): Promise<VirtualDriveRecord | null> {
     const database = await getDatabase();
     const row = database.prepare('SELECT * FROM mount_registry WHERE id = ?').get(id) as Record<string, unknown> | undefined;
     return row ? mapRow(row) : null;
   },
 
-  list(): VirtualDriveRecord[] {
+  async list(): Promise<VirtualDriveRecord[]> {
     const database = await getDatabase();
     const rows = database.prepare('SELECT * FROM mount_registry ORDER BY id ASC').all() as Record<string, unknown>[];
     return rows.map(mapRow);

@@ -5,7 +5,7 @@ import {
   CronJobRecoveryPolicy,
   CronJobStateRecord,
   governanceLifecycleQueueStoreService,
-} from './governanceLifecycleQueueService';
+} from './governanceLifecycleQueueStoreService';
 import {
   SYNC_PULL_CRON_JOB_ID,
   SYNC_PUSH_CRON_JOB_ID,

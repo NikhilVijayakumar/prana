@@ -37,21 +37,4 @@ export default defineConfig({
     }
   },
 
-
-  renderer: {
-    root: '.',
-    build: {
-      rollupOptions: {
-        input: resolve(__dirname, 'index.html')
-      }
-    },
-    resolve: {
-      alias: {
-        '@renderer': resolve(__dirname, 'src/ui'),
-        'prana': resolve(__dirname, 'src'),
-        '@astra': resolve(__dirname, 'node_modules/astra')
-      }
-    },
-    plugins: [react()]
-  }
 })

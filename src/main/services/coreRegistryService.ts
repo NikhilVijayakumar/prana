@@ -67,7 +67,6 @@ const loadRegistrySnapshot = (versionCounter: number): { fingerprint: string; sn
         agents: [],
         kpis: [],
         skills: [],
-        kpis: [],
       },
     }
   );

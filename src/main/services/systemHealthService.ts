@@ -71,7 +71,7 @@ export const createSystemHealthService = () => {
       const usedMem = Math.max(totalMem - freeMem, 0);
       const memoryUsagePercent = totalMem > 0 ? Number(((usedMem / totalMem) * 100).toFixed(1)) : 0;
 
-      const processRssMb = Number((process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
+      const processRssMb = Number((process.memoryUsage().rss / (1024 * 1024)).toFixed(1));
       const totalMemoryMb = Number((totalMem / (1024 * 1024)).toFixed(1));
       const uptimeSeconds = Math.floor(process.uptime());
 

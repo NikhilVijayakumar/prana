@@ -1,117 +1,193 @@
-import { app, shell, BrowserWindow } from 'electron'
-import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpcHandlers } from './services/ipcService'
-import { vaultService } from './services/vaultService'
-import { syncProviderService } from './services/syncProviderService'
-import { sqliteConfigStoreService } from './services/sqliteConfigStoreService'
-import { contextDigestStoreService } from './services/contextDigestStoreService'
-import { getPranaPlatformRuntime, setPranaPlatformRuntime } from './services/pranaPlatformRuntime'
-import { hookSystemService } from './services/hookSystemService'
-import { runtimeDocumentStoreService } from './services/runtimeDocumentStoreService'
-import { driveControllerService } from './services/driveControllerService'
-import { googleBridgeService } from './services/googleBridgeService'
+/**
+ * Prana Runtime - Stateless Service Framework
+ *
+ * Import services directly as npm/ESM dependency:
+ * import { createAuthService, createVaultService } from 'prana';
+ *
+ * @version 2.0.0
+ */
 
-const initializePranaRuntime = (): void => {
-  setPranaPlatformRuntime({
-    mode: app.isPackaged ? 'production' : 'development',
-    homeDir: app.getPath('home'),
-    userProfileDir: app.getPath('home'),
-  })
-}
+// ============================================================================
+// Core Runtime Services
+// ============================================================================
 
-initializePranaRuntime()
+export { createPranaPlatformRuntime, setPranaPlatformRuntime, getPranaPlatformRuntime, pranaPlatformRuntime } from './services/pranaPlatformRuntime';
+export { createStartupOrchestrator, getLatestStartupStatus } from './services/startupOrchestratorService';
+export { createTokenManager, tokenManagerService } from './services/tokenManagerService';
+export { createSystemHealthService } from './services/systemHealthService';
 
-process.on('uncaughtException', (error) => {
-  console.error('[PRANA_FATAL_ERROR] Uncaught exception:', error)
-  void hookSystemService.emit('system.status', { component: 'main_process', status: 'degraded', reason: error instanceof Error ? error.message : 'Unknown uncaught exception' })
-})
+// ============================================================================
+// Authentication & Security
+// ============================================================================
 
-process.on('unhandledRejection', (reason) => {
-  console.error('[PRANA_FATAL_ERROR] Unhandled rejection:', reason)
-  void hookSystemService.emit('system.status', { component: 'main_process', status: 'degraded', reason: reason instanceof Error ? reason.message : String(reason) })
-})
+export { authService } from './services/authService';
+export { authStoreService } from './services/authStoreService';
 
-function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
-    show: false,
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
+// ============================================================================
+// Storage & Database
+// ============================================================================
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+export { SqliteService, createSqliteService } from './services/sqliteService';
+export { sqliteCacheService } from './services/sqliteCacheService';
+export { sqliteConfigStoreService } from './services/sqliteConfigStoreService';
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
+// ============================================================================
+// Vault Services
+// ============================================================================
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  const rendererUrl = getPranaPlatformRuntime().rendererUrl
-  if (is.dev && rendererUrl) {
-    mainWindow.loadURL(rendererUrl)
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-}
+export { vaultService } from './services/vaultService';
+export { vaultMetadataService } from './services/vaultMetadataService';
+export { assertSafeVaultPath, getVirtualDriveProvider, rcloneVirtualDriveProvider, PATH_TRAVERSAL_VIOLATION } from './services/virtualDriveProvider';
+export { driveControllerService } from './services/driveControllerService';
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(async () => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.prana.app')
+// ============================================================================
+// Sync & Data Transfer
+// ============================================================================
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
+export { createSyncEngine, syncEngineService } from './services/syncEngineService';
+export { createSyncProvider, syncProviderService } from './services/syncProviderService';
+export { syncStoreService } from './services/syncStoreService';
 
-  registerIpcHandlers()
+// ============================================================================
+// Scheduling & Cron
+// ============================================================================
 
-  createWindow()
+export { createCronScheduler, cronSchedulerService } from './services/cronSchedulerService';
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+// ============================================================================
+// Communication & Channels
+// ============================================================================
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on('window-all-closed', () => {
-  googleBridgeService.disableSyncSchedulerJob()
-  void syncProviderService.syncOnClose()
-  void vaultService.cleanupTemporaryWorkspace()
-  void driveControllerService.dispose()
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
+export { createChannelRouter, channelRouterService } from './services/channelRouterService';
+export { createChannelRegistry, channelRegistryService } from './services/channelRegistryService';
+export { createEmailService, configureEmailService, emailService } from './services/emailService';
+export { emailOrchestratorService } from './services/emailOrchestratorService';
+export { emailKnowledgeContextStoreService } from './services/emailKnowledgeContextStoreService';
+export { googleBridgeService, GoogleBridgeService } from './services/googleBridgeService';
+export { googleSheetsCacheService } from './services/googleSheetsCacheService';
 
-app.on('before-quit', () => {
-  googleBridgeService.disableSyncSchedulerJob()
-  void syncProviderService.syncOnClose()
-  void syncProviderService.dispose()
-  void sqliteConfigStoreService.dispose()
-  void runtimeDocumentStoreService.dispose()
-  void contextDigestStoreService.dispose()
-  void vaultService.cleanupTemporaryWorkspace()
-  void driveControllerService.dispose()
-})
+// ============================================================================
+// Context & Intelligence
+// ============================================================================
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+export { contextEngineService } from './services/contextEngineService';
+export { contextDigestStoreService } from './services/contextDigestStoreService';
+export { memoryIndexService } from './services/memoryIndexService';
+export { contextOptimizerService } from './services/contextOptimizerService';
+export { businessContextStoreService } from './services/businessContextStoreService';
+export { businessContextRegistryService } from './services/businessContextRegistryService';
+export { businessContextValidationService } from './services/businessContextValidationService';
+export { businessAlignmentService } from './services/businessAlignmentService';
+
+// ============================================================================
+// Registry Services
+// ============================================================================
+
+export { createCoreRegistry, coreRegistryService } from './services/coreRegistryService';
+export { createSkillRegistry, getStaticSkills, skillRegistryService } from './services/skillRegistry';
+export { createAgentRegistry, agentRegistryService } from './services/agentRegistryService';
+export { taskRegistryService } from './services/taskRegistryService';
+export { createQueueOrchestrator, queueOrchestratorService } from './services/queueOrchestratorService';
+export { mountRegistryService } from './services/mountRegistryService';
+
+// ============================================================================
+// Operations & Workflows
+// ============================================================================
+
+export { operationsService } from './services/operationsService';
+export { workOrderService } from './services/workOrderService';
+export { createHookSystem, hookSystemService } from './services/hookSystemService';
+
+// ============================================================================
+// Notifications
+// ============================================================================
+
+export { createNotificationCentre, subscribe, notificationCentreService } from './services/notificationCentreService';
+export { notificationStoreService } from './services/notificationStoreService';
+
+// ============================================================================
+// Visual & Templates
+// ============================================================================
+
+export { templateService } from './services/templateService';
+export { visualIdentityService } from './services/visualIdentityService';
+
+// ============================================================================
+// System & Governance
+// ============================================================================
+
+export { createVaidyar, vaidyarService } from './services/vaidyarService';
+export { ensureGovernanceRepoReady, getAppDataRoot, getGovernanceRepoPath, getMountsBaseDir, setAppDataRootOverride, setSqliteRootOverride } from './services/governanceRepoService';
+export { registryRuntimeStoreService } from './services/registryRuntimeStoreService';
+export { onboardingStageStoreService } from './services/onboardingStageStoreService';
+export { governanceLifecycleQueueStoreService } from './services/governanceLifecycleQueueStoreService';
+
+// ============================================================================
+// Administration Integration
+// ============================================================================
+
+export { administrationIntegrationService, AdministrationIntegrationService } from './services/administrationIntegrationService';
+
+// ============================================================================
+// Execution & Agents
+// ============================================================================
+
+export { subagentService } from './services/subagentService';
+export { agentExecutionService } from './services/agentExecutionService';
+export { commandRouterService } from './services/commandRouterService';
+export { orchestrationManager } from './services/orchestrationManager';
+export { runtimeModelAccessService } from './services/runtimeModelAccessService';
+
+// ============================================================================
+// Policies & Compliance
+// ============================================================================
+
+export { policyOrchestratorService } from './services/policyOrchestratorService';
+export { toolPolicyService } from './services/toolPolicyService';
+export { complianceScanService } from './services/complianceScanService';
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+export { auditLogService, AUDIT_ACTIONS, parseAuditJsonLine } from './services/auditLogService';
+export { registerIpcHandlers } from './services/ipcService';
+export { runtimeDocumentStoreService } from './services/runtimeDocumentStoreService';
+export { recoveryService } from './services/recoveryService';
+export { recoveryOrchestratorService } from './services/recoveryOrchestratorService';
+export { transactionCoordinator } from './services/transactionCoordinator';
+export { conflictResolver } from './services/conflictResolver';
+export { protocolInterceptor } from './services/protocolInterceptor';
+
+// ============================================================================
+// Vector Search & RAG
+// ============================================================================
+
+export { vectorSearchService } from './services/vectorSearchService';
+export { ragOrchestratorService } from './services/ragOrchestratorService';
+
+// ============================================================================
+// Compilation & Review Services
+// ============================================================================
+
+export { weeklyReviewCompilerService } from './services/weeklyReviewCompilerService';
+export { summarizationAgentService } from './services/summarizationAgentService';
+export { visualAuditService } from './services/visualAuditService';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+export { getPranaRuntimeConfig, setPranaRuntimeConfig, validatePranaRuntimeConfig, MIN_VAULT_KDF_ITERATIONS, MIN_SYNC_PUSH_INTERVAL_MS } from './services/pranaRuntimeConfig';
+
+// ============================================================================
+// Types (re-export for consumer convenience)
+// ============================================================================
+
+export type { PranaRuntimeConfig } from './services/pranaRuntimeConfig';
+export type { PranaPlatformRuntime } from './services/pranaPlatformRuntime';
+export type { StartupStatusReport } from './services/startupOrchestratorService';
+export type { SqliteServiceOptions } from './services/sqliteService';
+export type { VirtualDriveProvider } from './services/virtualDriveProvider';
+export type { AgentSkill } from './services/skillRegistry';
+export type { CronJob } from './services/cronSchedulerService';
