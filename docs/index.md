@@ -299,12 +299,7 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 │   ├── reset-password
 │   │   ├── view
 │   ├── shared-components
-│   │   ├── notifications
-│   ├── splash
-│   │   ├── view
-│   │   ├── viewmodel
-│   ├── splash-system-initialization
-│   │   ├── view
+│   │   └── notifications
 │   ├── state
 │   │   ├── LifecycleProvider.tsx
 │   │   ├── volatileSessionStore.ts
@@ -356,8 +351,6 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
   - Services: contextEngineService, contextOptimizerService, contextDigestStoreService
 - **Authentication** ([docs/features/auth/authentication.md](docs/features/auth/authentication.md))
   - Services: authService, authStoreService
-- **Splash** ([docs/features/splash/splash-system-initialization.md](docs/features/splash/splash-system-initialization.md))
-  - Services: ipcService, envService
 
 ### Onboarding & Registry
 
@@ -389,8 +382,6 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
   - Services: vaidyarService, systemHealthService, auditLogService
 - **Notifications** ([docs/features/notification/notification-centre.md](docs/features/notification/notification-centre.md))
   - Services: notificationCentreService, hookSystemService, notificationStoreService
-- **Visual Audit** ([docs/features/visual/visual-identity-engine.md](docs/features/visual/visual-identity-engine.md))
-  - Services: visualIdentityService, visualAuditService
 
 
 ## Concept Mapping
@@ -428,9 +419,6 @@ Prana is an Electron desktop runtime library providing orchestration, persistenc
 ### Add runtime service
 Create docs/features/[feature].md → Define service contract → Implement in src/main/services/ → Add IPC handler in preload.ts → Update scripts/wiki-steps.json if mappings changed → Run node scripts/generate-index.cjs
 
-### Add UI screen
-Create docs/features/splash/[screen].md → Create Container → ViewModel → View → Export in src/ui/common/components/index.ts → Update scripts/wiki-steps.json if mappings changed → Run node scripts/generate-index.cjs
-
 ### Add feature doc
 Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap → Run generate:index
 
@@ -451,12 +439,11 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **features/audit/v1.2/notification-audit-report.md** → Notification Feature Audit Report Audit Scope
 - **features/audit/v1.2/Onboarding-audit-report.md** → Onboarding Feature Audit Report Audit Scope
 - **features/audit/v1.2/queue-scheduling-audit-report.md** → Queue & Scheduling Feature Audit Report Audit Scope
-- **features/audit/v1.2/splash-audit-report.md** → Splash Feature Audit Report Audit Scope
+- **features/audit/v1.2/index.md** → v1.2 Feature Audit Reports
 - **features/audit/v1.2/storage-audit-report.md** → Storage Feature Audit Report Audit Scope
 - **features/audit/v1.2/vaidyar-audit-report.md** → Vaidyar Feature Audit Report Audit Scope
-- **features/audit/v1.2/visual-audit-report.md** → Visual Feature Audit Report Audit Scope
 - **features/auth/authentication.md** → Feature: Authentication Stack — Local Identity & Access (Enhanced) Status: Stable
-- **features/boot/startup-orchestrator.md** → This is already a strong core module. The enhancement below focuses on tightening determinism, clarifying cross-module contracts, formalizing invariants, and exposing hidden failur
+- **features/boot/startup-orchestrator.md** → This is already a strong core module.
 - **features/chat/communication.md** → Feature: Agent Communication & Channel Orchestration Status: Alpha / In-Development
 - **features/context/context-engine.md** → Here is your enhanced, production-grade specification of the Cognitive Memory & Context Engine . This version deepens the architectural clarity, formalizes lifecycle behavior, alig
 - **features/cron/cron.md** → ⏱️ Feature: Job Orchestration & Cron Scheduler (Enhanced) Status: Beta
@@ -472,7 +459,7 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **features/Onboarding/onboarding-pipeline-orchestrator.md** → Feature: Onboarding Pipeline Orchestrator (Enhanced) Version: 1.2.0
 - **features/Onboarding/onboarding-registry-approval.md** → This module is already conceptually strong—it sits at a critical semantic boundary before your graph-based governance kicks in. The enhancement below focuses on: Formalizing valida
 - **features/queue-scheduling/queue-scheduling.md** → Feature: Task Scheduler & Universal Queue System Version: 1.3.0
-- **features/splash/splash-system-initialization.md** → This module is already structurally aligned with your Startup Orchestrator , but it can be elevated into a first-class deterministic UX boundary between system state and user perce
+- **features/boot/startup-orchestrator.md** → Startup orchestrator feature documentation
 - **features/storage/data-integrity-protocol.md** → Feature: Data Security & Sync Protocol Version: 1.3.0
 - **features/storage/governance/cache/prana.md** → Cache Storage Contract: Prana Scope
 - **features/storage/governance/index.md** → Storage Contract Index Purpose
@@ -484,7 +471,6 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **features/storage/vector-search-rag.md** → Vector Search & RAG — Enhanced
 - **features/storage/virtual-drive.md** → Feature: Virtual Drive — Storage Abstraction Layer Version: 1.3.0
 - **features/vaidyar/vaidyar.md** → Feature: Vaidyar — Runtime Integrity Engine & Dashboard Version: 1.3.0
-- **features/visual/visual-identity-engine.md** → Feature: Visual Identity Engine — Design & Asset Orchestration (Enhanced) Status: Proposed / Integration
 - **index.md** → Prana — Documentation Index Navigation Guide
 - **integration_guide/library-integration-guide.md** → Prana Library Integration Guide (Client App Edition) This document is for client applications that integrate Prana as a runtime library.
 - **pr/astra/request/01-Atomic-Elements.md** → 01 Atomic Elements > Historical request snapshot (2026-03-28).
@@ -508,7 +494,6 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **pr/chakra/otp-hash-verification.md** → Prana PR: OTP Hash + Verification for Forgot Password Flow PR Title
 - **pr/chakra/otp-verification.md** → Prana PR: OTP Verification for Forgot Password Flow PR Title
 - **pr/chakra/rclone-password-must-be-obscured.md** → Prana Bug: rclone crypt password must be obscured before passing to env vars Status: Bug — drive does not mount; silent fallback to unencrypted local storage
-- **pr/chakra/splash-dependency-precheck-proposal.md** → PR Request for Prana: Reusable Host Dependency Capability Service Status: Proposal only (do not implement in Chakra)
 - **pr/chakra/sqlite-store-mkdir-eperm-fix.md** → Prana Bug: SQLite Store Services EPERM on Windows Drive Root Status: Fixed
 - **pr/chakra/virtual-drive-security-enforcement.md** → Prana PR: Virtual Drive Security Enforcement Status: Proposal
 - **pr/chakra/windows-drive-root-mkdir-eperm.md** → Prana Bug Report: Windows EPERM on mkdir at WinFsp drive root Summary
@@ -519,20 +504,16 @@ Create docs/features/[domain]/[feature].md → Add to wiki-steps.json conceptMap
 - **pr/dhi/rclone-missing-crash.md** → Bug Report: Application Crashes When RClone / WinFsp Are Not Installed Repository: prana
 - **pr/dhi/syncProviderService-unhandled-rejection.md** → PR Document: Fix Unhandled Promise Rejection in syncProviderService Repository: prana
 
-## Rules
-
 - Atomic docs first - one document, one runtime responsibility
 - Service-oriented main process - all state flows through structured IPC
 - MVVM renderer - Container → ViewModel → View pattern
 - Never use process.env directly - flow config through IPC
 - Use Zod validation on all IPC handlers
-- All components use theme tokens - never hardcode colors
 - docs/index.md is generated output - update scripts/wiki-steps.json and run node scripts/generate-index.cjs
 
 ## API Surface
 
 See: src/main/services/ for all runtime services.
-See: src/ui/common/components/index.ts for UI component exports.
 
 ## Maintenance
 

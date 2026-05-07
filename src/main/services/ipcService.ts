@@ -38,6 +38,9 @@ import { visualIdentityService } from './visualIdentityService'
 import { notificationCentreService } from './notificationCentreService'
 import { NotificationListFilters } from './notificationStoreService'
 import { vaidyarService } from './vaidyarService'
+import { sandboxRuntimeEngine } from './sandbox/sandboxRuntimeEngine'
+import { createPluginSandboxHost } from './sandbox/pluginSandboxHost'
+import type { RuntimeCapabilities, SandboxFixture } from './sandbox/sandboxTypes'
 import { z } from "zod";
 
 const enforceToolPolicy = (payload: {
@@ -2902,4 +2905,113 @@ export const registerIpcHandlers = (options?: {
   ipcMain.handle('work-orders:queue-list', async () => {
     return queueService.list()
   })
+
+  // ── Sandbox Runtime ────────────────────────────────────────────────────────
+
+  ipcMain.handle('sandbox:initialize', async () => {
+    if (sandboxRuntimeEngine.getEngineState() === 'uninitialized') {
+      await sandboxRuntimeEngine.initialize()
+    }
+    return { state: sandboxRuntimeEngine.getEngineState() }
+  })
+
+  ipcMain.handle('sandbox:status', async () => {
+    return {
+      state: sandboxRuntimeEngine.getEngineState(),
+      containers: sandboxRuntimeEngine.listContainers(),
+      hostSessionId: sandboxRuntimeEngine.getHostSessionId(),
+    }
+  })
+
+  ipcMain.handle(
+    'sandbox:start-module',
+    async (
+      _event,
+      payload: { imagePath: string; capabilities?: RuntimeCapabilities },
+    ) => {
+      const imageManager = sandboxRuntimeEngine.getImageManager()
+      const image = await imageManager.resolveFromPath(payload.imagePath)
+      const session = await sandboxRuntimeEngine.startModuleContainer(
+        image,
+        payload.capabilities ?? { sqlite: { read: true, write: true } },
+      )
+      return { sessionId: session.sessionId, runtimeId: session.runtimeId }
+    },
+  )
+
+  ipcMain.handle(
+    'sandbox:stop-module',
+    async (_event, payload: { sessionId: string }) => {
+      await sandboxRuntimeEngine.stopModuleContainer(payload.sessionId)
+      return { stopped: true }
+    },
+  )
+
+  ipcMain.handle('sandbox:shutdown', async () => {
+    await sandboxRuntimeEngine.shutdown()
+    return { state: sandboxRuntimeEngine.getEngineState() }
+  })
+
+  // Plugin Sandbox Host — stateless per call, each launch gets an isolated host
+  const activeSandboxHosts = new Map<string, ReturnType<typeof createPluginSandboxHost>>()
+
+  ipcMain.handle(
+    'sandbox:plugin-launch',
+    async (
+      _event,
+      payload: {
+        hostId: string
+        imagePath?: string
+        fixture?: SandboxFixture
+        capabilities?: RuntimeCapabilities
+      },
+    ) => {
+      const host = createPluginSandboxHost()
+      activeSandboxHosts.set(payload.hostId, host)
+      const result = await host.launch(payload.imagePath, payload.fixture, payload.capabilities)
+      return result
+    },
+  )
+
+  ipcMain.handle(
+    'sandbox:plugin-shutdown',
+    async (_event, payload: { hostId: string }) => {
+      const host = activeSandboxHosts.get(payload.hostId)
+      if (!host) return { error: 'host not found' }
+      await host.shutdown()
+      activeSandboxHosts.delete(payload.hostId)
+      return { stopped: true }
+    },
+  )
+
+  ipcMain.handle(
+    'sandbox:plugin-status',
+    async (_event, payload: { hostId: string }) => {
+      const host = activeSandboxHosts.get(payload.hostId)
+      if (!host) return { error: 'host not found' }
+      return {
+        status: host.getStatus(),
+        session: host.getSession(),
+        container: host.getContainer(),
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'sandbox:plugin-journal',
+    async (_event, payload: { hostId: string; limit?: number }) => {
+      const host = activeSandboxHosts.get(payload.hostId)
+      if (!host) return { error: 'host not found' }
+      return { entries: host.getJournal(payload.limit ?? 50) }
+    },
+  )
+
+  ipcMain.handle(
+    'sandbox:plugin-health',
+    async (_event, payload: { hostId: string }) => {
+      const host = activeSandboxHosts.get(payload.hostId)
+      if (!host) return { error: 'host not found' }
+      return host.evaluateHealth()
+    },
+  )
 }

@@ -321,7 +321,7 @@ System must expose:
 | Area                  | Gap                                               | Impact |
 | --------------------- | ------------------------------------------------- | ------ |
 | Background Monitoring | No continuous heartbeat worker                    | High   |
-| Auto-Recovery Hooks   | No integration with orchestrator for self-healing | High   |
+| Auto-Recovery Hooks   | **Addressed by Sandbox Supervisor** — Sandbox Supervisor reads Vaidyar diagnostic telemetry and acts via the Runtime Orchestrator. See `sandbox/sandbox-runtime-architecture.md`. | Closed |
 | Deep Diagnostics      | No raw log inspection UI                          | Medium |
 | Check-Level Retry     | No per-check re-execution from UI                 | Medium |
 | External Telemetry    | No remote reporting capability                    | Low    |

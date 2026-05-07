@@ -28,7 +28,7 @@ The `auth:get-status` EPERM causes the `app:bootstrap-host` orchestration to ret
 ```
 [PRANA] Startup orchestration completed with non-ready status: BLOCKED
 ```
-Chakra's splash screen treats BLOCKED as non-fatal and allows the renderer to continue to the login page, but auth cannot complete because the status handler keeps throwing. This is not a Chakra bug — the BLOCKED handling is intentional. The fix is in Prana (see below).
+Chakra's startup treats BLOCKED as non-fatal and allows continuing to the login page, but auth cannot complete because the status handler keeps throwing. This is not a Chakra bug — the BLOCKED handling is intentional. The fix is in Prana (see below).
 
 ## Correct Fix
 

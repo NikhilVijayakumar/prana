@@ -27,7 +27,7 @@ sqliteCryptoUtil.ts::getDbKey()
 
 ### Detailed Sequence
 
-1. Splash UI calls `app:bootstrap-host` IPC with the host config
+1. Host calls `app:bootstrap-host` IPC with the runtime config
 2. `ipcService.ts` handler calls `setPranaRuntimeConfig(payload.config)` ✅
 3. Handler then calls `sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(payload.config)`
 4. → `readSnapshot()` → `getDatabase()` → `initializeDatabase()`

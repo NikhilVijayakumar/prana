@@ -1,7 +1,7 @@
 # Fix: Early Module Evaluation Crash in StartupOrchestratorService
 
 ## Context
-Prana is designed as a standalone generic runtime library that assumes a "Cold-Vault" architecture. In this architecture, the Main process waits for the Splash Screen UI to pass down the configuration payload via the `app:bootstrap-host` IPC event before establishing the SQLite stores or attempting to read the `RuntimeBootstrapConfig`.
+Prana is designed as a standalone generic runtime library that assumes a "Cold-Vault" architecture. In this architecture, the Main process waits for the host application to pass down the configuration payload via the `app:bootstrap-host` IPC event before establishing the SQLite stores or attempting to read the `RuntimeBootstrapConfig`.
 
 ## The Bug
 A fatal architectural bug exists in `src/main/services/startupOrchestratorService.ts` where module-scope initialization invokes a dependency chain leading to premature database reads:
@@ -27,7 +27,7 @@ let latestStartupReport: StartupStatusReport = {
 3. `startupOrchestratorService.ts` defines `latestStartupReport` natively inside its root scope, immediately evaluating `driveControllerService.getDiagnostics()`.
 4. `driveControllerService.getDiagnostics()` synchronously triggers `computeDiagnostics()`.
 5. `computeDiagnostics()` invokes `getNormalizedVirtualDriveConfig()` which attempts to read the DB: `getRuntimeBootstrapConfig()`.
-6. Because the splashing screen hasn't even been rendered yet (and thus `app:bootstrap-host` hasn't been emitted), this throws a fatal `[PRANA_CONFIG_ERROR] Runtime config is not set.`
+6. Because the host hasn't emitted `app:bootstrap-host` yet (and thus the config hasn't been set), this throws a fatal `[PRANA_CONFIG_ERROR] Runtime config is not set.`
 7. This completely corrupts the JS evaluation phase and acts as an Unhandled Rejection, tearing down the Main process logic early.
 
 ## The Solution
@@ -53,4 +53,4 @@ let latestStartupReport: StartupStatusReport = {
 ## Mitigation Strategy for DHI
 Since Prana is meant to be a standalone, purely downstream dependency, any direct patches inside `node_modules/prana` will be completely overwritten during the next environment pull or `npm install`.
 
-The maintainers of the `prana` repository must apply this fix to enable downstream Electron hosts to actually spin up the splash window successfully. Wait for an upstream version bump on `prana`.
+The maintainers of the `prana` repository must apply this fix to enable downstream Electron hosts to bootstrap successfully. Wait for an upstream version bump on `prana`.

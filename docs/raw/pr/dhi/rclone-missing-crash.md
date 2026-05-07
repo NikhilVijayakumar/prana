@@ -7,8 +7,6 @@
 - `src/main/services/virtualDriveProvider.ts`
 - `src/main/services/notificationCentreService.ts`
 - `src/main/services/ipcService.ts`
-- `src/ui/vault/view/VaultContainer.tsx`
-- `src/ui/vault-knowledge/view/VaultKnowledgeContainer.tsx`
 
 ## Issue Description
 
@@ -25,7 +23,7 @@ Prana's virtual drive system hard-depends on the `rclone` binary and `WinFsp` dr
 
 ### Crash 2: Stale session counter blocks startup
 
-When `acquireVaultDriveSession` increments `sessionDepthByDrive` before calling `mountDrive`, and `mountDrive` fails, the session counter is never rolled back. This leaves `activeSessionCount: 1` in the mount registry. The `vaidyarService` diagnostic then sees an active session on a failed drive and reports `status: Blocked`, permanently preventing the application from proceeding past the splash screen.
+When `acquireVaultDriveSession` increments `sessionDepthByDrive` before calling `mountDrive`, and `mountDrive` fails, the session counter is never rolled back. This leaves `activeSessionCount: 1` in the mount registry. The `vaidyarService` diagnostic then sees an active session on a failed drive and reports `status: Blocked`, permanently preventing the application from proceeding past the startup gate.
 
 ### Crash 3: `PRANA_CONFIG_ERROR` during shutdown
 
@@ -44,9 +42,9 @@ When `acquireVaultDriveSession` increments `sessionDepthByDrive` before calling 
 [PRANA_WARNING] Failed to initialize notificationCentreService: Error: Cannot find module './hookSystemService'
 ```
 
-### Crash 5: White screen on Vault page
+### Crash 4: White screen on Vault page
 
-`VaultContainer.tsx` and `VaultKnowledgeContainer.tsx` call `throwPranaUiError()` during React render when the IPC call fails. This throws an exception **during render** which crashes React entirely, producing an unrecoverable white screen. The `PranaModuleErrorBoundary` wrapper cannot catch this because the error is thrown before the component's JSX is returned.
+`vault` components call error handling during render when the IPC call fails. This throws an exception **during render** which crashes the view. Error boundary must catch this to avoid white screens.
 
 ## Prerequisites Not Documented
 
@@ -94,19 +92,9 @@ if (!result.success) {
 
 Replace `const hookSystemModule = require('./hookSystemService')` with a static import or remove the dead code entirely (the `if` body is an empty placeholder).
 
-### 5. Replace `throwPranaUiError` with `PranaModuleErrorView` in vault containers
+### 5. Replace error throwing with error view in vault containers
 
-```tsx
-// VaultContainer.tsx — BEFORE (crashes React)
-if (moduleError) {
-  throwPranaUiError(moduleError);  // throws during render → white screen
-}
-
-// VaultContainer.tsx — AFTER (renders error UI)
-if (moduleError) {
-  return <PranaModuleErrorView error={moduleError} onRetry={() => { clearModuleError(); reload(); }} />;
-}
-```
+Replace `throwPranaUiError` with error view components that handle errors gracefully during render.
 
 ### 6. Wrap vault IPC handlers
 

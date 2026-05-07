@@ -45,7 +45,6 @@ docs/
   raw/
     architecture/
     feature/
-    ui-mockups/
     data/
 
   wiki/
@@ -75,7 +74,6 @@ The `docs/raw/` folder may contain:
 
 * **architecture/** → system design, components, data flow
 * **feature/** → feature specifications and behavior
-* **ui-mockups/** → UI reference (HTML, screenshots, Electron app views)
 * **data/** → example inputs, outputs, or datasets
 
 All of these are valid inputs for building and updating the wiki.
@@ -123,7 +121,6 @@ Example:
 
 ```
 refresh feature auth
-refresh feature onboarding (include ui-mockups)
 ```
 
 This should be the most common operation.
@@ -164,26 +161,6 @@ When ingesting a new source:
 7. Append changes to `wiki/log.md`
 
 Do not modify the wiki without user confirmation.
-
----
-
-## UI Consistency
-
-UI mockups are a first-class source of truth for user experience.
-
-When updating or refreshing a feature:
-
-* Compare feature documentation with UI mockups
-* Identify mismatches between described behavior and UI
-* Consider UI, feature, and architecture together
-
-### Conflict rule
-
-If UI and documentation conflict:
-
-* Do NOT assume one is correct
-* Clearly highlight the inconsistency
-* Ask the user for clarification when needed
 
 ---
 
@@ -279,9 +256,6 @@ Every wiki update must:
 Validation checks alignment without modifying the wiki.
 
 When validating:
-
-- Compare wiki pages against docs/raw/
-- Compare feature documentation with UI mockups
 - Identify missing updates
 - Detect contradictions
 - Flag outdated content
@@ -303,10 +277,7 @@ Return results as:
 2. Missing coverage:
    - Concept/page not represented in wiki
 
-3. UI inconsistency:
-   - Feature vs mockup mismatch
-
-4. Outdated content:
+3. Outdated content:
    - Page affected
 
 ---

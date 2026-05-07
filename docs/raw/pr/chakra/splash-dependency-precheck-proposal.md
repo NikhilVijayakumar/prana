@@ -13,7 +13,7 @@ The implementation should verify required host dependencies are available:
 - Git binary (for repo operations)
 - Virtual drive binary (for mount/sync flow used by runtime)
 
-This implementation must have no dependency on splash UI/container/orchestrator logic.
+This implementation must have no dependency on host UI/container/orchestrator logic.
 
 ## Why this is needed
 
@@ -44,19 +44,19 @@ A reusable service will:
 - Missing Git is detected and surfaced by the shared dependency capability service.
 - Missing virtual-drive binary is detected and surfaced by the shared dependency capability service.
 - Error message is human-readable and names exact missing dependency.
-- Service can be invoked from multiple pages without coupling to splash internals.
+- Service can be invoked from multiple pages without coupling to host internals.
 - No behavior regression when all dependencies are present.
 
 ## Non-goals
 
 - Do not auto-install dependencies.
 - Do not change Chakra app behavior directly in this request.
-- Do not force splash-specific control flow from this implementation.
+- Do not force host-specific control flow from this implementation.
 
 ## Suggested implementation location in Prana
 
-- Runtime/core service layer (page-agnostic), not splash container/view model.
-- Optional adapters in splash/settings/diagnostics can call this shared service.
+- Runtime/core service layer (page-agnostic), not host container/view model.
+- Optional adapters in host settings/diagnostics can call this shared service.
 - Keep contract reusable and UI-agnostic.
 
 ## Chakra note

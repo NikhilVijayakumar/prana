@@ -11,7 +11,6 @@
 *The anchor for all downstream contracts and architectural boundaries.*
 * [Master Spec](master-spec.md) — **Core Library Architecture & Governance**
 * [Infrastructure Layers](boot/infrastructure-layers.md) — **Main-Process vs. Renderer Boundaries**
-* [Visual Identity Engine](visual/visual-identity-engine.md) — **Branding & UI Presentation Contract**
 
 ---
 
@@ -64,24 +63,12 @@
 
 ---
 
-## 🖥️ UI Screen Inventory (MVVM)
-*Atomic contracts for every UI surface (Container → ViewModel → View).*
-* [Splash Screen](splash/splash-screen.md)
-* [Authentication Stack](auth/authentication-login.md) — *Includes Login, Forgot, Reset, Access Denied*
-* [Onboarding Pipeline](Onboarding/onboarding-screen.md) — *Includes Model Config & Registry Approval*
-* [Vault Operations](storage/vault-screen.md) — *Includes Knowledge Browsing & Repository*
-* [Infrastructure & Diagnostics](boot/infrastructure-screen.md) — *Includes Integration Verification*
-* [Document Viewers](splash/viewer-markdown.md) — *Markdown & PDF*
-
----
-
 ## 🔍 Layer 5: The Audit Layer (Delta Tracking)
 *Tracking the gap between "Documentation as Truth" and "Code as Reality".*
 * [Audit Index](audit/index.md) — **Total System Health Overview**
 * **Persistence:** [Persistence Audit](audit/persistence-architecture-audit.md) | [Drive Audit](audit/virtual-drive-audit.md) | [Vault Audit](audit/vault-audit.md)
 * **Logic:** [Sync/Cache Audit](audit/sqlite-cache-audit.md) | [Encryption Audit](audit/encryption-service-audit.md) | [Doctor Audit](audit/prana-doctor-audit.md)
 * **Agents:** [Chat/Context Audit](audit/chat-context-rotation-audit.md) | [Channel Audit](audit/channel-integration-audit.md)
-* **UI:** [UI Atomicization Audit](audit/ui-atomicization-audit.md)
 * [v1.2 Feature Audit Reports](audit/v1.2/index.md) — **Domain-by-Domain Implementation Verification**
 
 ---

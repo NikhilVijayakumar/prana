@@ -172,4 +172,6 @@ out/
 /graphify-out/
 /docs/raw/report/
 /docs/raw/data/template/
+/docs/raw/architecture/runtime-map
 /docs/wiki/
+/docs/conflict.md

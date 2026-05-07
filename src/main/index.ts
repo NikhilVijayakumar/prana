@@ -123,6 +123,49 @@ export { onboardingStageStoreService } from './services/onboardingStageStoreServ
 export { governanceLifecycleQueueStoreService } from './services/governanceLifecycleQueueStoreService';
 
 // ============================================================================
+// Sandbox Runtime
+// ============================================================================
+
+export {
+  createSandboxRuntimeEngine,
+  sandboxRuntimeEngine,
+  createRuntimeOrchestrator,
+  runtimeOrchestratorService,
+  createRuntimeSessionManager,
+  runtimeSessionManagerService,
+  createSandboxIpcGateway,
+  sandboxIpcGateway,
+  createSandboxSupervisor,
+  createRuntimeImageManager,
+  runtimeImageManagerService,
+  createPluginSandboxHost,
+  pluginSandboxHost,
+  BUILT_IN_FIXTURES,
+} from './services/sandbox/index';
+
+export type {
+  RuntimeState,
+  ContainerType,
+  RuntimeHealth,
+  RuntimeCapabilities,
+  RuntimeSession,
+  RuntimeImageManifest,
+  RuntimeImage,
+  SessionJournalEntry,
+  IPCMessage,
+  CapabilityValidationResult,
+  ContainerDescriptor,
+  SandboxFixture,
+  BuiltInFixture,
+  EngineState,
+  SandboxRuntimeEngineConfig,
+  PluginSandboxStatus,
+  PluginSandboxLaunchResult,
+  SupervisorReport,
+  SupervisorAction,
+} from './services/sandbox/index';
+
+// ============================================================================
 // Administration Integration
 // ============================================================================
 

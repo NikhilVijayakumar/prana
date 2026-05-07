@@ -15,7 +15,7 @@ This is not an `rclone` availability issue. `rclone version` succeeds from both 
 
 ## Reproduction
 1. Start Chakra in dev mode: `npm run dev`.
-2. Wait for app startup to reach auth splash/status checks.
+2. Wait for app startup to reach auth status checks.
 3. Observe startup logs.
 
 ## Observed behavior

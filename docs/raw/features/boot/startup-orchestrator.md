@@ -16,6 +16,8 @@ This is already a strong core module. The enhancement below focuses on **tighten
 
 The **Startup Orchestrator** is the **root execution authority** of the runtime. It governs all execution prior to system readiness and acts as the **primary enforcement layer for zero-trust initialization**.
 
+The Startup Orchestrator runs as the **boot process of the Host Runtime Container**. It is not invoked directly by Electron's main process — it is bootstrapped by the Sandbox Runtime Engine when the Host Runtime Container is created. The Runtime Orchestrator does not accept module lifecycle requests until the Startup Orchestrator transitions the host to `OPERATIONAL`.
+
 It guarantees that:
 
 * No subsystem is activated without **verified identity**
@@ -121,7 +123,7 @@ DEGRADED_MODE
 
 **Status:** Implemented outside orchestrator
 
-The startup orchestrator assumes authentication has already completed before `app:bootstrap-host` is invoked. The Splash component ensures:
+The startup orchestrator assumes authentication has already completed before `app:bootstrap-host` is invoked. Host must ensure:
 
 * Valid session exists
 * Session token is present
@@ -416,7 +418,7 @@ RECOVERY_PENDING → RECOVERY_ACTIVE → RECOVERY_COMPLETE
 
 ---
 
-## 8. Telemetry & UI Contract (v1.3.1)
+## 8. Telemetry & Host Contract (v1.3.1)
 
 ### 8.1 Status Report Structure
 
@@ -435,44 +437,6 @@ Each startup report MUST include:
   * `isBlocking`: boolean (whether failure blocks startup)
   * `startedAt`: ISO timestamp
   * `finishedAt`: ISO timestamp
-
----
-
-### 8.2 Real-Time Progress Events (NEW - v1.3.1)
-
-The orchestrator emits progress events via IPC to the Splash renderer during startup. Events include:
-
-* `type`: 'stage-start' | 'stage-complete' | 'stage-skip' | 'stage-fail' | 'sequence-complete'
-* `stage`: current stage report
-* `currentState`: current boot state
-* `overallProgress`: monotonic progress percentage
-* `timestamp`: ISO timestamp
-
-**IPC Channel:** `app:startup-progress` (host → renderer)
-
-**Splash Integration (React):**
-
-```typescript
-// Subscribe to progress updates
-window.api?.app?.onStartupProgress((event) => {
-  setBootProgress(event.overallProgress);
-  setBootCurrentState(event.currentState);
-  setStatusMessage(event.stage?.message);
-});
-```
-
----
-
-### 8.3 Splash Display Requirements
-
-Splash MUST:
-
-* render real-time progress bar (0–100%)
-* display current state label
-* show current stage activity message
-* block UI transition before reaching `OPERATIONAL`
-* display blocking failures clearly
-* use fallback `app:get-startup-status` snapshot if events are missed (late subscriber recovery)
 
 ---
 
@@ -588,7 +552,7 @@ System tracks:
 | SSH Key Rotation          | No secure renewal flow during bootstrap                   | Open             | Medium |
 | Remote Repo Health Check  | No remote sync validation during bootstrap                | Open             | Medium |
 | Partial Bootstrap Resume  | Cannot resume from mid-layer on restart                  | Open             | Medium |
-| Real-Time Progress (IPC)  | Push progress events to Splash (v1.3.1)                  | ✅ **IMPLEMENTED** | Closed |
+| Real-Time Progress (IPC)  | Push progress events to host (v1.3.1)                  | ✅ **IMPLEMENTED** | Closed |
 | Progress Callbacks        | Support progress listeners in orchestrator (v1.3.1)      | ✅ **IMPLEMENTED** | Closed |
 | Parallel Initialization   | No safe parallelization for non-critical layers          | Open             | Low    |
 
@@ -597,7 +561,7 @@ System tracks:
 ## Implementation Notes (v1.3.1)
 
 * **Storage Mirror Validation:** Added as explicit `storage-mirror-validation` stage between vault and vaidyar. Validates Cache ↔ Vault mirror contract before integrity checks.
-* **Real-Time Progress:** Bootstrap progress is streamed to Splash via IPC events (`app:startup-progress`). Splash displays monotonic progress and current boot state in real time.
+* **Real-Time Progress:** Bootstrap progress is streamed to host via IPC events (`app:startup-progress`). Host can display monotonic progress and current boot state.
 * **Session Lifecycle:** Authentication is currently **external** to the orchestrator. Session validation must complete before `app:bootstrap-host` is invoked. Future enhancement: bind session to bootstrap lifecycle and invalidate on critical failure.
 * **Error Codes:** All stage failures emit `errorCode` for structured error classification.
 * **Idempotency:** Recovery stages (sync-recovery, cron-recovery) must be idempotent and safe for retry. Non-blocking failures are logged, and system reaches `OPERATIONAL` with `DEGRADED` status.
