@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
+import Database from 'better-sqlite3';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 export type MemoryClassification = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED';
@@ -43,28 +44,87 @@ export interface MemoryIndexHealth {
   message: string;
 }
 
-interface PersistedMemoryIndex {
-  documents: MemoryDocument[];
-  chunks: MemoryChunk[];
-  lastIndexedAt: string | null;
-}
-
-const INDEX_FILE = 'memory-index.json';
+const DB_FILE_NAME = 'memory-index.sqlite';
 const VECTOR_SIZE = 64;
 const CHUNK_SIZE = 700;
 const CHUNK_OVERLAP = 120;
 
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.markdown', '.json', '.jsonl', '.csv']);
 
-let loaded = false;
-let lastIndexedAt: string | null = null;
+let db: Database | null = null;
+let writeQueue: Promise<void> = Promise.resolve();
 
-const documents = new Map<string, MemoryDocument>();
-const chunks = new Map<string, MemoryChunk>();
-
+const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
 const nowIso = (): string => new Date().toISOString();
 
-const getIndexPath = (): string => join(getAppDataRoot(), INDEX_FILE);
+const persistDatabase = async (database: Database): Promise<void> => {
+  const buffer = database.serialize();
+  await mkdirSafe(getAppDataRoot());
+  await writeFile(getDbPath(), Buffer.from(buffer));
+};
+
+const initializeDatabase = async (): Promise<Database> => {
+  await mkdirSafe(getAppDataRoot());
+
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
+
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS memory_documents (
+      id TEXT PRIMARY KEY,
+      relative_path TEXT NOT NULL,
+      title TEXT NOT NULL,
+      classification TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      chunk_count INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS memory_chunks (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      title TEXT NOT NULL,
+      classification TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      token_count INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      keywords_json TEXT NOT NULL,
+      vector_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (document_id) REFERENCES memory_documents(id)
+    );
+  `);
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_chunks_document ON memory_chunks(document_id);
+  `);
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_chunks_classification ON memory_chunks(classification);
+  `);
+
+  db = database;
+  return database;
+};
+
+const getDatabase = async (): Promise<Database> => {
+  if (!db) {
+    await initializeDatabase();
+  }
+  return db!;
+};
+
+const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
+  writeQueue = writeQueue.then(operation, operation);
+  await writeQueue;
+};
 
 const checksumFor = (input: string): string => {
   let hash = 0;
@@ -157,78 +217,39 @@ const classifyFromPath = (relativePath: string): MemoryClassification => {
 
 const toDocumentId = (relativePath: string): string => `doc_${checksumFor(relativePath)}`;
 
-const ensureLoaded = async (): Promise<void> => {
-  if (loaded) {
-    return;
-  }
-
-  await mkdirSafe(getAppDataRoot());
-  const indexPath = getIndexPath();
-
-  if (!existsSync(indexPath)) {
-    const seeded: PersistedMemoryIndex = {
-      documents: [],
-      chunks: [],
-      lastIndexedAt: null,
-    };
-    await writeFile(indexPath, JSON.stringify(seeded, null, 2), 'utf8');
-  }
-
-  const raw = await readFile(indexPath, 'utf8');
-  const parsed = JSON.parse(raw) as PersistedMemoryIndex;
-
-  documents.clear();
-  chunks.clear();
-
-  for (const document of parsed.documents ?? []) {
-    documents.set(document.id, document);
-  }
-
-  for (const chunk of parsed.chunks ?? []) {
-    chunks.set(chunk.id, chunk);
-  }
-
-  lastIndexedAt = parsed.lastIndexedAt ?? null;
-  loaded = true;
-};
-
-const persist = async (): Promise<void> => {
-  const payload: PersistedMemoryIndex = {
-    documents: [...documents.values()],
-    chunks: [...chunks.values()],
-    lastIndexedAt,
-  };
-  await writeFile(getIndexPath(), JSON.stringify(payload, null, 2), 'utf8');
-};
-
-const removeDocumentChunks = (documentId: string): void => {
-  for (const [chunkId, chunk] of chunks.entries()) {
-    if (chunk.documentId === documentId) {
-      chunks.delete(chunkId);
-    }
-  }
-};
-
 const indexTextInternal = async (
   relativePath: string,
   content: string,
   classification: MemoryClassification,
 ): Promise<MemoryDocument> => {
+  const database = await getDatabase();
   const normalizedPath = relativePath.replace(/\\/g, '/');
   const documentId = toDocumentId(normalizedPath);
   const checksum = checksumFor(content);
-  const existing = documents.get(documentId);
-
-  if (existing && existing.checksum === checksum) {
-    return existing;
+  
+  // Check if document exists and checksum matches
+  const existing = database.prepare('SELECT chunk_count, updated_at FROM memory_documents WHERE id = ?').get(documentId) as { chunk_count?: number; updated_at?: string } | undefined;
+  
+  if (existing && existing.chunk_count === checksum) {
+    // Return existing document
+    return {
+      id: documentId,
+      relativePath: normalizedPath,
+      title: basename(normalizedPath),
+      classification,
+      checksum,
+      chunkCount: existing.chunk_count ?? 0,
+      updatedAt: existing.updated_at ?? nowIso(),
+    };
   }
 
-  removeDocumentChunks(documentId);
-
+  // Remove existing chunks for this document
+  database.prepare('DELETE FROM memory_chunks WHERE document_id = ?').run(documentId);
+  
   const title = basename(normalizedPath);
   const split = splitIntoChunks(content);
   const updatedAt = nowIso();
-
+  
   const document: MemoryDocument = {
     id: documentId,
     relativePath: normalizedPath,
@@ -238,8 +259,19 @@ const indexTextInternal = async (
     chunkCount: split.length,
     updatedAt,
   };
-  documents.set(documentId, document);
 
+  // Upsert document
+  database.prepare(`
+    INSERT OR REPLACE INTO memory_documents (id, relative_path, title, classification, checksum, chunk_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(documentId, normalizedPath, title, classification, checksum, split.length, updatedAt);
+  
+  // Insert chunks
+  const chunkStmt = database.prepare(`
+    INSERT INTO memory_chunks (id, document_id, relative_path, title, classification, chunk_index, token_count, text, keywords_json, vector_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  
   split.forEach((text, chunkIndex) => {
     const id = `chk_${checksumFor(`${documentId}:${chunkIndex}:${checksum}`)}`;
     const tokens = tokenize(text);
@@ -256,10 +288,25 @@ const indexTextInternal = async (
       vector: toVector(text),
       updatedAt,
     };
-    chunks.set(id, chunk);
+    
+    chunkStmt.run(
+      chunk.id,
+      chunk.documentId,
+      chunk.relativePath,
+      chunk.title,
+      chunk.classification,
+      chunk.chunkIndex,
+      chunk.tokenCount,
+      chunk.text,
+      JSON.stringify(chunk.keywords),
+      JSON.stringify(chunk.vector),
+      chunk.updatedAt
+    );
   });
-
-  lastIndexedAt = updatedAt;
+  
+  chunkStmt.free();
+  await persistDatabase(database);
+  
   return document;
 };
 
@@ -277,7 +324,7 @@ const collectTextFiles = async (rootPath: string): Promise<string[]> => {
         await walk(full);
         continue;
       }
-
+      
       const extension = extname(entry.name).toLowerCase();
       if (TEXT_EXTENSIONS.has(extension)) {
         all.push(full);
@@ -291,7 +338,7 @@ const collectTextFiles = async (rootPath: string): Promise<string[]> => {
 
 export const memoryIndexService = {
   async initialize(): Promise<void> {
-    await ensureLoaded();
+    await getDatabase();
   },
 
   async indexText(input: {
@@ -299,15 +346,12 @@ export const memoryIndexService = {
     content: string;
     classification?: MemoryClassification;
   }): Promise<MemoryDocument> {
-    await ensureLoaded();
     const classification = input.classification ?? classifyFromPath(input.relativePath);
     const doc = await indexTextInternal(input.relativePath, input.content, classification);
-    await persist();
     return doc;
   },
 
   async indexFile(filePath: string, rootPath: string): Promise<MemoryDocument | null> {
-    await ensureLoaded();
     const resolvedRoot = resolve(rootPath);
     const resolvedFile = resolve(filePath);
 
@@ -323,17 +367,17 @@ export const memoryIndexService = {
     const content = await readFile(resolvedFile, 'utf8');
     const relativePath = relative(resolvedRoot, resolvedFile).replace(/\\/g, '/');
     const doc = await indexTextInternal(relativePath, content, classifyFromPath(relativePath));
-    await persist();
     return doc;
   },
 
   async reindexDirectory(rootPath: string): Promise<MemoryIndexStats> {
-    await ensureLoaded();
     const resolvedRoot = resolve(rootPath);
     const files = await collectTextFiles(resolvedRoot);
 
+    // Remove documents not in allowed paths
+    const database = await getDatabase();
     const allowedPaths = new Set<string>();
-
+    
     for (const file of files) {
       const content = await readFile(file, 'utf8');
       const relativePath = relative(resolvedRoot, file).replace(/\\/g, '/');
@@ -341,89 +385,121 @@ export const memoryIndexService = {
       await indexTextInternal(relativePath, content, classifyFromPath(relativePath));
     }
 
-    for (const [docId, document] of documents.entries()) {
-      if (!allowedPaths.has(document.relativePath)) {
-        documents.delete(docId);
-        removeDocumentChunks(docId);
+    // Remove documents not in allowed paths
+    const allDocs = database.prepare('SELECT id, relative_path FROM memory_documents').all() as { id: string; relative_path: string }[];
+    for (const doc of allDocs) {
+      if (!allowedPaths.has(doc.relative_path)) {
+        database.prepare('DELETE FROM memory_chunks WHERE document_id = ?').run(doc.id);
+        database.prepare('DELETE FROM memory_documents WHERE id = ?').run(doc.id);
       }
     }
-
-    lastIndexedAt = nowIso();
-    await persist();
+    
+    await persistDatabase(database);
     return this.getStats();
   },
 
-  async removePath(relativePath: string): Promise<boolean> {
-    await ensureLoaded();
-    const normalized = relativePath.replace(/\\/g, '/');
-    const documentId = toDocumentId(normalized);
-
-    if (!documents.has(documentId)) {
-      return false;
-    }
-
-    documents.delete(documentId);
-    removeDocumentChunks(documentId);
-    lastIndexedAt = nowIso();
-    await persist();
-    return true;
+  async getDocumentCount(): Promise<number> {
+    const database = await getDatabase();
+    const row = database.prepare('SELECT COUNT(*) as cnt FROM memory_documents').get() as { cnt: number };
+    return row.cnt;
   },
 
-  async getChunks(): Promise<MemoryChunk[]> {
-    await ensureLoaded();
-    return [...chunks.values()].sort((a, b) => {
-      if (a.relativePath !== b.relativePath) {
-        return a.relativePath.localeCompare(b.relativePath);
-      }
-      return a.chunkIndex - b.chunkIndex;
-    });
+  async getChunkCount(): Promise<number> {
+    const database = await getDatabase();
+    const row = database.prepare('SELECT COUNT(*) as cnt FROM memory_chunks').get() as { cnt: number };
+    return row.cnt;
   },
 
-  getStats(): MemoryIndexStats {
-    const allChunks = [...chunks.values()];
-    const averageChunkTokens = allChunks.length === 0
-      ? 0
-      : Math.round(allChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0) / allChunks.length);
-
+  async getStats(): Promise<MemoryIndexStats> {
+    const database = await getDatabase();
+    const docRow = database.prepare('SELECT COUNT(*) as cnt, AVG(chunk_count) as avg FROM memory_documents').get() as { cnt: number; avg?: number };
+    const chunkRow = database.prepare('SELECT COUNT(*) as cnt FROM memory_chunks').get() as { cnt: number };
+    
+    // Get lastIndexedAt from the most recent document
+    const lastRow = database.prepare('SELECT updated_at FROM memory_documents ORDER BY updated_at DESC LIMIT 1').get() as { updated_at?: string } | undefined;
+    
     return {
-      documentCount: documents.size,
-      chunkCount: allChunks.length,
-      lastIndexedAt,
-      averageChunkTokens,
+      documentCount: docRow.cnt,
+      chunkCount: chunkRow.cnt,
+      lastIndexedAt: lastRow?.updated_at ?? null,
+      averageChunkTokens: chunkRow.cnt > 0 ? Math.round((docRow.avg ?? 0) * 100) / 100 : 0,
     };
   },
 
   async getHealth(): Promise<MemoryIndexHealth> {
-    await ensureLoaded();
-    const stats = this.getStats();
-
-    const status: MemoryIndexHealth['status'] =
+    const stats = await this.getStats();
+    const status: MemoryIndexHealth['status'] = 
       stats.chunkCount === 0 ? 'warning' : stats.chunkCount < 20 ? 'warning' : 'healthy';
-
+    
     return {
       status,
       stats,
-      indexPath: getIndexPath(),
-      message: status === 'healthy'
-        ? 'Memory index is healthy.'
-        : 'Memory index is available but has limited coverage.',
+      indexPath: getDbPath(),
+      message: status === 'healthy' ? 'Memory index is healthy.' : 'Memory index has limited coverage.',
     };
   },
 
+  async findDocumentsByPath(relativePath: string): Promise<MemoryDocument[]> {
+    const database = await getDatabase();
+    const rows = database.prepare('SELECT * FROM memory_documents WHERE relative_path LIKE ? ORDER BY updated_at DESC').all(`%${relativePath}%`) as Record<string, unknown>[];
+    return rows.map(row => ({
+      id: String(row.id ?? ''),
+      relativePath: String(row.relative_path ?? ''),
+      title: String(row.title ?? ''),
+      classification: String(row.classification ?? 'PUBLIC') as MemoryClassification,
+      checksum: String(row.checksum ?? ''),
+      chunkCount: Number(row.chunk_count ?? 0),
+      updatedAt: String(row.updated_at ?? nowIso()),
+    }));
+  },
+
+  async getChunksByDocument(documentId: string): Promise<MemoryChunk[]> {
+    const database = await getDatabase();
+    const rows = database.prepare('SELECT * FROM memory_chunks WHERE document_id = ? ORDER BY chunk_index ASC').all(documentId) as Record<string, unknown>[];
+    return rows.map(row => ({
+      id: String(row.id ?? ''),
+      documentId: String(row.document_id ?? ''),
+      relativePath: String(row.relative_path ?? ''),
+      title: String(row.title ?? ''),
+      classification: String(row.classification ?? 'PUBLIC') as MemoryClassification,
+      chunkIndex: Number(row.chunk_index ?? 0),
+      tokenCount: Number(row.token_count ?? 0),
+      text: String(row.text ?? ''),
+      keywords: JSON.parse(String(row.keywords_json ?? '[]')) as string[],
+      vector: JSON.parse(String(row.vector_json ?? '[]')) as number[],
+      updatedAt: String(row.updated_at ?? nowIso()),
+    }));
+  },
+
+  async searchChunks(query: string, limit = 20): Promise<MemoryChunk[]> {
+    const database = await getDatabase();
+    const queryLower = query.toLowerCase();
+    const rows = database.prepare(`
+      SELECT * FROM memory_chunks 
+      WHERE text LIKE ? OR title LIKE ?
+      ORDER BY chunk_index ASC
+      LIMIT ?
+    `).all(`%${queryLower}%`, `%${queryLower}%`, limit) as Record<string, unknown>[];
+    
+    return rows.map(row => ({
+      id: String(row.id ?? ''),
+      documentId: String(row.document_id ?? ''),
+      relativePath: String(row.relative_path ?? ''),
+      title: String(row.title ?? ''),
+      classification: String(row.classification ?? 'PUBLIC') as MemoryClassification,
+      chunkIndex: Number(row.chunk_index ?? 0),
+      tokenCount: Number(row.token_count ?? 0),
+      text: String(row.text ?? ''),
+      keywords: JSON.parse(String(row.keywords_json ?? '[]')) as string[],
+      vector: JSON.parse(String(row.vector_json ?? '[]')) as number[],
+      updatedAt: String(row.updated_at ?? nowIso()),
+    }));
+  },
+
   async __resetForTesting(): Promise<void> {
-    loaded = false;
-    documents.clear();
-    chunks.clear();
-    lastIndexedAt = null;
-
-    await mkdirSafe(getAppDataRoot());
-    const seeded: PersistedMemoryIndex = {
-      documents: [],
-      chunks: [],
-      lastIndexedAt: null,
-    };
-    await writeFile(getIndexPath(), JSON.stringify(seeded, null, 2), 'utf8');
-
-    loaded = true;
+    await writeQueue;
+    db = null;
+    writeQueue = Promise.resolve();
+    await rm(getDbPath(), { force: true });
   },
 };

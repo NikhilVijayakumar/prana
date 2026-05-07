@@ -1,8 +1,5 @@
 import { EmailConfig, SendEmailOptions, EmailResult, EmailProviderAdapter } from '../types/email.types';
 
-let emailConfig: EmailConfig | null = null;
-let emailAdapter: EmailProviderAdapter | null = null;
-
 class AgentMailAdapter implements EmailProviderAdapter {
   private apiKey: string;
 
@@ -32,29 +29,64 @@ class AgentMailAdapter implements EmailProviderAdapter {
   }
 }
 
+/**
+ * Factory function to create an email service.
+ * Eliminates module-level state for email config and adapter.
+ */
+export const createEmailService = () => {
+  // Instance-level state (not module-level)
+  let emailConfig: EmailConfig | null = null;
+  let emailAdapter: EmailProviderAdapter | null = null;
+
+  return {
+    configure(config: EmailConfig): void {
+      emailConfig = config;
+      emailAdapter = new AgentMailAdapter(config.apiKey);
+    },
+
+    async send(options: SendEmailOptions): Promise<EmailResult> {
+      if (!emailConfig || !emailAdapter) {
+        return { success: false, error: 'Email service not configured. Call configure() first.' };
+      }
+
+      try {
+        const html = await emailConfig.templateRenderer(options.templateName, options.data);
+        const result = await emailAdapter.send({
+          from: emailConfig.inboxId,
+          to: options.to,
+          subject: options.subject,
+          html,
+        });
+        return { success: true, messageId: result.messageId };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to send email',
+        };
+      }
+    },
+
+    isConfigured(): boolean {
+      return emailConfig !== null && emailAdapter !== null;
+    },
+
+    __resetForTesting(): void {
+      emailConfig = null;
+      emailAdapter = null;
+    },
+  };
+};
+
+// Backward compatibility - creates a default instance and exports convenience functions
+const defaultEmailService = createEmailService();
+
 export function configureEmailService(config: EmailConfig): void {
-  emailConfig = config;
-  emailAdapter = new AgentMailAdapter(config.apiKey);
+  defaultEmailService.configure(config);
 }
 
 export async function sendEmail(options: SendEmailOptions): Promise<EmailResult> {
-  if (!emailConfig || !emailAdapter) {
-    return { success: false, error: 'Email service not configured. Call configureEmailService first.' };
-  }
-
-  try {
-    const html = await emailConfig.templateRenderer(options.templateName, options.data);
-    const result = await emailAdapter.send({
-      from: emailConfig.inboxId,
-      to: options.to,
-      subject: options.subject,
-      html,
-    });
-    return { success: true, messageId: result.messageId };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to send email',
-    };
-  }
+  return defaultEmailService.send(options);
 }
+
+// Export the default instance for direct use
+export const emailService = defaultEmailService;

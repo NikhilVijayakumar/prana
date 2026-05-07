@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 const DB_FILE_NAME = 'onboarding-stage.sqlite';
@@ -51,59 +51,29 @@ export interface SaveOnboardingStagePayload {
   };
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
-const getDbPath = (): string => {
-  return join(getAppDataRoot(), DB_FILE_NAME);
-};
-
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({
-      locateFile: (fileName) => resolveSqlJsAsset(fileName),
-    });
-  }
-
-  return sqlRuntimePromise;
-};
+const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
+const nowIso = (): string => new Date().toISOString();
 
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getAppDataRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getAppDataRoot());
 
   let database: Database;
   if (existsSync(getDbPath())) {
-    const raw = await readFile(getDbPath());
-    database = new sqlRuntime.Database(new Uint8Array(raw));
+    database = new Database(getDbPath());
   } else {
-    database = new sqlRuntime.Database();
+    database = new Database(':memory:');
   }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS onboarding_phase_stage (
       step_id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -113,7 +83,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS onboarding_stage_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -121,16 +91,15 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -139,31 +108,15 @@ const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
 };
 
 const upsertMeta = (database: Database, key: string, value: string): void => {
-  const statement = database.prepare(`
-    INSERT INTO onboarding_stage_meta (key, value, updated_at)
+  database.prepare(`
+    INSERT OR REPLACE INTO onboarding_stage_meta (key, value, updated_at)
     VALUES (?, ?, ?)
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_at = excluded.updated_at
-  `);
-
-  const now = new Date().toISOString();
-  statement.run([key, value, now]);
-  statement.free();
+  `).run(key, value, nowIso());
 };
 
 const readMeta = (database: Database, key: string): string | null => {
-  const statement = database.prepare('SELECT value FROM onboarding_stage_meta WHERE key = ?');
-  statement.bind([key]);
-
-  if (!statement.step()) {
-    statement.free();
-    return null;
-  }
-
-  const row = statement.getAsObject() as { value?: unknown };
-  statement.free();
-  return typeof row.value === 'string' ? row.value : null;
+  const row = database.prepare('SELECT value FROM onboarding_stage_meta WHERE key = ?').get(key) as { value?: unknown } | undefined;
+  return row && typeof row.value === 'string' ? row.value : null;
 };
 
 export const onboardingStageStoreService = {
@@ -171,27 +124,21 @@ export const onboardingStageStoreService = {
     await queueWrite(async () => {
       const database = await getDatabase();
 
-      const upsertStatement = database.prepare(`
-        INSERT INTO onboarding_phase_stage (step_id, status, context_json, requires_reverification, updated_at)
+      const upsertStmt = database.prepare(`
+        INSERT OR REPLACE INTO onboarding_phase_stage (step_id, status, context_json, requires_reverification, updated_at)
         VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(step_id) DO UPDATE SET
-          status = excluded.status,
-          context_json = excluded.context_json,
-          requires_reverification = excluded.requires_reverification,
-          updated_at = excluded.updated_at
       `);
 
-      const now = new Date().toISOString();
+      const now = nowIso();
       for (const [stepId, stage] of Object.entries(payload.phases)) {
-        upsertStatement.run([
+        upsertStmt.run(
           stepId,
           stage.status,
           JSON.stringify(stage.contextByKey ?? {}),
           stage.requiresReverification ? 1 : 0,
-          now,
-        ]);
+          now
+        );
       }
-      upsertStatement.free();
 
       upsertMeta(database, META_CURRENT_STEP, String(payload.currentStep));
       if (payload.modelAccess) {
@@ -209,20 +156,12 @@ export const onboardingStageStoreService = {
     const database = await getDatabase();
 
     const phases: Record<string, OnboardingPhaseStageRecord> = {};
-    const statement = database.prepare(
-      'SELECT step_id, status, context_json, requires_reverification, updated_at FROM onboarding_phase_stage',
-    );
+    const rows = database.prepare(
+      'SELECT step_id, status, context_json, requires_reverification, updated_at FROM onboarding_phase_stage'
+    ).all() as Record<string, unknown>[];
 
-    while (statement.step()) {
-      const row = statement.getAsObject() as {
-        step_id?: unknown;
-        status?: unknown;
-        context_json?: unknown;
-        requires_reverification?: unknown;
-        updated_at?: unknown;
-      };
-
-      const stepId = typeof row.step_id === 'string' ? row.step_id : '';
+    for (const row of rows) {
+      const stepId = String(row.step_id ?? '');
       if (!stepId) {
         continue;
       }
@@ -251,11 +190,9 @@ export const onboardingStageStoreService = {
         status: row.status === 'APPROVED' ? 'APPROVED' : row.status === 'DRAFT' ? 'DRAFT' : 'PENDING',
         contextByKey,
         requiresReverification: Number(row.requires_reverification ?? 0) === 1,
-        updatedAt: typeof row.updated_at === 'string' ? row.updated_at : new Date().toISOString(),
+        updatedAt: typeof row.updated_at === 'string' ? row.updated_at : nowIso(),
       };
     }
-
-    statement.free();
 
     const currentStepRaw = readMeta(database, META_CURRENT_STEP);
     const currentStep = currentStepRaw !== null && Number.isFinite(Number(currentStepRaw))
@@ -314,7 +251,7 @@ export const onboardingStageStoreService = {
               lastCheckpointAt:
                 typeof candidate.lastCheckpointAt === 'string' && candidate.lastCheckpointAt.trim().length > 0
                   ? candidate.lastCheckpointAt
-                  : new Date().toISOString(),
+                  : nowIso(),
             };
           }
         }
@@ -334,13 +271,20 @@ export const onboardingStageStoreService = {
   async clearSnapshot(): Promise<void> {
     await queueWrite(async () => {
       const database = await getDatabase();
-      database.run('DELETE FROM onboarding_phase_stage');
-      database.run('DELETE FROM onboarding_stage_meta WHERE key IN (?, ?, ?)', [
+      database.prepare('DELETE FROM onboarding_phase_stage').run();
+      database.prepare('DELETE FROM onboarding_stage_meta WHERE key IN (?, ?, ?)').run(
         META_CURRENT_STEP,
         META_MODEL_ACCESS,
-        META_FLOW_META,
-      ]);
+        META_FLOW_META
+      );
       await persistDatabase(database);
     });
+  },
+
+  async __resetForTesting(): Promise<void> {
+    await writeQueue;
+    db = null;
+    writeQueue = Promise.resolve();
+    await rm(getDbPath(), { force: true });
   },
 };

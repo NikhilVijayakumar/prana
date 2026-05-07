@@ -2,7 +2,7 @@ import { encryptSqliteBuffer, decryptSqliteBuffer } from './sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { agentRegistryService } from './agentRegistryService';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 import { syncStoreService } from './syncStoreService';
@@ -83,60 +83,41 @@ export interface RuntimeWorkflowRecord {
   description: string;
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
-
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
+const nowIso = (): string => new Date().toISOString();
 
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getAppDataRoot());
-  await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
+  await writeFile(getDbPath(), await encryptSqliteBuffer(Buffer.from(buffer)));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getAppDataRoot());
 
   let database: Database;
   if (existsSync(getDbPath())) {
-    const raw = await readFile(getDbPath());
     try {
-      database = new sqlRuntime.Database(await decryptSqliteBuffer(Buffer.from(raw)));
+      const raw = await readFile(getDbPath());
+      const decrypted = await decryptSqliteBuffer(Buffer.from(raw));
+      // Write decrypted to temp file then open with better-sqlite3
+      const tempPath = getDbPath() + '.temp';
+      await writeFile(tempPath, Buffer.from(decrypted));
+      database = new Database(tempPath);
+      // Remove temp file after opening
+      await rm(tempPath, { force: true });
     } catch {
-      database = new sqlRuntime.Database(new Uint8Array(raw));
+      database = new Database(getDbPath());
       await persistDatabase(database);
     }
   } else {
-    database = new sqlRuntime.Database();
+    database = new Database(getDbPath());
   }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS runtime_registry_meta (
       key TEXT PRIMARY KEY,
       payload_json TEXT NOT NULL,
@@ -144,16 +125,15 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -281,18 +261,9 @@ const parseStoredState = (payloadJson: string): ApprovedRuntimeState | null => {
 
 const readApprovedRuntimeState = async (): Promise<ApprovedRuntimeState | null> => {
   const db = await getDatabase();
-  const statement = db.prepare('SELECT payload_json FROM runtime_registry_meta WHERE key = ?');
-  statement.bind([META_STATE_KEY]);
+  const row = db.prepare('SELECT payload_json FROM runtime_registry_meta WHERE key = ?').get(META_STATE_KEY) as { payload_json?: unknown } | undefined;
 
-  if (!statement.step()) {
-    statement.free();
-    return null;
-  }
-
-  const row = statement.getAsObject() as { payload_json?: unknown };
-  statement.free();
-
-  if (typeof row.payload_json !== 'string') {
+  if (!row || typeof row.payload_json !== 'string') {
     return null;
   }
 
@@ -302,17 +273,11 @@ const readApprovedRuntimeState = async (): Promise<ApprovedRuntimeState | null> 
 const writeApprovedRuntimeState = async (state: ApprovedRuntimeState): Promise<void> => {
   await queueWrite(async () => {
     const db = await getDatabase();
-    const statement = db.prepare(`
-      INSERT INTO runtime_registry_meta (key, payload_json, updated_at)
+    db.prepare(`
+      INSERT OR REPLACE INTO runtime_registry_meta (key, payload_json, updated_at)
       VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        payload_json = excluded.payload_json,
-        updated_at = excluded.updated_at
-    `);
+    `).run(META_STATE_KEY, JSON.stringify(state), nowIso());
 
-    const now = new Date().toISOString();
-    statement.run([META_STATE_KEY, JSON.stringify(state), now]);
-    statement.free();
     await persistDatabase(db);
   });
 };
@@ -320,9 +285,7 @@ const writeApprovedRuntimeState = async (state: ApprovedRuntimeState): Promise<v
 const clearApprovedRuntimeStateInternal = async (): Promise<void> => {
   await queueWrite(async () => {
     const db = await getDatabase();
-    const statement = db.prepare('DELETE FROM runtime_registry_meta WHERE key = ?');
-    statement.run([META_STATE_KEY]);
-    statement.free();
+    db.prepare('DELETE FROM runtime_registry_meta WHERE key = ?').run(META_STATE_KEY);
     await persistDatabase(db);
   });
 };
@@ -361,7 +324,7 @@ export const registryRuntimeStoreService = {
 
   async markApprovedRuntimePendingDelete(): Promise<void> {
     const existing = await readApprovedRuntimeState();
-    const lastModified = existing?.committedAt ?? new Date().toISOString();
+    const lastModified = existing?.committedAt ?? nowIso();
     await syncStoreService.upsertSyncLineageRecord({
       recordKey: APPROVED_RUNTIME_SYNC_RECORD_KEY,
       tableName: 'runtime_registry_meta',
@@ -519,7 +482,7 @@ export const registryRuntimeStoreService = {
     };
 
     const nextState: ApprovedRuntimeState = {
-      committedAt: existingState?.committedAt ?? new Date().toISOString(),
+      committedAt: existingState?.committedAt ?? nowIso(),
       contextByStep,
       approvalByStep: existingState?.approvalByStep ?? {},
       agentMappings: existingState?.agentMappings ?? {},

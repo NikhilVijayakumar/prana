@@ -1,7 +1,7 @@
-import { existsSync } from 'node:fs';
+﻿import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 const DB_FILE_NAME = 'notifications.sqlite';
@@ -39,53 +39,30 @@ export interface NotificationListFilters {
   unreadOnly?: boolean;
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
 const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
 
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
-
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getAppDataRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getAppDataRoot());
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
 
   // Create notifications table
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS notifications (
       notification_id TEXT PRIMARY KEY,
       app_id TEXT NOT NULL,
@@ -104,7 +81,7 @@ const initializeDatabase = async (): Promise<Database> => {
   `);
 
   // Create history table
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS notification_history (
       history_id TEXT PRIMARY KEY,
       notification_id TEXT NOT NULL,
@@ -116,32 +93,31 @@ const initializeDatabase = async (): Promise<Database> => {
   `);
 
   // Create indexes for common queries
-  database.run(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_notifications_app_id ON notifications(app_id);
   `);
 
-  database.run(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_notifications_priority ON notifications(priority);
   `);
 
-  database.run(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
   `);
 
-  database.run(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -194,13 +170,12 @@ export const notificationStoreService = {
     );
     stmt.bind([notificationId, appId]);
 
-    if (!stmt.step()) {
-      stmt.free();
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = stmt.getAsObject() as Record<string, unknown>;
-    stmt.free();
 
     return {
       notificationId: row.notification_id as string,
@@ -263,10 +238,9 @@ export const notificationStoreService = {
     // Get total count
     const countStmt = database.prepare(`SELECT COUNT(*) as cnt FROM notifications WHERE ${whereClause}`);
     countStmt.bind(params);
-    countStmt.step();
-    const countRow = countStmt.getAsObject() as { cnt: unknown };
+    const countRow = countStmt.get() as { cnt: unknown } | undefined;
     countStmt.free();
-    const total = typeof countRow.cnt === 'number' ? countRow.cnt : 0;
+    const total = countRow && typeof countRow.cnt === 'number' ? countRow.cnt : 0;
 
     // Get paginated results
     const listStmt = database.prepare(
@@ -274,10 +248,11 @@ export const notificationStoreService = {
     );
     listStmt.bind([...params, limit, offset]);
 
-    const items: Notification[] = [];
-    while (listStmt.step()) {
-      const row = listStmt.getAsObject() as Record<string, unknown>;
-      items.push({
+    const items = listStmt.all() as Array<Record<string, unknown>>;
+    listStmt.free();
+
+    return { 
+      items: items.map(row => ({
         notificationId: row.notification_id as string,
         appId: row.app_id as string,
         eventId: row.event_id as string | undefined,
@@ -290,11 +265,9 @@ export const notificationStoreService = {
         createdAt: row.created_at as string,
         expiresAt: row.expires_at as string | undefined,
         isRead: (row.is_read as number) === 1,
-      });
-    }
-    listStmt.free();
-
-    return { items, total };
+      })), 
+      total 
+    };
   },
 
   /**
@@ -315,7 +288,7 @@ export const notificationStoreService = {
       );
 
       stmt.run([appId, ...notificationIds]);
-      updatedCount = database.getRowsModified();
+      updatedCount = database.changes;
       stmt.free();
       await persistDatabase(database);
     });
@@ -341,7 +314,7 @@ export const notificationStoreService = {
       );
 
       stmt.run([appId, ...notificationIds]);
-      deletedCount = database.getRowsModified();
+      deletedCount = database.changes;
       stmt.free();
       await persistDatabase(database);
     });
@@ -355,7 +328,7 @@ export const notificationStoreService = {
   async recordAction(
     appId: string,
     notificationId: string,
-    action: 'VIEWED' | 'DISMISSED' | 'ACTIONED',
+    action: 'VIEWED' | 'DISMISSED' | 'ACTED',
   ): Promise<void> {
     await queueWrite(async () => {
       const database = await getDatabase();
@@ -388,7 +361,7 @@ export const notificationStoreService = {
         `DELETE FROM notifications WHERE app_id = ? AND priority = 'INFO' AND created_at < ?`,
       );
       stmtInfo.run([appId, cutoffIso]);
-      deletedCount += database.getRowsModified();
+      deletedCount += database.changes;
       stmtInfo.free();
 
       // Delete notifications that have expired
@@ -396,7 +369,7 @@ export const notificationStoreService = {
         `DELETE FROM notifications WHERE app_id = ? AND expires_at IS NOT NULL AND expires_at < ?`,
       );
       stmtExpired.run([appId, nowIso()]);
-      deletedCount += database.getRowsModified();
+      deletedCount += database.changes;
       stmtExpired.free();
 
       await persistDatabase(database);
@@ -412,10 +385,9 @@ export const notificationStoreService = {
     const database = await getDatabase();
     const stmt = database.prepare(`SELECT COUNT(*) as cnt FROM notifications WHERE app_id = ? AND is_read = 0`);
     stmt.bind([appId]);
-    stmt.step();
-    const row = stmt.getAsObject() as { cnt: unknown };
+    const row = stmt.get() as { cnt: unknown } | undefined;
     stmt.free();
-    return typeof row.cnt === 'number' ? row.cnt : 0;
+    return row && typeof row.cnt === 'number' ? row.cnt : 0;
   },
 
   /**
@@ -437,10 +409,9 @@ export const notificationStoreService = {
     for (const [key, query] of Object.entries(queries)) {
       const stmt = database.prepare(query);
       stmt.bind([appId]);
-      stmt.step();
-      const row = stmt.getAsObject() as { cnt: unknown };
+      const row = stmt.get() as { cnt: unknown } | undefined;
       stmt.free();
-      telemetry[key] = typeof row.cnt === 'number' ? row.cnt : 0;
+      telemetry[key] = row && typeof row.cnt === 'number' ? row.cnt : 0;
     }
 
     return telemetry;
@@ -456,7 +427,7 @@ export const notificationStoreService = {
       const database = await getDatabase();
       const stmt = database.prepare(`DELETE FROM notifications WHERE app_id = ?`);
       stmt.run([appId]);
-      deletedCount = database.getRowsModified();
+      deletedCount = database.changes;
       stmt.free();
       await persistDatabase(database);
     });

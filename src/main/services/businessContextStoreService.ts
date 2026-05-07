@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getSqliteRoot, mkdirSafe } from './governanceRepoService';
 import { syncStoreService } from './syncStoreService';
 
@@ -15,52 +15,29 @@ export interface BusinessContextRecord {
   updatedAt: string;
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
 const nowIso = (): string => new Date().toISOString();
 
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
-
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getSqliteRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getSqliteRoot());
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS business_context (
       context_id TEXT PRIMARY KEY,
       context_type TEXT NOT NULL,
@@ -70,16 +47,15 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -124,24 +100,16 @@ export const businessContextStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare(`
-        INSERT INTO business_context (context_id, context_type, payload_json, status, updated_at)
+      database.prepare(`
+        INSERT OR REPLACE INTO business_context (context_id, context_type, payload_json, status, updated_at)
         VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(context_id) DO UPDATE SET
-          context_type = excluded.context_type,
-          payload_json = excluded.payload_json,
-          status = excluded.status,
-          updated_at = excluded.updated_at
-      `);
-
-      statement.run([
+      `).run(
         record.contextId,
         record.contextType,
         JSON.stringify(record.payload),
         record.status,
-        record.updatedAt,
-      ]);
-      statement.free();
+        record.updatedAt
+      );
       await persistDatabase(database);
     });
 
@@ -158,35 +126,23 @@ export const businessContextStoreService = {
 
   async getContext(contextId: string): Promise<BusinessContextRecord | null> {
     const database = await getDatabase();
-    const statement = database.prepare('SELECT * FROM business_context WHERE context_id = ?');
-    statement.bind([contextId]);
-
-    if (!statement.step()) {
-      statement.free();
-      return null;
-    }
-
-    const record = mapRow(statement.getAsObject() as Record<string, unknown>);
-    statement.free();
-    return record;
+    const row = database.prepare('SELECT * FROM business_context WHERE context_id = ?').get(contextId) as Record<string, unknown> | undefined;
+    return row ? mapRow(row) : null;
   },
 
   async listContexts(contextType?: BusinessContextRecord['contextType']): Promise<BusinessContextRecord[]> {
     const database = await getDatabase();
-    const statement = contextType
-      ? database.prepare('SELECT * FROM business_context WHERE context_type = ? ORDER BY updated_at DESC')
-      : database.prepare('SELECT * FROM business_context ORDER BY updated_at DESC');
+    const rows = contextType
+      ? database.prepare('SELECT * FROM business_context WHERE context_type = ? ORDER BY updated_at DESC').all(contextType) as Record<string, unknown>[]
+      : database.prepare('SELECT * FROM business_context ORDER BY updated_at DESC').all() as Record<string, unknown>[];
 
-    if (contextType) {
-      statement.bind([contextType]);
-    }
+    return rows.map(mapRow);
+  },
 
-    const output: BusinessContextRecord[] = [];
-    while (statement.step()) {
-      output.push(mapRow(statement.getAsObject() as Record<string, unknown>));
-    }
-
-    statement.free();
-    return output;
+  async __resetForTesting(): Promise<void> {
+    await writeQueue;
+    db = null;
+    writeQueue = Promise.resolve();
+    await rm(getDbPath(), { force: true });
   },
 };

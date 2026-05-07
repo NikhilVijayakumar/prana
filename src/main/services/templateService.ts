@@ -1,85 +1,85 @@
-import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js'
-import { getAppDataRoot, mkdirSafe } from './governanceRepoService'
-import { runtimeDocumentStoreService } from './runtimeDocumentStoreService'
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
+import { runtimeDocumentStoreService } from './runtimeDocumentStoreService';
 
-const DB_FILE_NAME = 'visual-identity.sqlite'
+const DB_FILE_NAME = 'visual-identity.sqlite';
 
-type TemplateSyncStatus = 'PENDING' | 'SYNCED' | 'FAILED'
+type TemplateSyncStatus = 'PENDING' | 'SYNCED' | 'FAILED';
 
-export type VisualTemplateType = 'document' | 'presentation' | 'slide' | 'poster' | 'table'
-export type VisualTemplateFormat = 'html' | 'docs' | 'slides' | 'sheets' | 'pdf' | 'ppt'
+export type VisualTemplateType = 'document' | 'presentation' | 'slide' | 'poster' | 'table';
+export type VisualTemplateFormat = 'html' | 'docs' | 'slides' | 'sheets' | 'pdf' | 'ppt';
 
 export interface VisualTemplateRecord {
-  templateId: string
-  version: string
-  templateType: VisualTemplateType
-  name: string
-  supportedFormats: VisualTemplateFormat[]
-  requiredVariables: string[]
-  checksum: string
-  htmlContent?: string
-  vaultPath: string
-  syncStatus: TemplateSyncStatus
-  createdAt: string
-  updatedAt: string
+  templateId: string;
+  version: string;
+  templateType: VisualTemplateType;
+  name: string;
+  supportedFormats: VisualTemplateFormat[];
+  requiredVariables: string[];
+  checksum: string;
+  htmlContent?: string;
+  vaultPath: string;
+  syncStatus: TemplateSyncStatus;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RegisterTemplateInput {
-  templateId: string
-  version: string
-  templateType: VisualTemplateType
-  name: string
-  supportedFormats: VisualTemplateFormat[]
-  htmlContent: string
-  requiredVariables?: string[]
+  templateId: string;
+  version: string;
+  templateType: VisualTemplateType;
+  name: string;
+  supportedFormats: VisualTemplateFormat[];
+  htmlContent: string;
+  requiredVariables?: string[];
 }
 
 export interface TemplateValidationResult {
-  valid: boolean
-  errors: string[]
-  detectedVariables: string[]
-  requiredVariables: string[]
+  valid: boolean;
+  errors: string[];
+  detectedVariables: string[];
+  requiredVariables: string[];
 }
 
 export interface TemplatePreviewResult {
-  templateId: string
-  version: string
-  html: string
-  requiredVariables: string[]
-  missingVariables: string[]
-  sourceDataHash: string
+  templateId: string;
+  version: string;
+  html: string;
+  requiredVariables: string[];
+  missingVariables: string[];
+  sourceDataHash: string;
 }
 
 interface TemplateRow {
-  template_id: string
-  version: string
-  template_type: string
-  name: string
-  supported_formats_json: string
-  required_variables_json: string
-  checksum: string
-  html_content: string
-  vault_path: string
-  sync_status: string
-  created_at: string
-  updated_at: string
+  template_id: string;
+  version: string;
+  template_type: string;
+  name: string;
+  supported_formats_json: string;
+  required_variables_json: string;
+  checksum: string;
+  html_content: string;
+  vault_path: string;
+  sync_status: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface DefaultTemplateDefinition {
-  templateId: string
-  version: string
-  templateType: VisualTemplateType
-  name: string
-  supportedFormats: VisualTemplateFormat[]
-  requiredVariables: string[]
-  htmlContent: string
+  templateId: string;
+  version: string;
+  templateType: VisualTemplateType;
+  name: string;
+  supportedFormats: VisualTemplateFormat[];
+  requiredVariables: string[];
+  htmlContent: string;
 }
 
-const DEFAULT_TEMPLATE_VERSION = '1.0.0'
+const DEFAULT_TEMPLATE_VERSION = '1.0.0';
 
 const DEFAULT_TEMPLATE_DEFINITIONS: DefaultTemplateDefinition[] = [
   {
@@ -109,7 +109,7 @@ const DEFAULT_TEMPLATE_DEFINITIONS: DefaultTemplateDefinition[] = [
     <section class="summary">{{summary}}</section>
   </article>
 </body>
-</html>`
+</html>`,
   },
   {
     templateId: 'default-presentation-deck',
@@ -139,7 +139,7 @@ const DEFAULT_TEMPLATE_DEFINITIONS: DefaultTemplateDefinition[] = [
     <div class="agenda">{{agenda}}</div>
   </section>
 </body>
-</html>`
+</html>`,
   },
   {
     templateId: 'default-slide-hero',
@@ -169,7 +169,7 @@ const DEFAULT_TEMPLATE_DEFINITIONS: DefaultTemplateDefinition[] = [
     </div>
   </section>
 </body>
-</html>`
+</html>`,
   },
   {
     templateId: 'default-poster-layout',
@@ -199,7 +199,7 @@ const DEFAULT_TEMPLATE_DEFINITIONS: DefaultTemplateDefinition[] = [
     <section class="body">{{body}}</section>
   </article>
 </body>
-</html>`
+</html>`,
   },
   {
     templateId: 'default-table-audit',
@@ -232,63 +232,33 @@ const DEFAULT_TEMPLATE_DEFINITIONS: DefaultTemplateDefinition[] = [
     </tbody>
   </table>
 </body>
-</html>`
-  }
-]
+</html>`,
+  },
+];
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null
-let dbPromise: Promise<Database> | null = null
-let writeQueue: Promise<void> = Promise.resolve()
+let db: Database | null = null;
+let writeQueue: Promise<void> = Promise.resolve();
 
-const nowIso = (): string => new Date().toISOString()
-const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME)
-
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(
-      process.resourcesPath ?? '',
-      'app.asar.unpacked',
-      'node_modules',
-      'sql.js',
-      'dist',
-      fileName
-    ),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName)
-  ]
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate
-    }
-  }
-
-  return fileName
-}
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) })
-  }
-
-  return sqlRuntimePromise
-}
+const nowIso = (): string => new Date().toISOString();
+const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
 
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export()
-  await mkdirSafe(getAppDataRoot())
-  await writeFile(getDbPath(), Buffer.from(bytes))
-}
+  const buffer = database.serialize();
+  await mkdirSafe(getAppDataRoot());
+  await writeFile(getDbPath(), Buffer.from(buffer));
+};
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime()
-  await mkdirSafe(getAppDataRoot())
+  await mkdirSafe(getAppDataRoot());
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database()
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS visual_templates (
       template_id TEXT NOT NULL,
       version TEXT NOT NULL,
@@ -304,96 +274,91 @@ const initializeDatabase = async (): Promise<Database> => {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (template_id, version)
     );
-  `)
+  `);
 
-  database.run(
-    'CREATE INDEX IF NOT EXISTS idx_visual_templates_type ON visual_templates (template_type);'
-  )
-  database.run(
-    'CREATE INDEX IF NOT EXISTS idx_visual_templates_sync_status ON visual_templates (sync_status);'
-  )
+  database.exec('CREATE INDEX IF NOT EXISTS idx_visual_templates_type ON visual_templates (template_type);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_visual_templates_sync_status ON visual_templates (sync_status);');
 
-  await persistDatabase(database)
-  return database
-}
+  db = database;
+  return database;
+};
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase()
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise
-}
+  return db!;
+};
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
-  writeQueue = writeQueue.then(operation, operation)
-  await writeQueue
-}
+  writeQueue = writeQueue.then(operation, operation);
+  await writeQueue;
+};
 
 const canonicalStringify = (value: unknown): string => {
   if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value)
+    return JSON.stringify(value);
   }
 
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalStringify(item)).join(',')}]`
+    return `[${value.map((item) => canonicalStringify(item)).join(',')}]`;
   }
 
   const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
     a.localeCompare(b)
-  )
+  );
   return `{${entries
     .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalStringify(entryValue)}`)
-    .join(',')}}`
-}
+    .join(',')}}`;
+};
 
-const hashString = (value: string): string => createHash('sha256').update(value).digest('hex')
+const hashString = (value: string): string => createHash('sha256').update(value).digest('hex');
 
 const sanitizeForHtml = (value: unknown): string => {
-  const input = String(value ?? '')
+  const input = String(value ?? '');
   return input
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
+    .replace(/'/g, '&#39;');
+};
 
 const normalizeUnique = <T extends string>(entries: T[]): T[] => {
-  const seen = new Set<string>()
-  const normalized: T[] = []
+  const seen = new Set<string>();
+  const normalized: T[] = [];
 
   for (const entry of entries) {
-    const trimmed = entry.trim()
+    const trimmed = entry.trim();
     if (trimmed.length === 0 || seen.has(trimmed)) {
-      continue
+      continue;
     }
-    seen.add(trimmed)
-    normalized.push(trimmed as T)
+    seen.add(trimmed);
+    normalized.push(trimmed as T);
   }
 
-  return normalized.sort((a, b) => a.localeCompare(b))
-}
+  return normalized.sort((a, b) => a.localeCompare(b));
+};
 
 const resolveVaultPath = (
   templateType: VisualTemplateType,
   templateId: string,
-  version: string
+  version: string,
 ): string => {
-  return `vault/templates/${templateType}/${templateId}/${version}.html`
-}
+  return `vault/templates/${templateType}/${templateId}/${version}.html`;
+};
 
 const parseJsonStringArray = (value: string): string[] => {
   try {
-    const parsed = JSON.parse(value) as unknown
+    const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed)) {
-      return []
+      return [];
     }
-    return parsed.filter((item): item is string => typeof item === 'string')
+    return parsed.filter((item): item is string => typeof item === 'string');
   } catch {
-    return []
+    return [];
   }
-}
+};
 
 const mapRowToRecord = (row: TemplateRow, includeContent: boolean): VisualTemplateRecord => {
   return {
@@ -408,66 +373,64 @@ const mapRowToRecord = (row: TemplateRow, includeContent: boolean): VisualTempla
     vaultPath: row.vault_path,
     syncStatus: row.sync_status as TemplateSyncStatus,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }
-}
+    updatedAt: row.updated_at,
+  };
+};
 
 const extractVariables = (htmlContent: string): string[] => {
-  const matches = htmlContent.matchAll(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g)
-  const values: string[] = []
+  const matches = htmlContent.matchAll(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g);
+  const values: string[] = [];
 
   for (const match of matches) {
     if (match[1] && match[1] !== '__TOKEN_STYLE_BLOCK__') {
-      values.push(match[1])
+      values.push(match[1]);
     }
   }
 
-  return normalizeUnique(values)
-}
+  return normalizeUnique(values);
+};
 
 const validateTemplateDefinition = (payload: {
-  templateId: string
-  version: string
-  templateType: string
-  name: string
-  supportedFormats: string[]
-  htmlContent: string
-  requiredVariables?: string[]
+  templateId: string;
+  version: string;
+  templateType: string;
+  name: string;
+  supportedFormats: string[];
+  htmlContent: string;
+  requiredVariables?: string[];
 }): TemplateValidationResult => {
-  const errors: string[] = []
-  const detectedVariables = extractVariables(payload.htmlContent)
-  const requiredVariables = normalizeUnique(payload.requiredVariables ?? detectedVariables)
+  const errors: string[] = [];
+  const detectedVariables = extractVariables(payload.htmlContent);
+  const requiredVariables = normalizeUnique(payload.requiredVariables ?? detectedVariables);
 
   if (!/^[a-z0-9][a-z0-9-]{2,127}$/i.test(payload.templateId)) {
-    errors.push(
-      'templateId must be 3-128 characters and contain only letters, numbers, and hyphens.'
-    )
+    errors.push('templateId must be 3-128 characters and contain only letters, numbers, and hyphens.');
   }
 
   if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(payload.version)) {
-    errors.push('version must follow semantic format major.minor.patch (for example 1.0.0).')
+    errors.push('version must follow semantic format major.minor.patch (for example 1.0.0).');
   }
 
   if (!['document', 'presentation', 'slide', 'poster', 'table'].includes(payload.templateType)) {
-    errors.push('templateType must be one of: document, presentation, slide, poster, table.')
+    errors.push('templateType must be one of: document, presentation, slide, poster, table.');
   }
 
   if (payload.name.trim().length < 3) {
-    errors.push('name must be at least 3 characters long.')
+    errors.push('name must be at least 3 characters long.');
   }
 
   if (!payload.htmlContent.includes('<') || !payload.htmlContent.includes('>')) {
-    errors.push('htmlContent must contain valid HTML markup.')
+    errors.push('htmlContent must contain valid HTML markup.');
   }
 
-  const formats = normalizeUnique(payload.supportedFormats)
+  const formats = normalizeUnique(payload.supportedFormats);
   if (formats.length === 0) {
-    errors.push('supportedFormats must include at least one format.')
+    errors.push('supportedFormats must include at least one format.');
   }
 
   for (const variable of requiredVariables) {
     if (!detectedVariables.includes(variable)) {
-      errors.push(`required variable "${variable}" is not declared in htmlContent.`)
+      errors.push(`required variable "${variable}" is not declared in htmlContent.`);
     }
   }
 
@@ -475,17 +438,17 @@ const validateTemplateDefinition = (payload: {
     valid: errors.length === 0,
     errors,
     detectedVariables,
-    requiredVariables
-  }
-}
+    requiredVariables,
+  };
+};
 
 const computeTemplateChecksum = (input: {
-  templateId: string
-  version: string
-  templateType: string
-  supportedFormats: string[]
-  requiredVariables: string[]
-  htmlContent: string
+  templateId: string;
+  version: string;
+  templateType: string;
+  supportedFormats: string[];
+  requiredVariables: string[];
+  htmlContent: string;
 }): string => {
   const canonical = canonicalStringify({
     templateId: input.templateId,
@@ -493,20 +456,20 @@ const computeTemplateChecksum = (input: {
     templateType: input.templateType,
     supportedFormats: normalizeUnique(input.supportedFormats),
     requiredVariables: normalizeUnique(input.requiredVariables),
-    htmlContent: input.htmlContent
-  })
-  return hashString(canonical)
-}
+    htmlContent: input.htmlContent,
+  });
+  return hashString(canonical);
+};
 
 const buildTemplateRow = (
   payload: RegisterTemplateInput,
-  syncStatus: TemplateSyncStatus
+  syncStatus: TemplateSyncStatus,
 ): TemplateRow => {
   const requiredVariables = normalizeUnique(
     payload.requiredVariables ?? extractVariables(payload.htmlContent)
-  )
-  const supportedFormats = normalizeUnique(payload.supportedFormats)
-  const timestamp = nowIso()
+  );
+  const supportedFormats = normalizeUnique(payload.supportedFormats);
+  const timestamp = nowIso();
 
   return {
     template_id: payload.templateId,
@@ -521,37 +484,25 @@ const buildTemplateRow = (
       templateType: payload.templateType,
       supportedFormats,
       requiredVariables,
-      htmlContent: payload.htmlContent
+      htmlContent: payload.htmlContent,
     }),
     html_content: payload.htmlContent,
     vault_path: resolveVaultPath(payload.templateType, payload.templateId, payload.version),
     sync_status: syncStatus,
     created_at: timestamp,
-    updated_at: timestamp
-  }
-}
+    updated_at: timestamp,
+  };
+};
 
 const upsertTemplateRow = async (row: TemplateRow): Promise<void> => {
   await queueWrite(async () => {
-    const db = await getDatabase()
-    const statement = db.prepare(`
-      INSERT INTO visual_templates (
+    const db = await getDatabase();
+    db.prepare(`
+      INSERT OR REPLACE INTO visual_templates (
         template_id, version, template_type, name, supported_formats_json,
         required_variables_json, checksum, html_content, vault_path, sync_status, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(template_id, version) DO UPDATE SET
-        template_type = excluded.template_type,
-        name = excluded.name,
-        supported_formats_json = excluded.supported_formats_json,
-        required_variables_json = excluded.required_variables_json,
-        checksum = excluded.checksum,
-        html_content = excluded.html_content,
-        vault_path = excluded.vault_path,
-        sync_status = excluded.sync_status,
-        updated_at = excluded.updated_at
-    `)
-
-    statement.run([
+    `).run(
       row.template_id,
       row.version,
       row.template_type,
@@ -564,42 +515,34 @@ const upsertTemplateRow = async (row: TemplateRow): Promise<void> => {
       row.sync_status,
       row.created_at,
       row.updated_at
-    ])
-    statement.free()
-    await persistDatabase(db)
-  })
-}
+    );
+    await persistDatabase(db);
+  });
+};
 
 const readTemplateRow = async (
   templateId: string,
-  version?: string
+  version?: string,
 ): Promise<TemplateRow | null> => {
-  const db = await getDatabase()
-  const query = version
-    ? `
-      SELECT *
-      FROM visual_templates
-      WHERE template_id = ? AND version = ?
-      LIMIT 1
-    `
-    : `
-      SELECT *
-      FROM visual_templates
-      WHERE template_id = ?
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `
+  const db = await getDatabase();
+  const row = version
+    ? db.prepare(`
+        SELECT *
+        FROM visual_templates
+        WHERE template_id = ? AND version = ?
+        LIMIT 1
+      `).get(templateId, version) as Record<string, unknown> | undefined
+    : db.prepare(`
+        SELECT *
+        FROM visual_templates
+        WHERE template_id = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `).get(templateId) as Record<string, unknown> | undefined;
 
-  const statement = db.prepare(query)
-  statement.bind(version ? [templateId, version] : [templateId])
-
-  if (!statement.step()) {
-    statement.free()
-    return null
+  if (!row) {
+    return null;
   }
-
-  const row = statement.getAsObject() as Record<string, unknown>
-  statement.free()
 
   return {
     template_id: String(row.template_id ?? ''),
@@ -613,40 +556,36 @@ const readTemplateRow = async (
     vault_path: String(row.vault_path ?? ''),
     sync_status: String(row.sync_status ?? 'PENDING'),
     created_at: String(row.created_at ?? nowIso()),
-    updated_at: String(row.updated_at ?? nowIso())
-  }
-}
+    updated_at: String(row.updated_at ?? nowIso()),
+  };
+};
 
 const listLatestRows = async (templateType?: VisualTemplateType): Promise<TemplateRow[]> => {
-  const db = await getDatabase()
-  const statement = templateType
+  const db = await getDatabase();
+  const rows = templateType
     ? db.prepare(`
         SELECT *
         FROM visual_templates
         WHERE template_type = ?
         ORDER BY template_id ASC, updated_at DESC
-      `)
+      `).all(templateType) as Record<string, unknown>[]
     : db.prepare(`
         SELECT *
         FROM visual_templates
         ORDER BY template_id ASC, updated_at DESC
-      `)
+      `).all() as Record<string, unknown>[];
 
-  if (templateType) {
-    statement.bind([templateType])
-  }
+  const results: TemplateRow[] = [];
+  const seen = new Set<string>();
 
-  const rows: TemplateRow[] = []
-  const seen = new Set<string>()
-  while (statement.step()) {
-    const row = statement.getAsObject() as Record<string, unknown>
-    const templateId = String(row.template_id ?? '')
+  for (const row of rows) {
+    const templateId = String(row.template_id ?? '');
     if (!templateId || seen.has(templateId)) {
-      continue
+      continue;
     }
 
-    seen.add(templateId)
-    rows.push({
+    seen.add(templateId);
+    results.push({
       template_id: templateId,
       version: String(row.version ?? ''),
       template_type: String(row.template_type ?? 'document'),
@@ -658,135 +597,118 @@ const listLatestRows = async (templateType?: VisualTemplateType): Promise<Templa
       vault_path: String(row.vault_path ?? ''),
       sync_status: String(row.sync_status ?? 'PENDING'),
       created_at: String(row.created_at ?? nowIso()),
-      updated_at: String(row.updated_at ?? nowIso())
-    })
+      updated_at: String(row.updated_at ?? nowIso()),
+    });
   }
 
-  statement.free()
-  return rows
-}
+  return results;
+};
 
 const listRowsBySyncStatus = async (syncStatuses: TemplateSyncStatus[]): Promise<TemplateRow[]> => {
-  const db = await getDatabase()
-  const placeholders = syncStatuses.map(() => '?').join(', ')
-  const statement = db.prepare(`
+  const db = await getDatabase();
+  const placeholders = syncStatuses.map(() => '?').join(', ');
+  const rows = db.prepare(`
     SELECT *
     FROM visual_templates
     WHERE sync_status IN (${placeholders})
     ORDER BY updated_at ASC
-  `)
-  statement.bind(syncStatuses)
+  `).all(...syncStatuses) as Record<string, unknown>[];
 
-  const rows: TemplateRow[] = []
-  while (statement.step()) {
-    const row = statement.getAsObject() as Record<string, unknown>
-    rows.push({
-      template_id: String(row.template_id ?? ''),
-      version: String(row.version ?? ''),
-      template_type: String(row.template_type ?? 'document'),
-      name: String(row.name ?? ''),
-      supported_formats_json: String(row.supported_formats_json ?? '[]'),
-      required_variables_json: String(row.required_variables_json ?? '[]'),
-      checksum: String(row.checksum ?? ''),
-      html_content: String(row.html_content ?? ''),
-      vault_path: String(row.vault_path ?? ''),
-      sync_status: String(row.sync_status ?? 'PENDING'),
-      created_at: String(row.created_at ?? nowIso()),
-      updated_at: String(row.updated_at ?? nowIso())
-    })
-  }
-
-  statement.free()
-  return rows
-}
+  return rows.map(row => ({
+    template_id: String(row.template_id ?? ''),
+    version: String(row.version ?? ''),
+    template_type: String(row.template_type ?? 'document'),
+    name: String(row.name ?? ''),
+    supported_formats_json: String(row.supported_formats_json ?? '[]'),
+    required_variables_json: String(row.required_variables_json ?? '[]'),
+    checksum: String(row.checksum ?? ''),
+    html_content: String(row.html_content ?? ''),
+    vault_path: String(row.vault_path ?? ''),
+    sync_status: String(row.sync_status ?? 'PENDING'),
+    created_at: String(row.created_at ?? nowIso()),
+    updated_at: String(row.updated_at ?? nowIso()),
+  }));
+};
 
 const listTemplateVersionsRows = async (templateId: string): Promise<TemplateRow[]> => {
-  const db = await getDatabase()
-  const statement = db.prepare(`
+  const db = await getDatabase();
+  const rows = db.prepare(`
     SELECT *
     FROM visual_templates
     WHERE template_id = ?
     ORDER BY updated_at DESC
-  `)
-  statement.bind([templateId])
+  `).all(templateId) as Record<string, unknown>[];
 
-  const rows: TemplateRow[] = []
-  while (statement.step()) {
-    const row = statement.getAsObject() as Record<string, unknown>
-    rows.push({
-      template_id: String(row.template_id ?? ''),
-      version: String(row.version ?? ''),
-      template_type: String(row.template_type ?? 'document'),
-      name: String(row.name ?? ''),
-      supported_formats_json: String(row.supported_formats_json ?? '[]'),
-      required_variables_json: String(row.required_variables_json ?? '[]'),
-      checksum: String(row.checksum ?? ''),
-      html_content: String(row.html_content ?? ''),
-      vault_path: String(row.vault_path ?? ''),
-      sync_status: String(row.sync_status ?? 'PENDING'),
-      created_at: String(row.created_at ?? nowIso()),
-      updated_at: String(row.updated_at ?? nowIso())
-    })
-  }
-
-  statement.free()
-  return rows
-}
+  return rows.map(row => ({
+    template_id: String(row.template_id ?? ''),
+    version: String(row.version ?? ''),
+    template_type: String(row.template_type ?? 'document'),
+    name: String(row.name ?? ''),
+    supported_formats_json: String(row.supported_formats_json ?? '[]'),
+    required_variables_json: String(row.required_variables_json ?? '[]'),
+    checksum: String(row.checksum ?? ''),
+    html_content: String(row.html_content ?? ''),
+    vault_path: String(row.vault_path ?? ''),
+    sync_status: String(row.sync_status ?? 'PENDING'),
+    created_at: String(row.created_at ?? nowIso()),
+    updated_at: String(row.updated_at ?? nowIso()),
+  }));
+};
 
 const writeTemplateToVault = async (row: TemplateRow): Promise<void> => {
   await runtimeDocumentStoreService.writeText(row.vault_path, row.html_content, {
-    syncStatus: 'PENDING'
-  })
+    syncStatus: 'PENDING',
+  });
   await runtimeDocumentStoreService.flushPendingToVault(
     `visual-template sync ${row.template_id}@${row.version}`
-  )
-}
+  );
+};
 
 const setTemplateSyncStatus = async (
   templateId: string,
   version: string,
-  syncStatus: TemplateSyncStatus
+  syncStatus: TemplateSyncStatus,
 ): Promise<void> => {
-  const existing = await readTemplateRow(templateId, version)
+  const existing = await readTemplateRow(templateId, version);
   if (!existing) {
-    return
+    return;
   }
 
   await upsertTemplateRow({
     ...existing,
     sync_status: syncStatus,
-    updated_at: nowIso()
-  })
-}
+    updated_at: nowIso(),
+  });
+};
 
 const renderTemplateWithData = (html: string, data: Record<string, unknown>): string => {
   return html.replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_match, tokenName: string) => {
     if (tokenName === '__TOKEN_STYLE_BLOCK__') {
-      return ''
+      return '';
     }
 
-    const pathSegments = tokenName.split('.')
-    let value: unknown = data
+    const pathSegments = tokenName.split('.');
+    let value: unknown = data;
     for (const segment of pathSegments) {
       if (!value || typeof value !== 'object') {
-        value = ''
-        break
+        value = '';
+        break;
       }
-      value = (value as Record<string, unknown>)[segment]
+      value = (value as Record<string, unknown>)[segment];
     }
 
-    return sanitizeForHtml(value ?? '')
-  })
-}
+    return sanitizeForHtml(value ?? '');
+  });
+};
 
 export const templateService = {
   async ensureDefaultTemplates(): Promise<{ seeded: number; total: number }> {
-    let seeded = 0
+    let seeded = 0;
 
     for (const definition of DEFAULT_TEMPLATE_DEFINITIONS) {
-      const existing = await readTemplateRow(definition.templateId, definition.version)
+      const existing = await readTemplateRow(definition.templateId, definition.version);
       if (existing) {
-        continue
+        continue;
       }
 
       await this.registerTemplate({
@@ -796,33 +718,33 @@ export const templateService = {
         name: definition.name,
         supportedFormats: definition.supportedFormats,
         requiredVariables: definition.requiredVariables,
-        htmlContent: definition.htmlContent
-      })
-      seeded += 1
+        htmlContent: definition.htmlContent,
+      });
+      seeded += 1;
     }
 
     return {
       seeded,
-      total: DEFAULT_TEMPLATE_DEFINITIONS.length
-    }
+      total: DEFAULT_TEMPLATE_DEFINITIONS.length,
+    };
   },
 
   async validateTemplate(payload: {
-    templateId: string
-    version: string
-    templateType: VisualTemplateType
-    name: string
-    supportedFormats: VisualTemplateFormat[]
-    htmlContent: string
-    requiredVariables?: string[]
+    templateId: string;
+    version: string;
+    templateType: VisualTemplateType;
+    name: string;
+    supportedFormats: VisualTemplateFormat[];
+    htmlContent: string;
+    requiredVariables?: string[];
   }): Promise<TemplateValidationResult> {
-    return validateTemplateDefinition(payload)
+    return validateTemplateDefinition(payload);
   },
 
   async registerTemplate(payload: RegisterTemplateInput): Promise<{
-    record: VisualTemplateRecord
-    synced: boolean
-    error?: string
+    record: VisualTemplateRecord;
+    synced: boolean;
+    error?: string;
   }> {
     const validation = validateTemplateDefinition({
       templateId: payload.templateId,
@@ -831,102 +753,102 @@ export const templateService = {
       name: payload.name,
       supportedFormats: payload.supportedFormats,
       htmlContent: payload.htmlContent,
-      requiredVariables: payload.requiredVariables
-    })
+      requiredVariables: payload.requiredVariables,
+    });
 
     if (!validation.valid) {
-      throw new Error(`Template validation failed: ${validation.errors.join('; ')}`)
+      throw new Error(`Template validation failed: ${validation.errors.join('; ')}`);
     }
 
     const row = buildTemplateRow(
       {
         ...payload,
-        requiredVariables: validation.requiredVariables
+        requiredVariables: validation.requiredVariables,
       },
       'PENDING'
-    )
+    );
 
-    await upsertTemplateRow(row)
+    await upsertTemplateRow(row);
 
     try {
-      await writeTemplateToVault(row)
-      await setTemplateSyncStatus(payload.templateId, payload.version, 'SYNCED')
-      const updated = await readTemplateRow(payload.templateId, payload.version)
+      await writeTemplateToVault(row);
+      await setTemplateSyncStatus(payload.templateId, payload.version, 'SYNCED');
+      const updated = await readTemplateRow(payload.templateId, payload.version);
       return {
         record: mapRowToRecord(updated ?? row, false),
-        synced: true
-      }
+        synced: true,
+      };
     } catch (error) {
-      await setTemplateSyncStatus(payload.templateId, payload.version, 'FAILED')
-      const failed = await readTemplateRow(payload.templateId, payload.version)
+      await setTemplateSyncStatus(payload.templateId, payload.version, 'FAILED');
+      const failed = await readTemplateRow(payload.templateId, payload.version);
       return {
         record: mapRowToRecord(failed ?? row, false),
         synced: false,
-        error: error instanceof Error ? error.message : 'Failed to sync template into vault.'
-      }
+        error: error instanceof Error ? error.message : 'Failed to sync template into vault.',
+      };
     }
   },
 
   async listTemplates(payload?: {
-    templateType?: VisualTemplateType
-    includeContent?: boolean
+    templateType?: VisualTemplateType;
+    includeContent?: boolean;
   }): Promise<VisualTemplateRecord[]> {
-    const rows = await listLatestRows(payload?.templateType)
-    return rows.map((row) => mapRowToRecord(row, payload?.includeContent ?? false))
+    const rows = await listLatestRows(payload?.templateType);
+    return rows.map((row) => mapRowToRecord(row, payload?.includeContent ?? false));
   },
 
   async listTemplateVersions(payload: {
-    templateId: string
-    includeContent?: boolean
+    templateId: string;
+    includeContent?: boolean;
   }): Promise<VisualTemplateRecord[]> {
-    const rows = await listTemplateVersionsRows(payload.templateId)
-    return rows.map((row) => mapRowToRecord(row, payload.includeContent ?? false))
+    const rows = await listTemplateVersionsRows(payload.templateId);
+    return rows.map((row) => mapRowToRecord(row, payload.includeContent ?? false));
   },
 
   async getTemplate(payload: {
-    templateId: string
-    version?: string
-    includeContent?: boolean
+    templateId: string;
+    version?: string;
+    includeContent?: boolean;
   }): Promise<VisualTemplateRecord | null> {
-    const row = await readTemplateRow(payload.templateId, payload.version)
+    const row = await readTemplateRow(payload.templateId, payload.version);
     if (!row) {
-      return null
+      return null;
     }
 
-    return mapRowToRecord(row, payload.includeContent ?? true)
+    return mapRowToRecord(row, payload.includeContent ?? true);
   },
 
   async previewTemplate(payload: {
-    templateId: string
-    version?: string
-    data: Record<string, unknown>
-    tokenStyleBlock?: string
+    templateId: string;
+    version?: string;
+    data: Record<string, unknown>;
+    tokenStyleBlock?: string;
   }): Promise<TemplatePreviewResult> {
-    const row = await readTemplateRow(payload.templateId, payload.version)
+    const row = await readTemplateRow(payload.templateId, payload.version);
     if (!row) {
-      throw new Error('Requested template was not found in registry.')
+      throw new Error('Requested template was not found in registry.');
     }
 
-    const requiredVariables = parseJsonStringArray(row.required_variables_json)
+    const requiredVariables = parseJsonStringArray(row.required_variables_json);
     const missingVariables = requiredVariables.filter((key) => {
-      const pathSegments = key.split('.')
-      let value: unknown = payload.data
+      const pathSegments = key.split('.');
+      let value: unknown = payload.data;
       for (const segment of pathSegments) {
         if (!value || typeof value !== 'object') {
-          return true
+          return true;
         }
-        value = (value as Record<string, unknown>)[segment]
+        value = (value as Record<string, unknown>)[segment];
       }
-      return value === null || value === undefined || String(value).trim().length === 0
-    })
+      return value === null || value === undefined || String(value).trim().length === 0;
+    });
 
     const withTokenStyles = row.html_content.replace(
       '{{__TOKEN_STYLE_BLOCK__}}',
       payload.tokenStyleBlock ? payload.tokenStyleBlock : ''
-    )
+    );
 
-    const html = renderTemplateWithData(withTokenStyles, payload.data)
-    const sourceDataHash = hashString(canonicalStringify(payload.data))
+    const html = renderTemplateWithData(withTokenStyles, payload.data);
+    const sourceDataHash = hashString(canonicalStringify(payload.data));
 
     return {
       templateId: row.template_id,
@@ -934,55 +856,52 @@ export const templateService = {
       html,
       requiredVariables,
       missingVariables,
-      sourceDataHash
-    }
+      sourceDataHash,
+    };
   },
 
   async retryTemplateSync(): Promise<{ retried: number; synced: number; failed: number }> {
-    const candidates = await listRowsBySyncStatus(['FAILED', 'PENDING'])
+    const candidates = await listRowsBySyncStatus(['FAILED', 'PENDING']);
     if (candidates.length === 0) {
-      return { retried: 0, synced: 0, failed: 0 }
+      return { retried: 0, synced: 0, failed: 0 };
     }
 
-    let synced = 0
-    let failed = 0
+    let synced = 0;
+    let failed = 0;
 
     for (const row of candidates) {
       try {
-        await writeTemplateToVault(row)
-        await setTemplateSyncStatus(row.template_id, row.version, 'SYNCED')
-        synced += 1
+        await writeTemplateToVault(row);
+        await setTemplateSyncStatus(row.template_id, row.version, 'SYNCED');
+        synced += 1;
       } catch {
-        await setTemplateSyncStatus(row.template_id, row.version, 'FAILED')
-        failed += 1
+        await setTemplateSyncStatus(row.template_id, row.version, 'FAILED');
+        failed += 1;
       }
     }
 
     return {
       retried: candidates.length,
       synced,
-      failed
-    }
+      failed,
+    };
   },
 
   async dispose(): Promise<void> {
-    await writeQueue
-    const db = await dbPromise
+    await writeQueue;
     if (db) {
-      db.close()
+      db.close();
     }
-    dbPromise = null
+    db = null;
   },
 
   async __resetForTesting(): Promise<void> {
-    await writeQueue
-    const db = await dbPromise
+    await writeQueue;
     if (db) {
-      db.close()
+      db.close();
     }
-    dbPromise = null
-    sqlRuntimePromise = null
-    writeQueue = Promise.resolve()
-    await rm(getDbPath(), { force: true })
-  }
-}
+    db = null;
+    writeQueue = Promise.resolve();
+    await rm(getDbPath(), { force: true });
+  },
+};

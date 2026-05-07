@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getSqliteRoot, mkdirSafe } from './governanceRepoService';
 import { vaultService } from './vaultService';
 import { syncStoreService } from './syncStoreService';
@@ -32,52 +32,29 @@ const PROJECTED_DOCUMENT_KEYS = [
   'org/administration/policies/policy-index.json',
 ] as const;
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
 const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
 
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
-
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getSqliteRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getSqliteRoot());
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS runtime_documents (
       document_key TEXT PRIMARY KEY,
       content TEXT NOT NULL,
@@ -86,16 +63,15 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -110,17 +86,13 @@ const upsertDocument = async (
 ): Promise<void> => {
   await queueWrite(async () => {
     const db = await getDatabase();
-    const statement = db.prepare(`
-      INSERT INTO runtime_documents (document_key, content, sync_status, updated_at)
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO runtime_documents (document_key, content, sync_status, updated_at)
       VALUES (?, ?, ?, ?)
-      ON CONFLICT(document_key) DO UPDATE SET
-        content = excluded.content,
-        sync_status = excluded.sync_status,
-        updated_at = excluded.updated_at
     `);
 
-    statement.run([documentKey, content, syncStatus, nowIso()]);
-    statement.free();
+    stmt.run([documentKey, content, syncStatus, nowIso()]);
+    stmt.free();
     await persistDatabase(db);
   });
 };
@@ -128,29 +100,28 @@ const upsertDocument = async (
 const deleteDocument = async (documentKey: string): Promise<void> => {
   await queueWrite(async () => {
     const db = await getDatabase();
-    const statement = db.prepare('DELETE FROM runtime_documents WHERE document_key = ?');
-    statement.run([documentKey]);
-    statement.free();
+    const stmt = db.prepare('DELETE FROM runtime_documents WHERE document_key = ?');
+    stmt.run([documentKey]);
+    stmt.free();
     await persistDatabase(db);
   });
 };
 
 const readDocument = async (documentKey: string): Promise<RuntimeDocumentRecord | null> => {
   const db = await getDatabase();
-  const statement = db.prepare(`
+  const stmt = db.prepare(`
     SELECT document_key, content, sync_status, updated_at
     FROM runtime_documents
     WHERE document_key = ?
   `);
-  statement.bind([documentKey]);
+  stmt.bind([documentKey]);
 
-  if (!statement.step()) {
-    statement.free();
+  const row = stmt.get() as Record<string, unknown> | undefined;
+  stmt.free();
+
+  if (!row) {
     return null;
   }
-
-  const row = statement.getAsObject() as Record<string, unknown>;
-  statement.free();
 
   return {
     documentKey: String(row.document_key ?? ''),
@@ -162,25 +133,22 @@ const readDocument = async (documentKey: string): Promise<RuntimeDocumentRecord 
 
 const listPendingDocuments = async (): Promise<RuntimeDocumentRecord[]> => {
   const db = await getDatabase();
-  const statement = db.prepare(`
+  const stmt = db.prepare(`
     SELECT document_key, content, sync_status, updated_at
     FROM runtime_documents
     WHERE sync_status = 'PENDING'
     ORDER BY updated_at ASC
   `);
 
-  const pending: RuntimeDocumentRecord[] = [];
-  while (statement.step()) {
-    const row = statement.getAsObject() as Record<string, unknown>;
-    pending.push({
-      documentKey: String(row.document_key ?? ''),
-      content: String(row.content ?? ''),
-      syncStatus: 'PENDING',
-      updatedAt: String(row.updated_at ?? nowIso()),
-    });
-  }
-  statement.free();
-  return pending;
+  const rows = stmt.all() as Array<Record<string, unknown>>;
+  stmt.free();
+
+  return rows.map(row => ({
+    documentKey: String(row.document_key ?? ''),
+    content: String(row.content ?? ''),
+    syncStatus: 'PENDING' as RuntimeDocumentSyncStatus,
+    updatedAt: String(row.updated_at ?? nowIso()),
+  }));
 };
 
 const normalizeDocumentKey = (documentKey: string): string => documentKey.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -330,10 +298,10 @@ export const runtimeDocumentStoreService = {
   },
 
   async dispose(): Promise<void> {
-    const db = await dbPromise;
+    await writeQueue;
     if (db) {
       db.close();
+      db = null;
     }
-    dbPromise = null;
   },
 };

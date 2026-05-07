@@ -183,7 +183,7 @@ tests/                             # E2E test suites (Playwright)
 
 ### Virtual Drive Layer
 
-**Document:** [`virtual-drive.md`](docs/features/storage/virtual-drive.md)
+**Document:** [`virtual-drive.md`](docs/raw/features/storage/virtual-drive.md)
 **Service:** `driveControllerService.ts` · `mountRegistryService.ts`
 
 The virtual drive layer manages encrypted mount points that provide at-rest protection for runtime data files.
@@ -198,7 +198,7 @@ The virtual drive layer manages encrypted mount points that provide at-rest prot
 
 ### Vault — Encrypted Durable Archive
 
-**Document:** [`vault.md`](docs/features/storage/vault.md) · [`vault-folder-structure.md`](docs/features/storage/vault-folder-structure.md) · [`vault-knowledge-repository.md`](docs/features/storage/vault-knowledge-repository.md)
+**Document:** [`vault.md`](docs/raw/features/storage/vault.md) · [`vault-folder-structure.md`](docs/raw/features/storage/vault-folder-structure.md) · [`vault-knowledge-repository.md`](docs/raw/features/storage/vault-knowledge-repository.md)
 **Service:** `vaultService.ts` · `vaultLifecycleManager.ts` · `governanceRepoService.ts` · `memoryIndexService.ts`
 
 Vault is the encrypted durable archive. It stores commit-ready knowledge and approved content that must survive across sessions.
@@ -215,7 +215,7 @@ Vault is the encrypted durable archive. It stores commit-ready knowledge and app
 
 ### SQLite Cache — Hot Operational State
 
-**Document:** [`sqlite-cache.md`](docs/features/storage/sqlite-cache.md)
+**Document:** [`sqlite-cache.md`](docs/raw/features/storage/sqlite-cache.md)
 **Services:** `runtimeDocumentStoreService.ts` · `sqliteConfigStoreService.ts` · `contextDigestStoreService.ts` · `emailKnowledgeContextStoreService.ts` · `governanceLifecycleQueueStoreService.ts` · `authStoreService.ts`
 
 SQLite is the hot operational cache for all mutable runtime state. In v1.3, these databases are **encrypted at rest** independently of the mount state.
@@ -244,14 +244,14 @@ graph LR
 - Files are exported via `sql.js`, encrypted via AES-256-GCM, and stored under the system drive root.
 - Runtime documents are maintained as a write-through cache that can flush to vault-backed state.
 - Email knowledge context uses a dedicated store with retention cleanup.
-- App-specific cache mappings are defined in [`docs/features/storage/governance/cache`](docs/features/storage/governance/cache).
+- App-specific cache mappings are defined in [`docs/features/storage/governance/cache`](docs/raw/features/storage/governance/cache).
 
 
 ---
 
 ### Encryption Service
 
-**Document:** [`encryption-service.md`](docs/features/storage/encryption-service.md)
+**Document:** [`encryption-service.md`](docs/raw/features/storage/encryption-service.md)
 **Services:** Distributed across `vaultService.ts` · `driveControllerService.ts` · `authStoreService.ts` · `runtimeConfigService.ts`
 
 The encryption model covers three areas:
@@ -266,7 +266,7 @@ The encryption model covers three areas:
 
 ### Runtime Doctor — Post-Bootstrap Diagnostics
 
-**Document:** [`prana-doctor.md`](docs/features/boot/prana-doctor.md)
+**Document:** [`prana-doctor.md`](docs/raw/features/boot/prana-doctor.md)
 **Service:** `systemHealthService.ts` (partial implementation)
 
 The Runtime Doctor is designed as an optional, pluggable diagnostic module that runs after bootstrap to verify system integrity:
@@ -285,7 +285,7 @@ The Doctor produces a structured report with overall status, per-check results, 
 
 ### Vaidyar — Runtime Integrity Engine & Dashboard
 
-**Document:** [`vaidyar.md`](docs/features/vaidyar/vaidyar.md)
+**Document:** [`vaidyar.md`](docs/raw/features/vaidyar/vaidyar.md)
 **Services:** `vaidyarService.ts` · `systemHealthService.ts`
 
 Vaidyar acts as the authoritative health system of the runtime, providing continuous evaluation and visual verification ensuring system integrity:
@@ -303,7 +303,7 @@ Vaidyar acts as the authoritative health system of the runtime, providing contin
 
 ### Startup Orchestrator & Splash Initialization
 
-**Documents:** [`startup-orchestrator.md`](docs/features/boot/startup-orchestrator.md) · [`splash-system-initialization.md`](docs/features/splash/splash-system-initialization.md)
+**Documents:** [`startup-orchestrator.md`](docs/raw/features/boot/startup-orchestrator.md) · [`splash-system-initialization.md`](docs/raw/features/splash/splash-system-initialization.md)
 **Service:** `startupOrchestratorService.ts`
 
 The startup sequence follows a strict **fail-fast, IPC-driven** bootstrap model:
@@ -320,7 +320,7 @@ The system **stays blocked** until the splash screen provides configuration. If 
 
 ### Props Config Principle (Cold-Vault Bootstrap)
 
-**Document:** [`props-config-principle.md`](docs/features/props-config-principle.md)
+**Document:** [`props-config-principle.md`](docs/raw/features/props-config-principle.md)
 **Services:** `runtimeConfigService.ts` · `sqliteConfigStoreService.ts` · `pranaRuntimeConfig.ts`
 
 Runtime configuration follows the **Cold-Vault** model:
@@ -334,7 +334,7 @@ Runtime configuration follows the **Cold-Vault** model:
 
 ### Sync Protocol & Vault Sync Contract
 
-**Documents:** [`sync-protocol.md`](docs/features/storage/sync-protocol.md) · [`vault-sync-contract.md`](docs/features/storage/vault-sync-contract.md)
+**Documents:** [`sync-protocol.md`](docs/raw/features/storage/sync-protocol.md) · [`vault-sync-contract.md`](docs/raw/features/storage/vault-sync-contract.md)
 **Services:** `syncProviderService.ts` · `syncEngineService.ts` · `syncStoreService.ts` · `conflictResolver.ts` · `transactionCoordinator.ts`
 
 The sync system reconciles local SQLite state with the vault-backed archive:
@@ -348,7 +348,7 @@ The sync system reconciles local SQLite state with the vault-backed archive:
 
 ### Data Integrity Protocol
 
-**Document:** [`data-integrity-protocol.md`](docs/features/storage/data-integrity-protocol.md)
+**Document:** [`data-integrity-protocol.md`](docs/raw/features/storage/data-integrity-protocol.md)
 **Services:** `dataFilterService.ts` · `diffEngine.ts` · `syncEngineService.ts`
 
 Protects persisted runtime data from corruption or invalid merges:
@@ -363,7 +363,7 @@ Protects persisted runtime data from corruption or invalid merges:
 
 ### Cron Recovery Contract
 
-**Document:** [`cron-recovery-contract.md`](docs/features/cron/cron-recovery-contract.md)
+**Document:** [`cron-recovery-contract.md`](docs/raw/features/cron/cron-recovery-contract.md)
 **Service:** `cronSchedulerService.ts` · `governanceLifecycleQueueStoreService.ts`
 
 Provides deterministic cron catch-up with duplicate prevention:
@@ -376,7 +376,7 @@ Provides deterministic cron catch-up with duplicate prevention:
 
 ### Task Scheduler & Universal Queue System
 
-**Document:** [`queue-scheduling.md`](docs/features/queue-scheduling/queue-scheduling.md)
+**Document:** [`queue-scheduling.md`](docs/raw/features/queue-scheduling/queue-scheduling.md)
 **Services:** `cronSchedulerService.ts` · `queueOrchestratorService.ts` · `taskRegistryService.ts`
 
 Provides a deterministic, persistent, multi-lane task orchestration system:
@@ -391,7 +391,7 @@ Provides a deterministic, persistent, multi-lane task orchestration system:
 
 ### Context Optimization & Chat Context Rotation
 
-**Documents:** [`context-optimization.md`](docs/features/context/context-optimization.md) · [`chat-context-rotation.md`](docs/features/chat/chat-context-rotation.md)
+**Documents:** [`context-optimization.md`](docs/raw/features/context/context-optimization.md) · [`chat-context-rotation.md`](docs/raw/features/chat/chat-context-rotation.md)
 **Services:** `contextEngineService.ts` · `contextOptimizerService.ts` · `contextDigestStoreService.ts` · `tokenManagerService.ts`
 
 Manages intelligent context windowing for long-running AI conversations:
@@ -407,7 +407,7 @@ Manages intelligent context windowing for long-running AI conversations:
 
 ### Channel Integration
 
-**Document:** [`channel-integration.md`](docs/features/chat/channel-integration.md)
+**Document:** [`channel-integration.md`](docs/raw/features/chat/channel-integration.md)
 **Services:** `channelRouterService.ts` · `orchestrationManager.ts` · `protocolInterceptor.ts` · `registryRuntimeStoreService.ts`
 
 Routes inbound messages from external communication channels into the orchestration pipeline:
@@ -423,7 +423,7 @@ Routes inbound messages from external communication channels into the orchestrat
 
 ### Email Subsystem
 
-**Documents:** [`email-management.md`](docs/features/email/email-management.md) · [`email-orchestrator-service.md`](docs/features/email/email-orchestrator-service.md) · [`email-cron-heartbeat.md`](docs/features/email/email-cron-heartbeat.md) · [`email-draft-sync.md`](docs/features/email/email-draft-sync.md)
+**Documents:** [`email-management.md`](docs/raw/features/email/email-management.md) · [`email-orchestrator-service.md`](docs/raw/features/email/email-orchestrator-service.md) · [`email-cron-heartbeat.md`](docs/raw/features/email/email-cron-heartbeat.md) · [`email-draft-sync.md`](docs/raw/features/email/email-draft-sync.md)
 **Services:** `emailOrchestratorService.ts` · `emailKnowledgeContextStoreService.ts` · `emailBrowserAgentService.ts`
 
 The email subsystem is a comprehensive pipeline with four distinct concerns:
@@ -441,7 +441,7 @@ The email subsystem is a comprehensive pipeline with four distinct concerns:
 
 ### Google Ecosystem Integration
 
-**Document:** [`google-ecosystem-integration.md`](docs/features/Integration/google-ecosystem-integration.md)
+**Document:** [`google-ecosystem-integration.md`](docs/raw/features/Integration/google-ecosystem-integration.md)
 **Services:** `emailOrchestratorService.ts` · `emailBrowserAgentService.ts` · `googleBridgeService.ts`
 
 Defines the integration boundary for Google-connected capabilities:
@@ -456,7 +456,7 @@ Defines the integration boundary for Google-connected capabilities:
 
 ### In-App Agent Chat
 
-**Document:** [`in-app-agent-chat.md`](docs/features/chat/in-app-agent-chat.md)
+**Document:** [`in-app-agent-chat.md`](docs/raw/features/chat/in-app-agent-chat.md)
 **Services:** `orchestrationManager.ts` · `queueService.ts` · `channelRouterService.ts`
 **UI:** `DirectorInteractionBar.tsx`
 
@@ -472,7 +472,7 @@ Provides a first-class in-app surface for operator-to-agent communication:
 
 ### Notification Centre
 
-**Document:** [`notification-centre.md`](docs/features/notification/notification-centre.md)
+**Document:** [`notification-centre.md`](docs/raw/features/notification/notification-centre.md)
 **Services:** `hookSystemService.ts` · `systemHealthService.ts`
 
 Surfaces system and workflow alerts:
@@ -485,7 +485,7 @@ Surfaces system and workflow alerts:
 
 ### Visual Identity Engine
 
-**Document:** [`visual-identity-engine.md`](docs/features/visual/visual-identity-engine.md)
+**Document:** [`visual-identity-engine.md`](docs/raw/features/visual/visual-identity-engine.md)
 **Config:** `src/ui/constants/pranaConfig.ts`
 
 Defines the visual branding contract for all runtime UI surfaces:
@@ -498,7 +498,7 @@ Defines the visual branding contract for all runtime UI surfaces:
 
 ### Onboarding & Registry Governance
 
-**Documents:** [`onboarding-channel-configuration.md`](docs/features/Onboarding/onboarding-channel-configuration.md) · [`onboarding-model-configuration.md`](docs/features/Onboarding/onboarding-model-configuration.md) · [`onboarding-registry-approval.md`](docs/features/Onboarding/onboarding-registry-approval.md) · [`onboarding-hybrid-explorer-governance-lifecycle.md`](docs/features/Onboarding/onboarding-hybrid-explorer-governance-lifecycle.md)
+**Documents:** [`onboarding-channel-configuration.md`](docs/raw/features/Onboarding/onboarding-channel-configuration.md) · [`onboarding-model-configuration.md`](docs/raw/features/Onboarding/onboarding-model-configuration.md) · [`onboarding-registry-approval.md`](docs/raw/features/Onboarding/onboarding-registry-approval.md) · [`onboarding-hybrid-explorer-governance-lifecycle.md`](docs/raw/features/Onboarding/onboarding-hybrid-explorer-governance-lifecycle.md)
 **Services:** `businessContextRegistryService.ts` · `businessAlignmentService.ts` · `businessContextValidationService.ts` · `registryRuntimeStoreService.ts` · `runtimeModelAccessService.ts`
 
 The onboarding system is a multi-step governance pipeline:
@@ -512,7 +512,7 @@ The onboarding system is a multi-step governance pipeline:
 
 ### Infrastructure Layers
 
-**Document:** [`infrastructure-layers.md`](docs/features/boot/infrastructure-layers.md)
+**Document:** [`infrastructure-layers.md`](docs/raw/features/boot/infrastructure-layers.md)
 **Services:** `ipcService.ts` · All `src/main/services/*.ts`
 
 Defines the clean separation between:
@@ -525,7 +525,7 @@ Defines the clean separation between:
 
 ### Master Spec
 
-**Document:** [`master-spec.md`](docs/features/master-spec.md)
+**Document:** [`master-spec.md`](docs/raw/features/master-spec.md)
 
 The top-level contract for the library architecture. It defines closed-loop system boundaries, governs high-level runtime behavior and module ownership, and anchors all downstream module docs. It is a parent contract, not a per-feature implementation guide.
 
@@ -533,7 +533,7 @@ The top-level contract for the library architecture. It defines closed-loop syst
 
 ## Storage Governance (Multi-App Ready)
 
-**Documents:** [`storage/index.md`](docs/features/storage/governance/index.md) · [`storage/rule.md`](docs/features/storage/governance/rule.md)
+**Documents:** [`storage/index.md`](docs/raw/features/storage/governance/index.md) · [`storage/rule.md`](docs/raw/features/storage/governance/rule.md)
 
 Storage is governed by five mandatory rules:
 
@@ -549,17 +549,17 @@ Storage is governed by five mandatory rules:
 
 | App | Cache Contract | Vault Contract | Mirrored Domains |
 |---|---|---|---|
-| **Prana** | [`cache/prana.md`](docs/features/storage/governance/cache/prana.md) | [`vault/prana.md`](docs/features/storage/governance/vault/prana.md) | `registry`, `knowledge_documents`, `email_artifacts`, `audit_exports` |
+| **Prana** | [`cache/prana.md`](docs/raw/features/storage/governance/cache/prana.md) | [`vault/prana.md`](docs/raw/features/storage/governance/vault/prana.md) | `registry`, `knowledge_documents`, `email_artifacts`, `audit_exports` |
 
 Cache also defines an extra cache-only domain: `session_only`.
 
-**Compliance audit:** [`audit/storage-contract-audit.md`](docs/features/audit/storage-contract-audit.md)
+**Compliance audit:** [`audit/storage-contract-audit.md`](docs/raw/features/audit/storage-contract-audit.md)
 
 ---
 
 ## UI Screen Inventory
 
-All screens follow the **Container → ViewModel → View** MVVM pattern. Atomic contracts for each screen are in [`docs/features/splash`](docs/features/splash).
+All screens follow the **Container → ViewModel → View** MVVM pattern. Atomic contracts for each screen are in [`docs/features/splash`](docs/raw/features/splash).
 
 | Screen Family | Screens | Purpose |
 |---|---|---|
@@ -575,27 +575,27 @@ All screens follow the **Container → ViewModel → View** MVVM pattern. Atomic
 
 ## Audit Layer
 
-**Index:** [`audit/index.md`](docs/features/audit/index.md)
+**Index:** [`audit/index.md`](docs/raw/features/audit/index.md)
 
 The audit layer tracks implementation-to-documentation mismatches. Each audit report identifies missing logic, code-doc deviations, security risks, and recommended fixes.
 
 | Audit Report | Focus Area |
 |---|---|
-| [Persistence Architecture](docs/features/audit/persistence-architecture-audit.md) | Drive lifecycle, mount gaps, fallback security |
-| [Storage Contract](docs/features/audit/storage-contract-audit.md) | Multi-app cache/vault compliance |
-| [Virtual Drive](docs/features/audit/virtual-drive-audit.md) | Mount/unmount orchestration gaps |
-| [Vault](docs/features/audit/vault-audit.md) | Archive operations, locking, workspace semantics |
-| [SQLite Cache](docs/features/audit/sqlite-cache-audit.md) | DB-native encryption, migration coverage |
-| [Encryption Service](docs/features/audit/encryption-service-audit.md) | Centralization, key rotation |
-| [Prana Doctor](docs/features/audit/prana-doctor-audit.md) | Unified diagnostic service gaps |
-| [Channel Integration](docs/features/audit/channel-integration-audit.md) | WhatsApp, multi-channel inbox |
-| [In-App Agent Chat](docs/features/audit/in-app-agent-chat-audit.md) | Chat persistence, threading |
-| [Chat Context Rotation](docs/features/audit/chat-context-rotation-audit.md) | Rotation policy, UI consumption |
-| [UI Atomicization](docs/features/audit/ui-atomicization-audit.md) | Per-screen doc coverage, MVVM compliance |
+| [Persistence Architecture](docs/raw/features/audit/persistence-architecture-audit.md) | Drive lifecycle, mount gaps, fallback security |
+| [Storage Contract](docs/raw/features/audit/storage-contract-audit.md) | Multi-app cache/vault compliance |
+| [Virtual Drive](docs/raw/features/audit/virtual-drive-audit.md) | Mount/unmount orchestration gaps |
+| [Vault](docs/raw/features/audit/vault-audit.md) | Archive operations, locking, workspace semantics |
+| [SQLite Cache](docs/raw/features/audit/sqlite-cache-audit.md) | DB-native encryption, migration coverage |
+| [Encryption Service](docs/raw/features/audit/encryption-service-audit.md) | Centralization, key rotation |
+| [Prana Doctor](docs/raw/features/audit/prana-doctor-audit.md) | Unified diagnostic service gaps |
+| [Channel Integration](docs/raw/features/audit/channel-integration-audit.md) | WhatsApp, multi-channel inbox |
+| [In-App Agent Chat](docs/raw/features/audit/in-app-agent-chat-audit.md) | Chat persistence, threading |
+| [Chat Context Rotation](docs/raw/features/audit/chat-context-rotation-audit.md) | Rotation policy, UI consumption |
+| [UI Atomicization](docs/raw/features/audit/ui-atomicization-audit.md) | Per-screen doc coverage, MVVM compliance |
 
 ### v1.2 Feature Audit Reports
 
-Comprehensive domain-by-domain audit conducted in v1.2. Reports are located in [`docs/features/audit/v1.2/`](docs/features/audit/v1.2/index.md).
+Comprehensive domain-by-domain audit conducted in v1.2. Reports are located in [`docs/features/audit/v1.2/`](docs/raw/features/audit/v1.2/index.md).
 
 | Domain | Match Rate | Key Finding |
 |--------|-----------|-------------|
@@ -687,7 +687,7 @@ npm run typecheck      # TypeScript (node + web configs)
 
 ### For Cross-Cutting Runtime Features
 
-1. Update or add atomic docs in [`docs/features`](docs/features).
+1. Update or add atomic docs in [`docs/features`](docs/raw/features).
 2. If storage is impacted, update storage contract files and rules.
 3. Add or update audit notes for implementation/documentation parity.
 4. Implement runtime changes in `src/` after doc contract agreement.
@@ -695,14 +695,14 @@ npm run typecheck      # TypeScript (node + web configs)
 
 ### For New App Integrations (Multi-App)
 
-1. Add app cache contract in [`docs/features/storage/governance/cache`](docs/features/storage/governance/cache).
-2. Optionally add app vault contract in [`docs/features/storage/governance/vault`](docs/features/storage/governance/vault) if durable archive is required.
+1. Add app cache contract in [`docs/features/storage/governance/cache`](docs/raw/features/storage/governance/cache).
+2. Optionally add app vault contract in [`docs/features/storage/governance/vault`](docs/raw/features/storage/governance/vault) if durable archive is required.
 3. Respect the mirror rule: every vault domain must have a corresponding cache domain.
 4. Follow the PR contract: docs first, implementation after review.
 
 ### For UI Screens
 
-1. Add a screen-level atomic doc in [`docs/features/splash`](docs/features/splash).
+1. Add a screen-level atomic doc in [`docs/features/splash`](docs/raw/features/splash).
 2. Implement with Container → ViewModel → View MVVM pattern.
 3. Reference from the atomic docs index.
 
@@ -724,11 +724,11 @@ This repository is designed to stay **generic as a runtime library** while shipp
 | Resource | Link |
 |---|---|
 | Generated docs index | [`docs/index.md`](docs/index.md) |
-| Atomic docs index | [`docs/features/index.md`](docs/features/index.md) |
-| Storage rules | [`docs/features/storage/governance/rule.md`](docs/features/storage/governance/rule.md) |
-| Storage contract audit | [`docs/features/audit/storage-contract-audit.md`](docs/features/audit/storage-contract-audit.md) |
-| Full audit index | [`docs/features/audit/index.md`](docs/features/audit/index.md) |
-| v1.2 feature audit | [`docs/features/audit/v1.2/index.md`](docs/features/audit/v1.2/index.md) |
+| Atomic docs index | [`docs/features/index.md`](docs/raw/features/index.md) |
+| Storage rules | [`docs/features/storage/governance/rule.md`](docs/raw/features/storage/governance/rule.md) |
+| Storage contract audit | [`docs/features/audit/storage-contract-audit.md`](docs/raw/features/audit/storage-contract-audit.md) |
+| Full audit index | [`docs/features/audit/index.md`](docs/raw/features/audit/index.md) |
+| v1.2 feature audit | [`docs/features/audit/v1.2/index.md`](docs/raw/features/audit/v1.2/index.md) |
 | Main process entry | [`src/main/index.ts`](src/main/index.ts) |
 | Preload bridge | [`src/main/preload.ts`](src/main/preload.ts) |
 | IPC service | [`src/main/services/ipcService.ts`](src/main/services/ipcService.ts) |

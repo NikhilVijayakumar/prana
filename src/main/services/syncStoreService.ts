@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 import { getRuntimeBootstrapConfig } from './runtimeConfigService';
 import { RegistrySyncSnapshot } from './dataFilterService';
@@ -97,9 +97,7 @@ export interface SyncLockRecord {
   expiresAt: string | null;
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
-let cachedDatabase: Database | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const nowIso = (): string => new Date().toISOString();
@@ -107,34 +105,10 @@ const computePayloadHash = (value: string): string => createHash('sha256').updat
 
 const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
 
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
-
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getAppDataRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const deriveVaultKey = (): Buffer => {
@@ -186,14 +160,16 @@ const decryptFromStore = (payload: string): RegistrySyncSnapshot => {
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getAppDataRoot());
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS sync_meta (
       key TEXT PRIMARY KEY,
       payload_json TEXT NOT NULL,
@@ -201,7 +177,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS sync_queue (
       task_id TEXT PRIMARY KEY,
       reason TEXT NOT NULL,
@@ -214,7 +190,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS sync_lineage (
       record_key TEXT PRIMARY KEY,
       table_name TEXT NOT NULL,
@@ -226,7 +202,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS app_registry (
       app_id INTEGER PRIMARY KEY AUTOINCREMENT,
       app_key TEXT UNIQUE NOT NULL,
@@ -237,7 +213,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS app_vault_blueprint (
       blueprint_id INTEGER PRIMARY KEY AUTOINCREMENT,
       app_id INTEGER NOT NULL,
@@ -251,7 +227,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS sync_runtime_lock (
       lock_key TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
@@ -260,7 +236,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS prompt_cache (
       cache_key TEXT PRIMARY KEY,
       prompt TEXT NOT NULL,
@@ -273,7 +249,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS embedding_index (
       embedding_id TEXT PRIMARY KEY,
       namespace TEXT NOT NULL,
@@ -284,16 +260,15 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
-  cachedDatabase = database;
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-  return dbPromise;
+  return db!;
 };
 
 const queueWriteOperation = async (operation: () => Promise<void>): Promise<void> => {
@@ -380,11 +355,10 @@ const mapSyncLockRow = (row: Record<string, unknown>): SyncLockRecord => ({
 export const syncStoreService = {
   async dispose(): Promise<void> {
     await writeQueue;
-    if (cachedDatabase) {
-      cachedDatabase.close();
-      cachedDatabase = null;
+    if (db) {
+      db.close();
+      db = null;
     }
-    dbPromise = null;
   },
 
   async saveEncryptedRegistrySnapshot(snapshot: RegistrySyncSnapshot, sourceVersion: string): Promise<void> {
@@ -422,12 +396,12 @@ export const syncStoreService = {
 
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
+      const stmt = db.prepare(`
         INSERT INTO sync_queue (task_id, reason, payload_json, status, attempts, last_error, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
       `);
 
-      statement.run([
+      stmt.run([
         task.taskId,
         task.reason,
         task.payloadJson,
@@ -436,7 +410,7 @@ export const syncStoreService = {
         task.createdAt,
         task.updatedAt,
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
 
@@ -446,9 +420,9 @@ export const syncStoreService = {
   async clearEncryptedRegistrySnapshot(): Promise<void> {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare('DELETE FROM sync_meta WHERE key = ?');
-      statement.run([META_SYNC_STATE_KEY]);
-      statement.free();
+      const stmt = db.prepare('DELETE FROM sync_meta WHERE key = ?');
+      stmt.run([META_SYNC_STATE_KEY]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -461,7 +435,7 @@ export const syncStoreService = {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
       const timestamp = nowIso();
-      const statement = db.prepare(`
+      const stmt = db.prepare(`
         INSERT INTO app_registry (app_key, app_name, is_active, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(app_key) DO UPDATE SET
@@ -469,14 +443,14 @@ export const syncStoreService = {
           is_active = excluded.is_active,
           updated_at = excluded.updated_at
       `);
-      statement.run([
+      stmt.run([
         input.appKey,
         input.appName,
         input.isActive === false ? 0 : 1,
         timestamp,
         timestamp,
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
 
@@ -489,29 +463,25 @@ export const syncStoreService = {
 
   async getAppByKey(appKey: string): Promise<AppRegistryRecord | null> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM app_registry WHERE app_key = ?');
-    statement.bind([appKey]);
+    const stmt = db.prepare('SELECT * FROM app_registry WHERE app_key = ?');
+    stmt.bind([appKey]);
 
-    if (!statement.step()) {
-      statement.free();
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = statement.getAsObject() as Record<string, unknown>;
-    statement.free();
     return mapAppRegistryRow(row);
   },
 
   async listApps(): Promise<AppRegistryRecord[]> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM app_registry ORDER BY app_key ASC');
+    const stmt = db.prepare('SELECT * FROM app_registry ORDER BY app_key ASC');
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    stmt.free();
 
-    const apps: AppRegistryRecord[] = [];
-    while (statement.step()) {
-      apps.push(mapAppRegistryRow(statement.getAsObject() as Record<string, unknown>));
-    }
-    statement.free();
-    return apps;
+    return rows.map(row => mapAppRegistryRow(row));
   },
 
   async replaceVaultBlueprint(input: {
@@ -525,18 +495,18 @@ export const syncStoreService = {
   }): Promise<AppVaultBlueprintRecord[]> {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const deleteStatement = db.prepare('DELETE FROM app_vault_blueprint WHERE app_id = ?');
-      deleteStatement.run([input.appId]);
-      deleteStatement.free();
+      const deleteStmt = db.prepare('DELETE FROM app_vault_blueprint WHERE app_id = ?');
+      deleteStmt.run([input.appId]);
+      deleteStmt.free();
 
-      const insertStatement = db.prepare(`
+      const insertStmt = db.prepare(`
         INSERT INTO app_vault_blueprint (app_id, domain_key, relative_path, is_required, last_synced_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       const timestamp = nowIso();
       for (const entry of input.entries) {
-        insertStatement.run([
+        insertStmt.run([
           input.appId,
           entry.domainKey,
           entry.relativePath,
@@ -545,7 +515,7 @@ export const syncStoreService = {
           timestamp,
         ]);
       }
-      insertStatement.free();
+      insertStmt.free();
       await persistDatabase(db);
     });
 
@@ -554,29 +524,25 @@ export const syncStoreService = {
 
   async listVaultBlueprint(appId: number): Promise<AppVaultBlueprintRecord[]> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM app_vault_blueprint WHERE app_id = ? ORDER BY domain_key ASC');
-    statement.bind([appId]);
+    const stmt = db.prepare('SELECT * FROM app_vault_blueprint WHERE app_id = ? ORDER BY domain_key ASC');
+    stmt.bind([appId]);
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    stmt.free();
 
-    const rows: AppVaultBlueprintRecord[] = [];
-    while (statement.step()) {
-      rows.push(mapAppBlueprintRow(statement.getAsObject() as Record<string, unknown>));
-    }
-    statement.free();
-    return rows;
+    return rows.map(row => mapAppBlueprintRow(row));
   },
 
   async getSyncLock(lockKey = 'global'): Promise<SyncLockRecord | null> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM sync_runtime_lock WHERE lock_key = ?');
-    statement.bind([lockKey]);
+    const stmt = db.prepare('SELECT * FROM sync_runtime_lock WHERE lock_key = ?');
+    stmt.bind([lockKey]);
 
-    if (!statement.step()) {
-      statement.free();
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = statement.getAsObject() as Record<string, unknown>;
-    statement.free();
     return mapSyncLockRow(row);
   },
 
@@ -595,16 +561,12 @@ export const syncStoreService = {
       const db = await getDatabase();
       const timestamp = nowIso();
       const expiresAt = input.ttlMs ? new Date(Date.now() + input.ttlMs).toISOString() : null;
-      const statement = db.prepare(`
-        INSERT INTO sync_runtime_lock (lock_key, owner, acquired_at, expires_at)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO sync_runtime_lock (lock_key, owner, acquired_at, expires_at)
         VALUES (?, ?, ?, ?)
-        ON CONFLICT(lock_key) DO UPDATE SET
-          owner = excluded.owner,
-          acquired_at = excluded.acquired_at,
-          expires_at = excluded.expires_at
       `);
-      statement.run([lockKey, input.owner, timestamp, expiresAt]);
-      statement.free();
+      stmt.run([lockKey, input.owner, timestamp, expiresAt]);
+      stmt.free();
       await persistDatabase(db);
     });
 
@@ -615,9 +577,9 @@ export const syncStoreService = {
     const lockKey = input.lockKey ?? 'global';
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare('DELETE FROM sync_runtime_lock WHERE lock_key = ? AND owner = ?');
-      statement.run([lockKey, input.owner]);
-      statement.free();
+      const stmt = db.prepare('DELETE FROM sync_runtime_lock WHERE lock_key = ? AND owner = ?');
+      stmt.run([lockKey, input.owner]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -642,19 +604,12 @@ export const syncStoreService = {
 
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
-        INSERT INTO sync_lineage (record_key, table_name, sync_status, vault_hash, last_modified, payload_hash, updated_at)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO sync_lineage (record_key, table_name, sync_status, vault_hash, last_modified, payload_hash, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(record_key) DO UPDATE SET
-          table_name = excluded.table_name,
-          sync_status = excluded.sync_status,
-          vault_hash = excluded.vault_hash,
-          last_modified = excluded.last_modified,
-          payload_hash = excluded.payload_hash,
-          updated_at = excluded.updated_at
       `);
 
-      statement.run([
+      stmt.run([
         record.recordKey,
         record.tableName,
         record.syncStatus,
@@ -663,7 +618,7 @@ export const syncStoreService = {
         record.payloadHash,
         record.updatedAt,
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
 
@@ -672,16 +627,15 @@ export const syncStoreService = {
 
   async getSyncLineageRecord(recordKey: string): Promise<SyncLineageRecord | null> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM sync_lineage WHERE record_key = ?');
-    statement.bind([recordKey]);
+    const stmt = db.prepare('SELECT * FROM sync_lineage WHERE record_key = ?');
+    stmt.bind([recordKey]);
 
-    if (!statement.step()) {
-      statement.free();
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = statement.getAsObject() as Record<string, unknown>;
-    statement.free();
 
     return {
       recordKey: String(row.record_key ?? ''),
@@ -696,58 +650,53 @@ export const syncStoreService = {
 
   async listSyncLineageRecords(status?: SyncRecordStatus): Promise<SyncLineageRecord[]> {
     const db = await getDatabase();
-    const statement = status
-      ? db.prepare('SELECT * FROM sync_lineage WHERE sync_status = ? ORDER BY updated_at DESC')
-      : db.prepare('SELECT * FROM sync_lineage ORDER BY updated_at DESC');
-
+    let stmt;
     if (status) {
-      statement.bind([status]);
+      stmt = db.prepare('SELECT * FROM sync_lineage WHERE sync_status = ? ORDER BY updated_at DESC');
+      stmt.bind([status]);
+    } else {
+      stmt = db.prepare('SELECT * FROM sync_lineage ORDER BY updated_at DESC');
     }
 
-    const records: SyncLineageRecord[] = [];
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      records.push({
-        recordKey: String(row.record_key ?? ''),
-        tableName: String(row.table_name ?? ''),
-        syncStatus: String(row.sync_status ?? 'LOCAL_ONLY') as SyncRecordStatus,
-        vaultHash: row.vault_hash ? String(row.vault_hash) : null,
-        lastModified: String(row.last_modified ?? nowIso()),
-        payloadHash: String(row.payload_hash ?? ''),
-        updatedAt: String(row.updated_at ?? nowIso()),
-      });
-    }
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    stmt.free();
 
-    statement.free();
-    return records;
+    return rows.map(row => ({
+      recordKey: String(row.record_key ?? ''),
+      tableName: String(row.table_name ?? ''),
+      syncStatus: String(row.sync_status ?? 'LOCAL_ONLY') as SyncRecordStatus,
+      vaultHash: row.vault_hash ? String(row.vault_hash) : null,
+      lastModified: String(row.last_modified ?? nowIso()),
+      payloadHash: String(row.payload_hash ?? ''),
+      updatedAt: String(row.updated_at ?? nowIso()),
+    }));
   },
 
   async deleteSyncLineageRecord(recordKey: string): Promise<void> {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare('DELETE FROM sync_lineage WHERE record_key = ?');
-      statement.run([recordKey]);
-      statement.free();
+      const stmt = db.prepare('DELETE FROM sync_lineage WHERE record_key = ?');
+      stmt.run([recordKey]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
 
   async claimNextPendingTask(): Promise<SyncQueueTask | null> {
     const db = await getDatabase();
-    const statement = db.prepare(`
+    const stmt = db.prepare(`
       SELECT * FROM sync_queue
       WHERE status IN ('PENDING', 'FAILED')
       ORDER BY created_at ASC
       LIMIT 1
     `);
 
-    if (!statement.step()) {
-      statement.free();
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = statement.getAsObject() as Record<string, unknown>;
-    statement.free();
 
     const task = mapQueueRow(row);
 
@@ -773,9 +722,9 @@ export const syncStoreService = {
   async markTaskCompleted(taskId: string): Promise<void> {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare('UPDATE sync_queue SET status = ?, updated_at = ?, last_error = NULL WHERE task_id = ?');
-      statement.run(['COMPLETED', nowIso(), taskId]);
-      statement.free();
+      const stmt = db.prepare('UPDATE sync_queue SET status = ?, updated_at = ?, last_error = NULL WHERE task_id = ?');
+      stmt.run(['COMPLETED', nowIso(), taskId]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -783,9 +732,9 @@ export const syncStoreService = {
   async markTaskFailed(taskId: string, error: string): Promise<void> {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare('UPDATE sync_queue SET status = ?, updated_at = ?, last_error = ? WHERE task_id = ?');
-      statement.run(['FAILED', nowIso(), error.slice(0, 1000), taskId]);
-      statement.free();
+      const stmt = db.prepare('UPDATE sync_queue SET status = ?, updated_at = ?, last_error = ? WHERE task_id = ?');
+      stmt.run(['FAILED', nowIso(), error.slice(0, 1000), taskId]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -795,13 +744,13 @@ export const syncStoreService = {
 
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare('SELECT COUNT(*) as count FROM sync_queue WHERE status = ?');
-      statement.bind(['RUNNING']);
-      if (statement.step()) {
-        const row = statement.getAsObject() as { count?: unknown };
-        recovered = Number(row.count ?? 0);
+      const stmt = db.prepare('SELECT COUNT(*) as count FROM sync_queue WHERE status = ?');
+      stmt.bind(['RUNNING']);
+      const countRow = stmt.get() as { count?: unknown } | undefined;
+      if (countRow) {
+        recovered = Number(countRow.count ?? 0);
       }
-      statement.free();
+      stmt.free();
 
       const update = db.prepare('UPDATE sync_queue SET status = ?, updated_at = ? WHERE status = ?');
       update.run(['FAILED', nowIso(), 'RUNNING']);
@@ -814,16 +763,12 @@ export const syncStoreService = {
 
   async listQueueTasks(limit = 50): Promise<SyncQueueTask[]> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM sync_queue ORDER BY created_at DESC LIMIT ?');
-    statement.bind([Math.max(1, limit)]);
+    const stmt = db.prepare('SELECT * FROM sync_queue ORDER BY created_at DESC LIMIT ?');
+    stmt.bind([Math.max(1, limit)]);
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    stmt.free();
 
-    const rows: SyncQueueTask[] = [];
-    while (statement.step()) {
-      rows.push(mapQueueRow(statement.getAsObject() as Record<string, unknown>));
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => mapQueueRow(row));
   },
 
   async cachePrompt(record: {
@@ -836,18 +781,12 @@ export const syncStoreService = {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
       const now = nowIso();
-      const statement = db.prepare(`
-        INSERT INTO prompt_cache (cache_key, prompt, response, model_provider, created_at, expires_at, hit_count, last_used_at)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO prompt_cache (cache_key, prompt, response, model_provider, created_at, expires_at, hit_count, last_used_at)
         VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-        ON CONFLICT(cache_key) DO UPDATE SET
-          prompt = excluded.prompt,
-          response = excluded.response,
-          model_provider = excluded.model_provider,
-          expires_at = excluded.expires_at,
-          last_used_at = excluded.last_used_at
       `);
 
-      statement.run([
+      stmt.run([
         record.cacheKey,
         record.prompt,
         record.response,
@@ -856,23 +795,22 @@ export const syncStoreService = {
         record.expiresAt ?? null,
         now,
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
   },
 
   async getCachedPrompt(cacheKey: string): Promise<PromptCacheRecord | null> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM prompt_cache WHERE cache_key = ?');
-    statement.bind([cacheKey]);
+    const stmt = db.prepare('SELECT * FROM prompt_cache WHERE cache_key = ?');
+    stmt.bind([cacheKey]);
 
-    if (!statement.step()) {
-      statement.free();
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = statement.getAsObject() as Record<string, unknown>;
-    statement.free();
 
     const expiresAt = row.expires_at ? String(row.expires_at) : null;
     if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
@@ -908,18 +846,12 @@ export const syncStoreService = {
   }): Promise<void> {
     await queueWriteOperation(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
-        INSERT INTO embedding_index (embedding_id, namespace, content_hash, vector_json, metadata_json, updated_at)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO embedding_index (embedding_id, namespace, content_hash, vector_json, metadata_json, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(embedding_id) DO UPDATE SET
-          namespace = excluded.namespace,
-          content_hash = excluded.content_hash,
-          vector_json = excluded.vector_json,
-          metadata_json = excluded.metadata_json,
-          updated_at = excluded.updated_at
       `);
 
-      statement.run([
+      stmt.run([
         record.embeddingId,
         record.namespace,
         record.contentHash,
@@ -927,19 +859,19 @@ export const syncStoreService = {
         JSON.stringify(record.metadata ?? {}),
         nowIso(),
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
   },
 
   async listEmbeddingsByNamespace(namespace: string): Promise<EmbeddingRecord[]> {
     const db = await getDatabase();
-    const statement = db.prepare('SELECT * FROM embedding_index WHERE namespace = ? ORDER BY updated_at DESC');
-    statement.bind([namespace]);
+    const stmt = db.prepare('SELECT * FROM embedding_index WHERE namespace = ? ORDER BY updated_at DESC');
+    stmt.bind([namespace]);
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    stmt.free();
 
-    const records: EmbeddingRecord[] = [];
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
+    return rows.map(row => {
       const vector = (() => {
         try {
           return JSON.parse(String(row.vector_json ?? '[]')) as number[];
@@ -960,23 +892,23 @@ export const syncStoreService = {
         }
       })();
 
-      records.push({
+      return {
         embeddingId: String(row.embedding_id ?? ''),
         namespace: String(row.namespace ?? ''),
         contentHash: String(row.content_hash ?? ''),
         vector,
         metadata,
         updatedAt: String(row.updated_at ?? nowIso()),
-      });
-    }
-
-    statement.free();
-    return records;
+      };
+    });
   },
 
   async __resetForTesting(): Promise<void> {
-    dbPromise = null;
-    sqlRuntimePromise = null;
+    await writeQueue;
+    if (db) {
+      db.close();
+      db = null;
+    }
     writeQueue = Promise.resolve();
     if (existsSync(getDbPath())) {
       await rm(getDbPath(), { force: true });

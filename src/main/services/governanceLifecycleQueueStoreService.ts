@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getAppDataRoot, mkdirSafe } from './governanceRepoService';
 
 const DB_FILE_NAME = 'governance-lifecycle-queue.sqlite';
@@ -99,54 +99,30 @@ export interface CronLockRecord {
   lockExpiresAt: string;
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getAppDataRoot(), DB_FILE_NAME);
-
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-  return sqlRuntimePromise;
-};
+const nowIso = (): string => new Date().toISOString();
+const createId = (prefix: string): string => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getAppDataRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getAppDataRoot());
 
   let database: Database;
   if (existsSync(getDbPath())) {
-    const raw = await readFile(getDbPath());
-    database = new sqlRuntime.Database(new Uint8Array(raw));
+    database = new Database(getDbPath());
   } else {
-    database = new sqlRuntime.Database();
+    database = new Database(':memory:');
   }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS lifecycle_drafts (
       draft_id TEXT PRIMARY KEY,
       entity_type TEXT NOT NULL,
@@ -161,7 +137,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS cron_proposals (
       proposal_id TEXT PRIMARY KEY,
       job_id TEXT NOT NULL,
@@ -178,7 +154,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS task_queue (
       task_id TEXT PRIMARY KEY,
       job_id TEXT NOT NULL,
@@ -193,12 +169,12 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS task_queue_job_due_occurrence_idx
-    ON task_queue (job_id, scheduled_for);
+      ON task_queue (job_id, scheduled_for);
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS task_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_type TEXT NOT NULL,
@@ -209,7 +185,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS cron_jobs (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -226,12 +202,12 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS cron_jobs_next_run_idx
-    ON cron_jobs (status, next_run_at);
+      ON cron_jobs (status, next_run_at);
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS cron_execution_log (
       id TEXT PRIMARY KEY,
       job_id TEXT NOT NULL,
@@ -244,12 +220,12 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS cron_execution_log_job_idx
-    ON cron_execution_log (job_id, started_at DESC);
+      ON cron_execution_log (job_id, started_at DESC);
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS cron_locks (
       job_id TEXT PRIMARY KEY,
       lock_acquired_at TEXT NOT NULL,
@@ -258,24 +234,21 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
   writeQueue = writeQueue.then(operation, operation);
   await writeQueue;
 };
-
-const nowIso = (): string => new Date().toISOString();
-const createId = (prefix: string): string => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const normalizeCronJobState = (row: Record<string, unknown>): CronJobStateRecord => ({
   id: String(row.id ?? ''),
@@ -308,40 +281,23 @@ const parseJsonObject = (value: unknown): Record<string, unknown> => {
 };
 
 const appendTaskAudit = (database: Database, eventType: string, details: string, jobId?: string | null, taskId?: string | null): void => {
-  const statement = database.prepare(
-    'INSERT INTO task_audit_log (event_type, job_id, task_id, details, created_at) VALUES (?, ?, ?, ?, ?)',
+  const stmt = database.prepare(
+    'INSERT INTO task_audit_log (event_type, job_id, task_id, details, created_at) VALUES (?, ?, ?, ?, ?)'
   );
-  statement.run([eventType, jobId ?? null, taskId ?? null, details, nowIso()]);
-  statement.free();
+  stmt.run(eventType, jobId ?? null, taskId ?? null, details, nowIso());
 };
 
 export const governanceLifecycleQueueStoreService = {
   async listCronJobs(): Promise<CronJobStateRecord[]> {
     const database = await getDatabase();
-    const statement = database.prepare('SELECT * FROM cron_jobs ORDER BY name ASC');
-    const rows: CronJobStateRecord[] = [];
-
-    while (statement.step()) {
-      rows.push(normalizeCronJobState(statement.getAsObject() as Record<string, unknown>));
-    }
-
-    statement.free();
-    return rows;
+    const rows = database.prepare('SELECT * FROM cron_jobs ORDER BY name ASC').all() as Record<string, unknown>[];
+    return rows.map(normalizeCronJobState);
   },
 
   async getCronJobById(jobId: string): Promise<CronJobStateRecord | null> {
     const database = await getDatabase();
-    const statement = database.prepare('SELECT * FROM cron_jobs WHERE id = ? LIMIT 1');
-    statement.bind([jobId]);
-
-    if (!statement.step()) {
-      statement.free();
-      return null;
-    }
-
-    const record = normalizeCronJobState(statement.getAsObject() as Record<string, unknown>);
-    statement.free();
-    return record;
+    const row = database.prepare('SELECT * FROM cron_jobs WHERE id = ? LIMIT 1').get(jobId) as Record<string, unknown> | undefined;
+    return row ? normalizeCronJobState(row) : null;
   },
 
   async upsertCronJob(payload: {
@@ -374,24 +330,12 @@ export const governanceLifecycleQueueStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare(`
-        INSERT INTO cron_jobs (
+      database.prepare(`
+        INSERT OR REPLACE INTO cron_jobs (
           id, name, expression, target, status, recovery_policy,
           retention_days, max_runtime_ms, last_run_at, next_run_at, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          expression = excluded.expression,
-          target = excluded.target,
-          status = excluded.status,
-          recovery_policy = excluded.recovery_policy,
-          retention_days = excluded.retention_days,
-          max_runtime_ms = excluded.max_runtime_ms,
-          last_run_at = excluded.last_run_at,
-          next_run_at = excluded.next_run_at,
-          updated_at = excluded.updated_at
-      `);
-      statement.run([
+      `).run(
         record.id,
         record.name,
         record.expression,
@@ -403,9 +347,8 @@ export const governanceLifecycleQueueStoreService = {
         record.lastRunAt,
         record.nextRunAt,
         record.createdAt,
-        record.updatedAt,
-      ]);
-      statement.free();
+        record.updatedAt
+      );
       await persistDatabase(database);
     });
 
@@ -417,15 +360,11 @@ export const governanceLifecycleQueueStoreService = {
     let changes = 0;
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare('DELETE FROM cron_jobs WHERE id = ?');
-      statement.run([jobId]);
-      statement.free();
-      changes = Number(database.exec('SELECT changes() AS count')[0]?.values?.[0]?.[0] ?? 0);
+      const result = database.prepare('DELETE FROM cron_jobs WHERE id = ?').run(jobId);
+      changes = result.changes;
 
       if (changes > 0) {
-        const lockStatement = database.prepare('DELETE FROM cron_locks WHERE job_id = ?');
-        lockStatement.run([jobId]);
-        lockStatement.free();
+        database.prepare('DELETE FROM cron_locks WHERE job_id = ?').run(jobId);
       }
 
       await persistDatabase(database);
@@ -454,21 +393,19 @@ export const governanceLifecycleQueueStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare(`
+      database.prepare(`
         INSERT INTO cron_execution_log (
           id, job_id, started_at, completed_at, status, error_message, source
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      statement.run([
+      `).run(
         record.id,
         record.jobId,
         record.startedAt,
         record.completedAt,
         record.status,
         record.errorMessage,
-        record.source,
-      ]);
-      statement.free();
+        record.source
+      );
       await persistDatabase(database);
     });
 
@@ -477,31 +414,23 @@ export const governanceLifecycleQueueStoreService = {
 
   async listCronExecutionLogByJob(jobId: string, limit = 100): Promise<CronExecutionLogRecord[]> {
     const database = await getDatabase();
-    const statement = database.prepare(`
+    const rows = database.prepare(`
       SELECT id, job_id, started_at, completed_at, status, error_message, source
       FROM cron_execution_log
       WHERE job_id = ?
       ORDER BY started_at DESC
       LIMIT ?
-    `);
-    statement.bind([jobId, Math.max(1, Math.min(limit, 500))]);
-    const rows: CronExecutionLogRecord[] = [];
+    `).all(jobId, Math.max(1, Math.min(limit, 500))) as Record<string, unknown>[];
 
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        id: String(row.id ?? ''),
-        jobId: String(row.job_id ?? ''),
-        startedAt: String(row.started_at ?? nowIso()),
-        completedAt: String(row.completed_at ?? nowIso()),
-        status: String(row.status ?? 'failed') as CronExecutionLogRecord['status'],
-        errorMessage: row.error_message ? String(row.error_message) : null,
-        source: String(row.source ?? 'scheduler') as CronExecutionLogRecord['source'],
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      id: String(row.id ?? ''),
+      jobId: String(row.job_id ?? ''),
+      startedAt: String(row.started_at ?? nowIso()),
+      completedAt: String(row.completed_at ?? nowIso()),
+      status: String(row.status ?? 'failed') as CronExecutionLogRecord['status'],
+      errorMessage: row.error_message ? String(row.error_message) : null,
+      source: String(row.source ?? 'scheduler') as CronExecutionLogRecord['source'],
+    }));
   },
 
   async acquireCronLock(payload: { jobId: string; lockTimeoutMs: number }): Promise<{ acquired: boolean; lock: CronLockRecord | null }> {
@@ -513,55 +442,43 @@ export const governanceLifecycleQueueStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      database.run('BEGIN IMMEDIATE TRANSACTION');
-      try {
-        const existingStatement = database.prepare(
-          'SELECT job_id, lock_acquired_at, lock_expires_at FROM cron_locks WHERE job_id = ? LIMIT 1',
-        );
-        existingStatement.bind([payload.jobId]);
+      const transaction = database.transaction(() => {
+        try {
+          const existingRow = database.prepare(
+            'SELECT job_id, lock_acquired_at, lock_expires_at FROM cron_locks WHERE job_id = ? LIMIT 1'
+          ).get(payload.jobId) as Record<string, unknown> | undefined;
 
-        if (existingStatement.step()) {
-          const existingRow = existingStatement.getAsObject() as Record<string, unknown>;
-          const existingExpiresAt = Date.parse(String(existingRow.lock_expires_at ?? ''));
-          if (!Number.isNaN(existingExpiresAt) && existingExpiresAt > Date.now()) {
-            lock = {
-              jobId: String(existingRow.job_id ?? payload.jobId),
-              lockAcquiredAt: String(existingRow.lock_acquired_at ?? nowValue),
-              lockExpiresAt: String(existingRow.lock_expires_at ?? expiresAt),
-            };
-            existingStatement.free();
-            database.run('COMMIT');
-            await persistDatabase(database);
-            return;
+          if (existingRow) {
+            const existingExpiresAt = Date.parse(String(existingRow.lock_expires_at ?? ''));
+            if (!Number.isNaN(existingExpiresAt) && existingExpiresAt > Date.now()) {
+              lock = {
+                jobId: String(existingRow.job_id ?? payload.jobId),
+                lockAcquiredAt: String(existingRow.lock_acquired_at ?? nowValue),
+                lockExpiresAt: String(existingRow.lock_expires_at ?? expiresAt),
+              };
+              return;
+            }
+
+            database.prepare(
+              'UPDATE cron_locks SET lock_acquired_at = ?, lock_expires_at = ? WHERE job_id = ?'
+            ).run(nowValue, expiresAt, payload.jobId);
+          } else {
+            database.prepare(
+              'INSERT INTO cron_locks (job_id, lock_acquired_at, lock_expires_at) VALUES (?, ?, ?)'
+            ).run(payload.jobId, nowValue, expiresAt);
           }
 
-          const updateStatement = database.prepare(
-            'UPDATE cron_locks SET lock_acquired_at = ?, lock_expires_at = ? WHERE job_id = ?',
-          );
-          updateStatement.run([nowValue, expiresAt, payload.jobId]);
-          updateStatement.free();
-        } else {
-          const insertStatement = database.prepare(
-            'INSERT INTO cron_locks (job_id, lock_acquired_at, lock_expires_at) VALUES (?, ?, ?)',
-          );
-          insertStatement.run([payload.jobId, nowValue, expiresAt]);
-          insertStatement.free();
+          acquired = true;
+          lock = {
+            jobId: payload.jobId,
+            lockAcquiredAt: nowValue,
+            lockExpiresAt: expiresAt,
+          };
+        } catch (error) {
+          throw error;
         }
-        existingStatement.free();
-
-        acquired = true;
-        lock = {
-          jobId: payload.jobId,
-          lockAcquiredAt: nowValue,
-          lockExpiresAt: expiresAt,
-        };
-
-        database.run('COMMIT');
-      } catch (error) {
-        database.run('ROLLBACK');
-        throw error;
-      }
-
+      });
+      transaction();
       await persistDatabase(database);
     });
 
@@ -571,29 +488,20 @@ export const governanceLifecycleQueueStoreService = {
   async releaseCronLock(jobId: string): Promise<void> {
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare('DELETE FROM cron_locks WHERE job_id = ?');
-      statement.run([jobId]);
-      statement.free();
+      database.prepare('DELETE FROM cron_locks WHERE job_id = ?').run(jobId);
       await persistDatabase(database);
     });
   },
 
   async listCronLocks(): Promise<CronLockRecord[]> {
     const database = await getDatabase();
-    const statement = database.prepare('SELECT job_id, lock_acquired_at, lock_expires_at FROM cron_locks ORDER BY job_id ASC');
-    const rows: CronLockRecord[] = [];
+    const rows = database.prepare('SELECT job_id, lock_acquired_at, lock_expires_at FROM cron_locks ORDER BY job_id ASC').all() as Record<string, unknown>[];
 
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        jobId: String(row.job_id ?? ''),
-        lockAcquiredAt: String(row.lock_acquired_at ?? nowIso()),
-        lockExpiresAt: String(row.lock_expires_at ?? nowIso()),
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      jobId: String(row.job_id ?? ''),
+      lockAcquiredAt: String(row.lock_acquired_at ?? nowIso()),
+      lockExpiresAt: String(row.lock_expires_at ?? nowIso()),
+    }));
   },
 
   async stageLifecycleDraft(payload: {
@@ -616,20 +524,18 @@ export const governanceLifecycleQueueStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare(`
+      database.prepare(`
         INSERT INTO lifecycle_drafts (draft_id, entity_type, entity_id, proposed_json, status, created_at, updated_at, reviewed_at, reviewer, review_note)
         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
-      `);
-      statement.run([
+      `).run(
         record.draftId,
         record.entityType,
         record.entityId,
         JSON.stringify(record.proposed),
         record.status,
         record.createdAt,
-        record.updatedAt,
-      ]);
-      statement.free();
+        record.updatedAt
+      );
       await persistDatabase(database);
     });
 
@@ -638,34 +544,22 @@ export const governanceLifecycleQueueStoreService = {
 
   async listLifecycleDrafts(status?: LifecycleDraftStatus): Promise<LifecycleDraftRecord[]> {
     const database = await getDatabase();
-    const rows: LifecycleDraftRecord[] = [];
-    const hasFilter = typeof status === 'string';
-    const statement = hasFilter
-      ? database.prepare('SELECT * FROM lifecycle_drafts WHERE status = ? ORDER BY created_at DESC')
-      : database.prepare('SELECT * FROM lifecycle_drafts ORDER BY created_at DESC');
+    const rows = status
+      ? database.prepare('SELECT * FROM lifecycle_drafts WHERE status = ? ORDER BY created_at DESC').all(status) as Record<string, unknown>[]
+      : database.prepare('SELECT * FROM lifecycle_drafts ORDER BY created_at DESC').all() as Record<string, unknown>[];
 
-    if (hasFilter) {
-      statement.bind([status]);
-    }
-
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        draftId: String(row.draft_id ?? ''),
-        entityType: String(row.entity_type ?? 'profile') as LifecycleDraftRecord['entityType'],
-        entityId: String(row.entity_id ?? ''),
-        proposed: parseJsonObject(row.proposed_json),
-        status: String(row.status ?? 'PENDING') as LifecycleDraftStatus,
-        createdAt: String(row.created_at ?? nowIso()),
-        updatedAt: String(row.updated_at ?? nowIso()),
-        reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
-        reviewer: row.reviewer ? String(row.reviewer) : null,
-        reviewNote: row.review_note ? String(row.review_note) : null,
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      draftId: String(row.draft_id ?? ''),
+      entityType: String(row.entity_type ?? 'profile') as LifecycleDraftRecord['entityType'],
+      entityId: String(row.entity_id ?? ''),
+      proposed: parseJsonObject(row.proposed_json),
+      status: String(row.status ?? 'PENDING') as LifecycleDraftStatus,
+      createdAt: String(row.created_at ?? nowIso()),
+      updatedAt: String(row.updated_at ?? nowIso()),
+      reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+      reviewer: row.reviewer ? String(row.reviewer) : null,
+      reviewNote: row.review_note ? String(row.review_note) : null,
+    }));
   },
 
   async reviewLifecycleDraft(payload: {
@@ -685,20 +579,18 @@ export const governanceLifecycleQueueStoreService = {
       }
 
       const reviewedAt = nowIso();
-      const statement = database.prepare(`
+      database.prepare(`
         UPDATE lifecycle_drafts
         SET status = ?, updated_at = ?, reviewed_at = ?, reviewer = ?, review_note = ?
         WHERE draft_id = ?
-      `);
-      statement.run([
+      `).run(
         payload.status,
         reviewedAt,
         reviewedAt,
         payload.reviewer,
         payload.reviewNote ?? null,
-        payload.draftId,
-      ]);
-      statement.free();
+        payload.draftId
+      );
 
       updated = {
         ...existing,
@@ -739,11 +631,10 @@ export const governanceLifecycleQueueStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare(`
+      database.prepare(`
         INSERT INTO cron_proposals (proposal_id, job_id, name, expression, retention_days, max_runtime_ms, status, created_at, updated_at, reviewed_at, reviewer, review_note)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
-      `);
-      statement.run([
+      `).run(
         record.proposalId,
         record.jobId,
         record.name,
@@ -752,9 +643,8 @@ export const governanceLifecycleQueueStoreService = {
         record.maxRuntimeMs,
         record.status,
         record.createdAt,
-        record.updatedAt,
-      ]);
-      statement.free();
+        record.updatedAt
+      );
       await persistDatabase(database);
     });
 
@@ -763,36 +653,24 @@ export const governanceLifecycleQueueStoreService = {
 
   async listCronProposals(status?: CronProposalStatus): Promise<CronProposalRecord[]> {
     const database = await getDatabase();
-    const rows: CronProposalRecord[] = [];
-    const hasFilter = typeof status === 'string';
-    const statement = hasFilter
-      ? database.prepare('SELECT * FROM cron_proposals WHERE status = ? ORDER BY created_at DESC')
-      : database.prepare('SELECT * FROM cron_proposals ORDER BY created_at DESC');
+    const rows = status
+      ? database.prepare('SELECT * FROM cron_proposals WHERE status = ? ORDER BY created_at DESC').all(status) as Record<string, unknown>[]
+      : database.prepare('SELECT * FROM cron_proposals ORDER BY created_at DESC').all() as Record<string, unknown>[];
 
-    if (hasFilter) {
-      statement.bind([status]);
-    }
-
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        proposalId: String(row.proposal_id ?? ''),
-        jobId: String(row.job_id ?? ''),
-        name: String(row.name ?? ''),
-        expression: String(row.expression ?? ''),
-        retentionDays: Number(row.retention_days ?? 30),
-        maxRuntimeMs: Number(row.max_runtime_ms ?? 5000),
-        status: String(row.status ?? 'PENDING') as CronProposalStatus,
-        createdAt: String(row.created_at ?? nowIso()),
-        updatedAt: String(row.updated_at ?? nowIso()),
-        reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
-        reviewer: row.reviewer ? String(row.reviewer) : null,
-        reviewNote: row.review_note ? String(row.review_note) : null,
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      proposalId: String(row.proposal_id ?? ''),
+      jobId: String(row.job_id ?? ''),
+      name: String(row.name ?? ''),
+      expression: String(row.expression ?? ''),
+      retentionDays: Number(row.retention_days ?? 30),
+      maxRuntimeMs: Number(row.max_runtime_ms ?? 5000),
+      status: String(row.status ?? 'PENDING') as CronProposalStatus,
+      createdAt: String(row.created_at ?? nowIso()),
+      updatedAt: String(row.updated_at ?? nowIso()),
+      reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+      reviewer: row.reviewer ? String(row.reviewer) : null,
+      reviewNote: row.review_note ? String(row.review_note) : null,
+    }));
   },
 
   async reviewCronProposal(payload: {
@@ -812,20 +690,18 @@ export const governanceLifecycleQueueStoreService = {
       }
 
       const reviewedAt = nowIso();
-      const statement = database.prepare(`
+      database.prepare(`
         UPDATE cron_proposals
         SET status = ?, updated_at = ?, reviewed_at = ?, reviewer = ?, review_note = ?
         WHERE proposal_id = ?
-      `);
-      statement.run([
+      `).run(
         payload.status,
         reviewedAt,
         reviewedAt,
         payload.reviewer,
         payload.reviewNote ?? null,
-        payload.proposalId,
-      ]);
-      statement.free();
+        payload.proposalId
+      );
 
       updated = {
         ...existing,
@@ -877,33 +753,30 @@ export const governanceLifecycleQueueStoreService = {
 
     await queueWrite(async () => {
       const database = await getDatabase();
-      const existingStatement = database.prepare(`
+      const existingRow = database.prepare(`
         SELECT task_id, job_id, job_name, scheduled_for, source, status, attempt_count, last_error, created_at, updated_at
         FROM task_queue
         WHERE job_id = ? AND scheduled_for = ?
         LIMIT 1
-      `);
-      existingStatement.bind([payload.jobId, payload.scheduledFor]);
+      `).get(payload.jobId, payload.scheduledFor) as Record<string, unknown> | undefined;
 
-      if (existingStatement.step()) {
-        const row = existingStatement.getAsObject() as Record<string, unknown>;
+      if (existingRow) {
         result = {
           record: {
-            taskId: String(row.task_id ?? ''),
-            jobId: String(row.job_id ?? ''),
-            jobName: String(row.job_name ?? ''),
-            scheduledFor: String(row.scheduled_for ?? payload.scheduledFor),
-            source: String(row.source ?? payload.source) as TaskQueueRecord['source'],
-            status: String(row.status ?? 'PENDING') as TaskQueueStatus,
-            attemptCount: Number(row.attempt_count ?? 0),
-            lastError: row.last_error ? String(row.last_error) : null,
-            createdAt: String(row.created_at ?? nowIso()),
-            updatedAt: String(row.updated_at ?? nowIso()),
+            taskId: String(existingRow.task_id ?? ''),
+            jobId: String(existingRow.job_id ?? ''),
+            jobName: String(existingRow.job_name ?? ''),
+            scheduledFor: String(existingRow.scheduled_for ?? payload.scheduledFor),
+            source: String(existingRow.source ?? payload.source) as TaskQueueRecord['source'],
+            status: String(existingRow.status ?? 'PENDING') as TaskQueueStatus,
+            attemptCount: Number(existingRow.attempt_count ?? 0),
+            lastError: existingRow.last_error ? String(existingRow.last_error) : null,
+            createdAt: String(existingRow.created_at ?? nowIso()),
+            updatedAt: String(existingRow.updated_at ?? nowIso()),
           },
           inserted: false,
           duplicatePrevented: true,
         };
-        existingStatement.free();
         appendTaskAudit(
           database,
           'task_enqueue_skipped_duplicate',
@@ -914,13 +787,11 @@ export const governanceLifecycleQueueStoreService = {
         await persistDatabase(database);
         return;
       }
-      existingStatement.free();
 
-      const statement = database.prepare(`
+      database.prepare(`
         INSERT INTO task_queue (task_id, job_id, job_name, scheduled_for, source, status, attempt_count, last_error, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      statement.run([
+      `).run(
         record.taskId,
         record.jobId,
         record.jobName,
@@ -930,9 +801,8 @@ export const governanceLifecycleQueueStoreService = {
         record.attemptCount,
         null,
         record.createdAt,
-        record.updatedAt,
-      ]);
-      statement.free();
+        record.updatedAt
+      );
 
       appendTaskAudit(database, 'task_enqueued', `Task ${record.taskId} enqueued (${record.source})`, record.jobId, record.taskId);
       result = {
@@ -948,36 +818,26 @@ export const governanceLifecycleQueueStoreService = {
 
   async listPendingTasks(): Promise<TaskQueueRecord[]> {
     const database = await getDatabase();
-    const statement = database.prepare('SELECT * FROM task_queue WHERE status IN (?, ?) ORDER BY scheduled_for ASC');
-    statement.bind(['PENDING', 'INTERRUPTED']);
-    const rows: TaskQueueRecord[] = [];
+    const rows = database.prepare('SELECT * FROM task_queue WHERE status IN (?, ?) ORDER BY scheduled_for ASC').all('PENDING', 'INTERRUPTED') as Record<string, unknown>[];
 
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        taskId: String(row.task_id ?? ''),
-        jobId: String(row.job_id ?? ''),
-        jobName: String(row.job_name ?? ''),
-        scheduledFor: String(row.scheduled_for ?? nowIso()),
-        source: String(row.source ?? 'SCHEDULED') as TaskQueueRecord['source'],
-        status: String(row.status ?? 'PENDING') as TaskQueueStatus,
-        attemptCount: Number(row.attempt_count ?? 0),
-        lastError: row.last_error ? String(row.last_error) : null,
-        createdAt: String(row.created_at ?? nowIso()),
-        updatedAt: String(row.updated_at ?? nowIso()),
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      taskId: String(row.task_id ?? ''),
+      jobId: String(row.job_id ?? ''),
+      jobName: String(row.job_name ?? ''),
+      scheduledFor: String(row.scheduled_for ?? nowIso()),
+      source: String(row.source ?? 'SCHEDULED') as TaskQueueRecord['source'],
+      status: String(row.status ?? 'PENDING') as TaskQueueStatus,
+      attemptCount: Number(row.attempt_count ?? 0),
+      lastError: row.last_error ? String(row.last_error) : null,
+      createdAt: String(row.created_at ?? nowIso()),
+      updatedAt: String(row.updated_at ?? nowIso()),
+    }));
   },
 
   async markTaskRunning(taskId: string): Promise<void> {
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare('UPDATE task_queue SET status = ?, attempt_count = attempt_count + 1, updated_at = ? WHERE task_id = ?');
-      statement.run(['RUNNING', nowIso(), taskId]);
-      statement.free();
+      database.prepare('UPDATE task_queue SET status = ?, attempt_count = attempt_count + 1, updated_at = ? WHERE task_id = ?').run('RUNNING', nowIso(), taskId);
       appendTaskAudit(database, 'task_running', `Task ${taskId} running`, null, taskId);
       await persistDatabase(database);
     });
@@ -986,9 +846,7 @@ export const governanceLifecycleQueueStoreService = {
   async markTaskCompleted(taskId: string): Promise<void> {
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare('UPDATE task_queue SET status = ?, updated_at = ?, last_error = NULL WHERE task_id = ?');
-      statement.run(['COMPLETED', nowIso(), taskId]);
-      statement.free();
+      database.prepare('UPDATE task_queue SET status = ?, updated_at = ?, last_error = NULL WHERE task_id = ?').run('COMPLETED', nowIso(), taskId);
       appendTaskAudit(database, 'task_completed', `Task ${taskId} completed`, null, taskId);
       await persistDatabase(database);
     });
@@ -997,9 +855,7 @@ export const governanceLifecycleQueueStoreService = {
   async markTaskFailed(taskId: string, error: string): Promise<void> {
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare('UPDATE task_queue SET status = ?, updated_at = ?, last_error = ? WHERE task_id = ?');
-      statement.run(['FAILED', nowIso(), error, taskId]);
-      statement.free();
+      database.prepare('UPDATE task_queue SET status = ?, updated_at = ?, last_error = ? WHERE task_id = ?').run('FAILED', nowIso(), error, taskId);
       appendTaskAudit(database, 'task_failed', `Task ${taskId} failed: ${error}`, null, taskId);
       await persistDatabase(database);
     });
@@ -1009,10 +865,8 @@ export const governanceLifecycleQueueStoreService = {
     let recovered = 0;
     await queueWrite(async () => {
       const database = await getDatabase();
-      const statement = database.prepare('UPDATE task_queue SET status = ?, updated_at = ? WHERE status = ?');
-      statement.run(['INTERRUPTED', nowIso(), 'RUNNING']);
-      recovered = Number(database.exec('SELECT changes() AS count')[0]?.values?.[0]?.[0] ?? 0);
-      statement.free();
+      const result = database.prepare('UPDATE task_queue SET status = ?, updated_at = ? WHERE status = ?').run('INTERRUPTED', nowIso(), 'RUNNING');
+      recovered = result.changes;
       if (recovered > 0) {
         appendTaskAudit(database, 'task_recovered', `Recovered ${recovered} interrupted tasks`, null, null);
       }
@@ -1023,30 +877,21 @@ export const governanceLifecycleQueueStoreService = {
 
   async getTaskAuditLog(limit = 100): Promise<TaskAuditLogRecord[]> {
     const database = await getDatabase();
-    const statement = database.prepare('SELECT id, event_type, job_id, task_id, details, created_at FROM task_audit_log ORDER BY id DESC LIMIT ?');
-    statement.bind([Math.max(1, Math.min(limit, 500))]);
-    const rows: TaskAuditLogRecord[] = [];
+    const rows = database.prepare('SELECT id, event_type, job_id, task_id, details, created_at FROM task_audit_log ORDER BY id DESC LIMIT ?').all(Math.max(1, Math.min(limit, 500))) as Record<string, unknown>[];
 
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        id: Number(row.id ?? 0),
-        eventType: String(row.event_type ?? ''),
-        jobId: row.job_id ? String(row.job_id) : null,
-        taskId: row.task_id ? String(row.task_id) : null,
-        details: String(row.details ?? ''),
-        createdAt: String(row.created_at ?? nowIso()),
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      id: Number(row.id ?? 0),
+      eventType: String(row.event_type ?? ''),
+      jobId: row.job_id ? String(row.job_id) : null,
+      taskId: row.task_id ? String(row.task_id) : null,
+      details: String(row.details ?? ''),
+      createdAt: String(row.created_at ?? nowIso()),
+    }));
   },
 
   async __resetForTesting(): Promise<void> {
     await writeQueue;
-    dbPromise = null;
-    sqlRuntimePromise = null;
+    db = null;
     writeQueue = Promise.resolve();
     await rm(getDbPath(), { force: true });
   },

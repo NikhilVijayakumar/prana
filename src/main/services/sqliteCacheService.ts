@@ -4,12 +4,10 @@ import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { getSqliteRoot } from './governanceRepoService';
 
-const openCaches = new Map<string, Database.Database>();
-
 export const sqliteCacheService = {
   /**
-   * Initializes a stateless SQLite cache with a custom Drizzle schema.
-   * If the database is already open, returns the existing connection.
+   * Initializes a SQLite cache with a custom Drizzle schema.
+   * Creates a new connection each time (no caching).
    *
    * @param cacheName - The filename for the cache (e.g. 'rita-cache.sqlite')
    * @param schema - The Drizzle schema object defined by the consumer app
@@ -26,12 +24,6 @@ export const sqliteCacheService = {
     }
 
     const dbPath = join(rootPath, cacheName);
-
-    if (openCaches.has(dbPath)) {
-      const existingDb = openCaches.get(dbPath)!;
-      return drizzle(existingDb, { schema });
-    }
-
     const sqlite = new Database(dbPath);
     
     // Enable WAL mode for better concurrency and performance
@@ -39,15 +31,12 @@ export const sqliteCacheService = {
     sqlite.pragma('synchronous = NORMAL');
     sqlite.pragma('foreign_keys = ON');
 
-    openCaches.set(dbPath, sqlite);
-
     return drizzle(sqlite, { schema });
   },
 
   /**
    * Executes a raw SQL string (which can contain multiple statements) directly on the underlying SQLite connection.
-   * This is a helper to reduce boilerplate for apps that need to quickly execute 'CREATE TABLE IF NOT EXISTS'
-   * scripts on initialization without manually managing the Drizzle SQL objects.
+   * Creates a temporary connection to execute the SQL.
    * 
    * @param cacheName - The filename for the cache
    * @param sqlString - The raw SQL string to execute
@@ -56,37 +45,32 @@ export const sqliteCacheService = {
     const rootPath = join(getSqliteRoot(), 'caches');
     const dbPath = join(rootPath, cacheName);
     
-    const db = openCaches.get(dbPath);
-    if (!db) {
-      throw new Error(`Cache ${cacheName} is not initialized. Call initCache first.`);
+    if (!existsSync(dbPath)) {
+      throw new Error(`Cache ${cacheName} does not exist. Call initCache first.`);
     }
-    
-    // Use the native better-sqlite3 exec() which supports multiple statements
-    db.exec(sqlString);
+
+    const sqlite = new Database(dbPath);
+    try {
+      sqlite.exec(sqlString);
+    } finally {
+      sqlite.close();
+    }
   },
 
   /**
-   * Closes a specific cache database connection if it's open.
+   * Closes a specific cache database connection.
+   * Note: Since connections are created on-demand, this is a no-op.
    * @param cacheName - The filename for the cache
    */
-  closeCache(cacheName: string): void {
-    const rootPath = join(getSqliteRoot(), 'caches');
-    const dbPath = join(rootPath, cacheName);
-    
-    const db = openCaches.get(dbPath);
-    if (db) {
-      db.close();
-      openCaches.delete(dbPath);
-    }
+  closeCache(_cacheName: string): void {
+    // No-op: connections are created on-demand and closed after use
   },
 
   /**
    * Closes all active cache database connections.
+   * Note: Since connections are created on-demand, this is a no-op.
    */
   closeAll(): void {
-    for (const [path, db] of openCaches.entries()) {
-      db.close();
-      openCaches.delete(path);
-    }
+    // No-op: connections are created on-demand and closed after use
   }
 };

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getSqliteRoot, mkdirSafe } from './governanceRepoService';
 
 const DB_FILE_NAME = 'auth.sqlite';
@@ -19,52 +19,29 @@ export interface AuthStoreRecord {
   attemptLockUntil?: number; // Brute force tracking: timestamp when lockout expires
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
 const getLegacyAuthPath = (): string => join(getSqliteRoot(), LEGACY_AUTH_FILE_NAME);
 
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
-
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getSqliteRoot());
-  await writeFile(getDbPath(), Buffer.from(bytes));
+  await writeFile(getDbPath(), Buffer.from(buffer));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getSqliteRoot());
 
-  const database = existsSync(getDbPath())
-    ? new sqlRuntime.Database(new Uint8Array(await readFile(getDbPath())))
-    : new sqlRuntime.Database();
+  let database: Database;
+  if (existsSync(getDbPath())) {
+    database = new Database(getDbPath());
+  } else {
+    database = new Database(':memory:');
+  }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS auth_meta (
       key TEXT PRIMARY KEY,
       payload_json TEXT NOT NULL,
@@ -72,16 +49,15 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  await persistDatabase(database);
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -139,18 +115,13 @@ const normalizeRecord = (payload: Record<string, unknown>): { record: AuthStoreR
 
 const readRecord = async (): Promise<AuthStoreRecord | null> => {
   const db = await getDatabase();
-  const statement = db.prepare('SELECT payload_json FROM auth_meta WHERE key = ?');
-  statement.bind([AUTH_STATE_KEY]);
+  const stmt = db.prepare('SELECT payload_json FROM auth_meta WHERE key = ?');
+  stmt.bind([AUTH_STATE_KEY]);
 
-  if (!statement.step()) {
-    statement.free();
-    return null;
-  }
+  const row = stmt.get() as { payload_json?: unknown } | undefined;
+  stmt.free();
 
-  const row = statement.getAsObject() as { payload_json?: unknown };
-  statement.free();
-
-  if (typeof row.payload_json !== 'string') {
+  if (!row || typeof row.payload_json !== 'string') {
     return null;
   }
 
@@ -175,16 +146,13 @@ const readRecord = async (): Promise<AuthStoreRecord | null> => {
 const writeRecord = async (record: AuthStoreRecord): Promise<void> => {
   await queueWrite(async () => {
     const db = await getDatabase();
-    const statement = db.prepare(`
-      INSERT INTO auth_meta (key, payload_json, updated_at)
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO auth_meta (key, payload_json, updated_at)
       VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        payload_json = excluded.payload_json,
-        updated_at = excluded.updated_at
     `);
 
-    statement.run([AUTH_STATE_KEY, JSON.stringify(record), new Date().toISOString()]);
-    statement.free();
+    stmt.run([AUTH_STATE_KEY, JSON.stringify(record), new Date().toISOString()]);
+    stmt.free();
     await persistDatabase(db);
   });
 };

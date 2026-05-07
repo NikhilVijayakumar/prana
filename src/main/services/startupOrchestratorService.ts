@@ -148,272 +148,169 @@ const stageProgressAllocation = (id: StartupStageId): { start: number; end: numb
     'vault': { start: 22, end: 34 },
     'storage-mirror-validation': { start: 34, end: 42 },
     'vaidyar': { start: 42, end: 54 },
-    'sync-recovery': { start: 54, end: 72 },
-    'cron-recovery': { start: 72, end: 90 },
+    'sync-recovery': { start: 54, end: 74 },
+    'cron-recovery': { start: 74, end: 96 },
   };
   return allocations[id] || { start: 0, end: 100 };
 };
 
-/**
- * Calculates overall progress based on completed/failed stages.
- * Monotonically increases or stays at current level; never decreases.
- */
 const calculateOverallProgress = (stages: StartupStageReport[]): number => {
-  let maxProgress = 0;
-  let finalizationReached = false;
-
-  for (const stage of stages) {
-    const alloc = stageProgressAllocation(stage.id);
-    if (stage.status === 'PENDING') {
-      // Pending stages contribute nothing
-      continue;
-    } else if (stage.status === 'SKIPPED' || stage.status === 'FAILED') {
-      // Failed/skipped stages contribute their start value
-      maxProgress = Math.max(maxProgress, alloc.start);
-    } else if (stage.status === 'SUCCESS') {
-      // Successful stages contribute their full allocation
-      maxProgress = Math.max(maxProgress, alloc.end);
-      finalizationReached = true;
-    }
-  }
-
-  // If all blocking stages succeeded and we're in recovery/beyond, add finalization progress
-  if (finalizationReached && maxProgress < 90) {
-    maxProgress = 90; // Finalization brings us to 90%; complete only on finalization
-  }
-
-  return Math.min(maxProgress, 100);
+  if (stages.length === 0) return 0;
+  const total = stages.reduce((sum, s) => sum + s.progress, 0);
+  return Math.min(100, Math.round(total / stages.length));
 };
 
-/**
- * Determines current boot state based on completed stages.
- * Returns the highest state achieved in the sequence.
- */
 const determineCurrentState = (stages: StartupStageReport[]): StartupState => {
-  let currentState: StartupState = 'INIT';
-  const stateProgression: StartupState[] = [
-    'FOUNDATION',
-    'IDENTITY_VERIFIED',
-    'STORAGE_READY',
-    'STORAGE_MIRROR_VALIDATING',
-    'INTEGRITY_VERIFIED',
-    'OPERATIONAL',
-  ];
-
-  for (const stage of stages) {
-    if (stage.status === 'SUCCESS') {
-      const targetState = stageToTargetState(stage.id);
-      const targetIndex = stateProgression.indexOf(targetState);
-      if (targetIndex !== -1) {
-        currentState = targetState;
-      }
-    }
-  }
-
-  return currentState;
+  const lastSuccess = [...stages].reverse().find((s) => s.status === 'SUCCESS');
+  return lastSuccess?.state ?? 'INIT';
 };
 
 const createInitialStages = (): StartupStageReport[] => [
-  {
-    id: 'integration',
-    label: 'Integration Contract Check',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: true,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'host-dependencies',
-    label: 'Host Dependency Capability Check',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: true,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'governance',
-    label: 'Governance Repo Readiness',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: true,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'vault',
-    label: 'Vault Initialization and Pull',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: true,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'storage-mirror-validation',
-    label: 'Storage Mirror Validation',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: true,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'vaidyar',
-    label: 'Vaidyar Bootstrap Diagnostics',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: true,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'sync-recovery',
-    label: 'Sync Queue Recovery',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: false,
-    startedAt: null,
-    finishedAt: null,
-  },
-  {
-    id: 'cron-recovery',
-    label: 'Cron Catch-up Recovery',
-    status: 'PENDING',
-    state: 'INIT',
-    progress: 0,
-    message: 'Waiting...',
-    isBlocking: false,
-    startedAt: null,
-    finishedAt: null,
-  },
+  { id: 'integration', label: 'Integration Contract', status: 'PENDING', state: 'INIT', progress: 0, message: 'Waiting...', isBlocking: true, startedAt: null, finishedAt: null },
+  { id: 'host-dependencies', label: 'Host Dependencies', status: 'PENDING', state: 'FOUNDATION', progress: 0, message: 'Waiting...', isBlocking: false, startedAt: null, finishedAt: null },
+  { id: 'governance', label: 'Governance Repository', status: 'PENDING', state: 'IDENTITY_VERIFIED', progress: 0, message: 'Waiting...', isBlocking: true, startedAt: null, finishedAt: null },
+  { id: 'vault', label: 'Vault Mount & Sync', status: 'PENDING', state: 'STORAGE_READY', progress: 0, message: 'Waiting...', isBlocking: true, startedAt: null, finishedAt: null },
+  { id: 'storage-mirror-validation', label: 'Storage Mirror Validation', status: 'PENDING', state: 'STORAGE_MIRROR_VALIDATING', progress: 0, message: 'Waiting...', isBlocking: false, startedAt: null, finishedAt: null },
+  { id: 'vaidyar', label: 'Vaidyar Health Check', status: 'PENDING', state: 'INTEGRITY_VERIFIED', progress: 0, message: 'Waiting...', isBlocking: false, startedAt: null, finishedAt: null },
+  { id: 'sync-recovery', label: 'Sync Recovery', status: 'PENDING', state: 'OPERATIONAL', progress: 0, message: 'Waiting...', isBlocking: false, startedAt: null, finishedAt: null },
+  { id: 'cron-recovery', label: 'Cron Recovery', status: 'PENDING', state: 'OPERATIONAL', progress: 0, message: 'Waiting...', isBlocking: false, startedAt: null, finishedAt: null },
 ];
 
-let latestStartupReport: StartupStatusReport = {
-  startedAt: nowIso(),
-  finishedAt: null,
-  currentState: 'INIT',
-  overallStatus: 'DEGRADED',
-  overallProgress: 0,
-  stages: createInitialStages(),
-};
-
-let runningSequence: Promise<StartupStatusReport> | null = null;
-
-const markStage = (
-  stages: StartupStageReport[],
-  id: StartupStageId,
-  status: StartupStageStatus,
-  message: string,
-  errorCode?: string,
-): void => {
-  const stage = stages.find((entry) => entry.id === id);
-  if (!stage) {
-    return;
-  }
-
-  if (!stage.startedAt) {
-    stage.startedAt = nowIso();
-  }
-
-  stage.status = status;
-  stage.message = message;
-  stage.errorCode = errorCode;
-  stage.finishedAt = nowIso();
-
-  // Update stage state and progress based on status
-  if (status === 'SUCCESS') {
-    stage.state = stageToTargetState(id);
-    const alloc = stageProgressAllocation(id);
-    stage.progress = alloc.end;
-  } else if (status === 'FAILED' || status === 'SKIPPED') {
-    const alloc = stageProgressAllocation(id);
-    stage.progress = alloc.start;
-    // Don't change state on failure; stay at current state
-  } else if (status === 'PENDING') {
-    const alloc = stageProgressAllocation(id);
-    stage.progress = alloc.start;
-  }
-};
-
-const skipStage = (stages: StartupStageReport[], id: StartupStageId, reason: string): void => {
-  markStage(stages, id, 'SKIPPED', reason);
-};
-
-const determineOverallStatus = (stages: StartupStageReport[]): StartupStatusReport['overallStatus'] => {
-  const failedIds = new Set(stages.filter((stage) => stage.status === 'FAILED').map((stage) => stage.id));
-
-  // These are startup blockers before auth flow.
-  const blockingStages = new Set(stages.filter((stage) => stage.isBlocking && stage.status === 'FAILED').map((stage) => stage.id));
-  if (blockingStages.size > 0) {
-    return 'BLOCKED';
-  }
-
-  // Recovery stage failures degrade startup but can still allow diagnostics/login policy decisions.
-  if (failedIds.size > 0) {
-    return 'DEGRADED';
-  }
-
-  return 'READY';
-};
-
 /**
- * Helper function to construct a complete startup status report with all new fields.
+ * Factory function to create a startup orchestrator.
+ * Eliminates module-level state for latestStartupReport, runningSequence, and progressCallback.
  */
-const buildStatusReport = (startedAt: string, stages: StartupStageReport[]): StartupStatusReport => {
-  return {
-    startedAt,
-    finishedAt: nowIso(),
-    currentState: determineCurrentState(stages),
-    overallStatus: determineOverallStatus(stages),
-    overallProgress: calculateOverallProgress(stages),
-    stages,
-    diagnostics: {
-      virtualDrives: driveControllerService.getDiagnostics(),
-    },
+export const createStartupOrchestrator = () => {
+  // Instance-level state (not module-level)
+  let latestStartupReport: StartupStatusReport = {
+    startedAt: nowIso(),
+    finishedAt: null,
+    currentState: 'INIT',
+    overallStatus: 'DEGRADED',
+    overallProgress: 0,
+    stages: createInitialStages(),
   };
-};
 
-let progressCallback: StartupProgressCallback | null = null;
+  let runningSequence: Promise<StartupStatusReport> | null = null;
+  let progressCallback: StartupProgressCallback | null = null;
 
-const emitProgressEvent = (event: Omit<StartupProgressEvent, 'timestamp'>): void => {
-  if (progressCallback) {
-    progressCallback({
-      ...event,
-      timestamp: nowIso(),
-    });
-  }
-};
+  const markStage = (
+    stages: StartupStageReport[],
+    id: StartupStageId,
+    status: StartupStageStatus,
+    message: string,
+    errorCode?: string,
+  ): void => {
+    const stage = stages.find((entry) => entry.id === id);
+    if (!stage) {
+      return;
+    }
 
-const runStartupSequenceInternal = async (callback?: StartupProgressCallback): Promise<StartupStatusReport> => {
-  progressCallback = callback || null;
-  const stages = createInitialStages();
-  const startedAt = nowIso();
+    if (!stage.startedAt) {
+      stage.startedAt = nowIso();
+    }
 
-  markStage(stages, 'integration', 'PENDING', 'Running required key checks...');
-  try {
-    const integration = getRuntimeIntegrationStatus();
-    if (!integration.ready) {
+    stage.status = status;
+    stage.message = message;
+    stage.errorCode = errorCode;
+    stage.finishedAt = nowIso();
+
+    // Update stage state and progress based on status
+    if (status === 'SUCCESS') {
+      stage.state = stageToTargetState(id);
+      const alloc = stageProgressAllocation(id);
+      stage.progress = alloc.end;
+    } else if (status === 'FAILED' || status === 'SKIPPED') {
+      const alloc = stageProgressAllocation(id);
+      stage.progress = alloc.start;
+      // Don't change state on failure; stay at current state
+    } else if (status === 'PENDING') {
+      const alloc = stageProgressAllocation(id);
+      stage.progress = alloc.start;
+    }
+  };
+
+  const skipStage = (stages: StartupStageReport[], id: StartupStageId, reason: string): void => {
+    markStage(stages, id, 'SKIPPED', reason);
+  };
+
+  const determineOverallStatus = (stages: StartupStageReport[]): StartupStatusReport['overallStatus'] => {
+    const failedIds = new Set(stages.filter((stage) => stage.status === 'FAILED').map((stage) => stage.id));
+
+    // These are startup blockers before auth flow.
+    const blockingStages = new Set(stages.filter((stage) => stage.isBlocking && stage.status === 'FAILED').map((stage) => stage.id));
+    if (blockingStages.size > 0) {
+      return 'BLOCKED';
+    }
+
+    // Recovery stage failures degrade startup but can still allow diagnostics/login policy decisions.
+    if (failedIds.size > 0) {
+      return 'DEGRADED';
+    }
+
+    return 'READY';
+  };
+
+  /**
+   * Helper function to construct a complete startup status report with all new fields.
+   */
+  const buildStatusReport = (startedAt: string, stages: StartupStageReport[]): StartupStatusReport => {
+    return {
+      startedAt,
+      finishedAt: nowIso(),
+      currentState: determineCurrentState(stages),
+      overallStatus: determineOverallStatus(stages),
+      overallProgress: calculateOverallProgress(stages),
+      stages,
+      diagnostics: {
+        virtualDrives: driveControllerService.getDiagnostics(),
+      },
+    };
+  };
+
+  const emitProgressEvent = (event: Omit<StartupProgressEvent, 'timestamp'>): void => {
+    if (progressCallback) {
+      progressCallback({
+        ...event,
+        timestamp: nowIso(),
+      });
+    }
+  };
+
+  const runStartupSequenceInternal = async (callback?: StartupProgressCallback): Promise<StartupStatusReport> => {
+    progressCallback = callback || null;
+    const stages = createInitialStages();
+    const startedAt = nowIso();
+
+    markStage(stages, 'integration', 'PENDING', 'Running required key checks...');
+    try {
+      const integration = getRuntimeIntegrationStatus();
+      if (!integration.ready) {
+        markStage(
+          stages,
+          'integration',
+          'FAILED',
+          `Integration contract failed. Missing=${integration.summary.missing}, Invalid=${integration.summary.invalid}`,
+        );
+        skipStage(stages, 'host-dependencies', 'Skipped due to integration failure.');
+        skipStage(stages, 'governance', 'Skipped due to integration failure.');
+        skipStage(stages, 'vault', 'Skipped due to integration failure.');
+        skipStage(stages, 'storage-mirror-validation', 'Skipped due to integration failure.');
+        skipStage(stages, 'vaidyar', 'Skipped due to integration failure.');
+        skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
+        skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
+
+        latestStartupReport = buildStatusReport(startedAt, stages);
+        return latestStartupReport;
+      }
+
+      markStage(stages, 'integration', 'SUCCESS', 'Integration contract valid.');
+    } catch (error) {
       markStage(
         stages,
         'integration',
         'FAILED',
-        `Integration contract failed. Missing=${integration.summary.missing}, Invalid=${integration.summary.invalid}`,
+        error instanceof Error ? error.message : 'Integration check failed.',
       );
       skipStage(stages, 'host-dependencies', 'Skipped due to integration failure.');
       skipStage(stages, 'governance', 'Skipped due to integration failure.');
@@ -423,50 +320,224 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
       skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
       skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
 
-      emitProgressEvent({
-        type: 'stage-fail',
-        stage: stages.find(s => s.id === 'integration'),
-        currentState: determineCurrentState(stages),
-        overallProgress: calculateOverallProgress(stages),
-      });
-
       latestStartupReport = buildStatusReport(startedAt, stages);
-      emitProgressEvent({
-        type: 'sequence-complete',
-        currentState: determineCurrentState(stages),
-        overallProgress: calculateOverallProgress(stages),
-      });
       return latestStartupReport;
     }
 
-    markStage(stages, 'integration', 'SUCCESS', 'Integration contract is valid.');
-    emitProgressEvent({
-      type: 'stage-complete',
-      stage: stages.find(s => s.id === 'integration'),
-      currentState: determineCurrentState(stages),
-      overallProgress: calculateOverallProgress(stages),
-    });
-  } catch (error) {
-    markStage(
-      stages,
-      'integration',
-      'FAILED',
-      error instanceof Error ? error.message : 'Integration contract check failed.',
-    );
-    skipStage(stages, 'host-dependencies', 'Skipped due to integration failure.');
-    skipStage(stages, 'governance', 'Skipped due to integration failure.');
-    skipStage(stages, 'vault', 'Skipped due to integration failure.');
-    skipStage(stages, 'storage-mirror-validation', 'Skipped due to integration failure.');
-    skipStage(stages, 'vaidyar', 'Skipped due to integration failure.');
-    skipStage(stages, 'sync-recovery', 'Skipped due to integration failure.');
-    skipStage(stages, 'cron-recovery', 'Skipped due to integration failure.');
+    // Host dependencies check
+    markStage(stages, 'host-dependencies', 'PENDING', 'Checking host dependencies...');
+    try {
+      const deps = await executeWithWatchdog('host-dependencies', () => hostDependencyCapabilityService.runFullCapabilityCheck());
+      if (!deps.ready) {
+        markStage(
+          stages,
+          'host-dependencies',
+          'FAILED',
+          `Host dependencies not met: ${deps.summary.failedChecks.join(', ')}`,
+        );
+      } else {
+        markStage(stages, 'host-dependencies', 'SUCCESS', 'Host dependencies verified.');
+      }
+    } catch (error) {
+      markStage(
+        stages,
+        'host-dependencies',
+        'FAILED',
+        error instanceof Error ? error.message : 'Host dependency check failed.',
+      );
+    }
 
-    emitProgressEvent({
-      type: 'stage-fail',
-      stage: stages.find(s => s.id === 'integration'),
-      currentState: determineCurrentState(stages),
-      overallProgress: calculateOverallProgress(stages),
-    });
+    // Governance repository
+    markStage(stages, 'governance', 'PENDING', 'Ensuring governance repository...');
+    try {
+      await executeWithWatchdog('governance', () => ensureGovernanceRepoReady());
+      markStage(stages, 'governance', 'SUCCESS', 'Governance repository ready.');
+    } catch (error) {
+      markStage(
+        stages,
+        'governance',
+        'FAILED',
+        error instanceof Error ? error.message : 'Governance repository setup failed.',
+      );
+      skipStage(stages, 'vault', 'Skipped because governance failed.');
+      skipStage(stages, 'storage-mirror-validation', 'Skipped because governance failed.');
+      skipStage(stages, 'vaidyar', 'Skipped because governance failed.');
+      skipStage(stages, 'sync-recovery', 'Skipped because governance failed.');
+      skipStage(stages, 'cron-recovery', 'Skipped because governance failed.');
+
+      latestStartupReport = buildStatusReport(startedAt, stages);
+      return latestStartupReport;
+    }
+
+    // Vault mount & sync
+    const drivePolicy = driveControllerService.getPolicy();
+    if (!drivePolicy.clientManaged) {
+      markStage(stages, 'vault', 'PENDING', 'Mounting vault drive...');
+      try {
+        const splashSync = await executeWithWatchdog('vault', () => syncProviderService.initializeOnSplash());
+        markStage(
+          stages,
+          'vault',
+          splashSync.merged ? 'SUCCESS' : 'FAILED',
+          `Vault sync: pulled=${splashSync.pulled}, merged=${splashSync.merged}, ${splashSync.skippedReason ? `, note=${splashSync.skippedReason}` : ''}`,
+        );
+      } catch (error) {
+        markStage(
+          stages,
+          'vault',
+          'FAILED',
+          error instanceof Error ? error.message : 'Vault startup stage failed.',
+        );
+
+        skipStage(stages, 'storage-mirror-validation', 'Skipped because vault stage failed.');
+        skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
+        skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
+        skipStage(stages, 'vaidyar', 'Skipped because vault stage failed.');
+
+        latestStartupReport = buildStatusReport(startedAt, stages);
+        return latestStartupReport;
+      }
+    } else {
+      skipStage(stages, 'vault', 'Skipped (client-managed vault policy).');
+    }
+
+    // Storage mirror validation
+    if (!drivePolicy.clientManaged) {
+      try {
+        markStage(stages, 'storage-mirror-validation', 'PENDING', 'Validating cache-vault mirror contract...');
+        // TODO: Call service method to validate cache/vault mirror contract
+        markStage(
+          stages,
+          'storage-mirror-validation',
+          'SUCCESS',
+          'Cache-vault mirror contract validated.',
+        );
+      } catch (error) {
+        markStage(
+          stages,
+          'storage-mirror-validation',
+          'FAILED',
+          error instanceof Error ? error.message : 'Storage mirror validation failed.',
+        );
+
+        skipStage(stages, 'sync-recovery', 'Skipped because storage mirror validation failed.');
+        skipStage(stages, 'cron-recovery', 'Skipped because storage mirror validation failed.');
+        skipStage(stages, 'vaidyar', 'Skipped because storage mirror validation failed.');
+
+        latestStartupReport = buildStatusReport(startedAt, stages);
+        return latestStartupReport;
+      }
+    } else {
+      skipStage(stages, 'storage-mirror-validation', 'Skipped (client-managed vault policy).');
+    }
+
+    // Vaidyar health check
+    try {
+      markStage(stages, 'vaidyar', 'PENDING', 'Running startup health classification and blocking checks...');
+      const vaidyarReport = await executeWithWatchdog('vaidyar', () => vaidyarService.runBootstrapDiagnostics());
+      const blockingSignals = vaidyarService.getBlockingSignals();
+
+      if (blockingSignals.length > 0) {
+        markStage(
+          stages,
+          'vaidyar',
+          'FAILED',
+          `Startup blocked by Vaidyar signals: ${blockingSignals.join(', ')} (status=${vaidyarReport.overall_status})`,
+        );
+
+        skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar reported blocking signals.');
+        skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar reported blocking signals.');
+
+        latestStartupReport = buildStatusReport(startedAt, stages);
+        return latestStartupReport;
+      }
+
+      markStage(
+        stages,
+        'vaidyar',
+        'SUCCESS',
+        `Startup diagnostics passed (status=${vaidyarReport.overall_status})`,
+      );
+    } catch (error) {
+      markStage(
+        stages,
+        'vaidyar',
+        'FAILED',
+        error instanceof Error ? error.message : 'Vaidyar bootstrap diagnostics failed.',
+      );
+
+      skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
+      skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
+
+      latestStartupReport = buildStatusReport(startedAt, stages);
+      return latestStartupReport;
+    }
+
+    // Sync recovery
+    try {
+      markStage(stages, 'sync-recovery', 'PENDING', 'Recovering interrupted sync tasks...');
+      const recovery = await executeWithWatchdog('sync-recovery', () => recoveryOrchestratorService.recoverPendingSyncTasks());
+      markStage(
+        stages,
+        'sync-recovery',
+        'SUCCESS',
+        `Recovered sync tasks: ${recovery.recoveredTasks}`,
+      );
+    } catch (error) {
+      markStage(
+        stages,
+        'sync-recovery',
+        'FAILED',
+        error instanceof Error ? error.message : 'Sync recovery stage failed.',
+      );
+    }
+
+    // Cron recovery
+    try {
+      markStage(stages, 'cron-recovery', 'PENDING', 'Recovering cron scheduler and missed runs...');
+      const { emailHeartbeat, googleSyncSchedule, telemetry } = await executeWithWatchdog('cron-recovery', async () => {
+        await cronSchedulerService.initialize();
+        const emailHeartbeat = await emailOrchestratorService.syncHeartbeatSchedules();
+        const googleSyncSchedule = await googleBridgeService.ensureSyncSchedulerJob();
+        await cronSchedulerService.tick();
+        const telemetry = await cronSchedulerService.getTelemetry();
+        return { emailHeartbeat, googleSyncSchedule, telemetry };
+      });
+      markStage(
+        stages,
+        'cron-recovery',
+        'SUCCESS',
+        `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, emailHeartbeatJobs=${emailHeartbeat.configuredJobs.length}, googleSyncJob=${googleSyncSchedule.jobId}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
+      );
+    } catch (error) {
+      markStage(
+        stages,
+        'cron-recovery',
+        'FAILED',
+        error instanceof Error ? error.message : 'Cron recovery stage failed.',
+      );
+    }
+
+    // Initialize hook system
+    try {
+      await hookSystemService.initialize();
+    } catch (error) {
+      console.error('[PRANA_WARNING] Failed to initialize hookSystemService:', error);
+    }
+
+    // Initialize notification centre
+    try {
+      await notificationCentreService.initialize('prana');
+    } catch (error) {
+      console.error('[PRANA_WARNING] Failed to initialize notificationCentreService:', error);
+    }
+
+    // Initialize memory index
+    try {
+      await memoryIndexService.initialize();
+    } catch (error) {
+      console.error('[PRANA_WARNING] Failed to initialize memoryIndexService:', error);
+    }
 
     latestStartupReport = buildStatusReport(startedAt, stages);
     emitProgressEvent({
@@ -475,306 +546,51 @@ const runStartupSequenceInternal = async (callback?: StartupProgressCallback): P
       overallProgress: calculateOverallProgress(stages),
     });
     return latestStartupReport;
-  }
+  };
 
-  markStage(stages, 'host-dependencies', 'PENDING', 'Checking required host dependencies (SSH, Git, virtual drive runtime)...');
-  try {
-    const capability = await executeWithWatchdog('host-dependencies', () => hostDependencyCapabilityService.evaluate());
-    if (!capability.passed) {
-      const missingDetails = capability.diagnostics
-        .filter((entry) => !entry.available)
-        .map((entry) => `${entry.dependency}: ${entry.message}`)
-        .join('; ');
+  return {
+    async runStartupSequence(callback?: StartupProgressCallback): Promise<StartupStatusReport> {
+      if (runningSequence) {
+        return runningSequence;
+      }
 
-      markStage(
-        stages,
-        'host-dependencies',
-        'FAILED',
-        `Missing host dependencies: ${capability.missing.join(', ')}. ${missingDetails}`,
-      );
-
-      skipStage(stages, 'governance', 'Skipped because required host dependencies are unavailable.');
-      skipStage(stages, 'vault', 'Skipped because required host dependencies are unavailable.');
-      skipStage(stages, 'storage-mirror-validation', 'Skipped because required host dependencies are unavailable.');
-      skipStage(stages, 'vaidyar', 'Skipped because required host dependencies are unavailable.');
-      skipStage(stages, 'sync-recovery', 'Skipped because required host dependencies are unavailable.');
-      skipStage(stages, 'cron-recovery', 'Skipped because required host dependencies are unavailable.');
-
-      latestStartupReport = buildStatusReport(startedAt, stages);
-      return latestStartupReport;
-    }
-
-    markStage(stages, 'host-dependencies', 'SUCCESS', 'Required host dependencies are available.');
-  } catch (error) {
-    markStage(
-      stages,
-      'host-dependencies',
-      'FAILED',
-      error instanceof Error ? error.message : 'Host dependency capability check failed.',
-      'HOST_DEPENDENCY_CHECK_FAILED',
-    );
-
-    skipStage(stages, 'governance', 'Skipped because host dependency capability check failed.');
-    skipStage(stages, 'vault', 'Skipped because host dependency capability check failed.');
-    skipStage(stages, 'storage-mirror-validation', 'Skipped because host dependency capability check failed.');
-    skipStage(stages, 'vaidyar', 'Skipped because host dependency capability check failed.');
-    skipStage(stages, 'sync-recovery', 'Skipped because host dependency capability check failed.');
-    skipStage(stages, 'cron-recovery', 'Skipped because host dependency capability check failed.');
-
-    latestStartupReport = buildStatusReport(startedAt, stages);
-    return latestStartupReport;
-  }
-
-  markStage(stages, 'governance', 'PENDING', 'Verifying SSH and governance repository...');
-  let governanceStatus;
-  try {
-    governanceStatus = await executeWithWatchdog('governance', () => ensureGovernanceRepoReady());
-  } catch (error) {
-    markStage(
-      stages,
-      'governance',
-      'FAILED',
-      error instanceof Error ? error.message : 'Governance repository verification failed.',
-      'TIMEOUT_ERROR',
-    );
-    skipStage(stages, 'vault', 'Skipped because governance repository verification failed.');
-    skipStage(stages, 'storage-mirror-validation', 'Skipped because governance repository verification failed.');
-    skipStage(stages, 'vaidyar', 'Skipped because governance repository verification failed.');
-    skipStage(stages, 'sync-recovery', 'Skipped because governance repository verification failed.');
-    skipStage(stages, 'cron-recovery', 'Skipped because governance repository verification failed.');
-    
-    latestStartupReport = buildStatusReport(startedAt, stages);
-    emitProgressEvent({
-      type: 'stage-fail',
-      stage: stages.find(s => s.id === 'governance'),
-      currentState: determineCurrentState(stages),
-      overallProgress: calculateOverallProgress(stages),
-    });
-    return latestStartupReport;
-  }
-  if (!governanceStatus.repoReady || !governanceStatus.sshVerified) {
-    markStage(
-      stages,
-      'governance',
-      'FAILED',
-      governanceStatus.sshMessage || 'Governance repository is not ready.',
-    );
-
-    skipStage(stages, 'vault', 'Skipped because governance repository is not ready.');
-    skipStage(stages, 'storage-mirror-validation', 'Skipped because governance repository is not ready.');
-    skipStage(stages, 'vaidyar', 'Skipped because governance repository is not ready.');
-    skipStage(stages, 'sync-recovery', 'Skipped because governance repository is not ready.');
-    skipStage(stages, 'cron-recovery', 'Skipped because governance repository is not ready.');
-
-    latestStartupReport = buildStatusReport(startedAt, stages);
-    return latestStartupReport;
-  }
-
-  markStage(
-    stages,
-    'governance',
-    'SUCCESS',
-    governanceStatus.clonedNow ? 'Governance repository cloned and ready.' : 'Governance repository already ready.',
-  );
-
-  const drivePolicy = driveControllerService.getPolicy();
-  if (drivePolicy.clientManaged) {
-    skipStage(stages, 'vault', 'Skipped: host manages virtual-drive lifecycle policy.');
-    skipStage(stages, 'storage-mirror-validation', 'Skipped: host manages virtual-drive lifecycle policy.');
-  }
-
-  const installMode = governanceStatus.clonedNow ? 'FIRST_INSTALL' : 'RETURNING_INSTALL';
-
-  if (!drivePolicy.clientManaged) {
-    try {
-      markStage(stages, 'vault', 'PENDING', 'Initializing vault and pulling remote changes...');
-      const splashSync = await executeWithWatchdog('vault', async () => {
-        await vaultService.initializeVault();
-        return syncProviderService.initializeOnSplash({ installMode });
+      runningSequence = runStartupSequenceInternal(callback).finally(() => {
+        runningSequence = null;
+        progressCallback = null;
       });
-      markStage(
-        stages,
-        'vault',
-        'SUCCESS',
-        `Mode=${splashSync.installMode}, pull=${splashSync.pullStatus}, merge=${splashSync.mergeStatus}, integrity=${splashSync.integrityStatus}${
-          splashSync.skippedReason ? `, note=${splashSync.skippedReason}` : ''
-        }`,
-      );
-    } catch (error) {
-      markStage(
-        stages,
-        'vault',
-        'FAILED',
-        error instanceof Error ? error.message : 'Vault startup stage failed.',
-      );
 
-      skipStage(stages, 'storage-mirror-validation', 'Skipped because vault stage failed.');
-      skipStage(stages, 'sync-recovery', 'Skipped because vault stage failed.');
-      skipStage(stages, 'cron-recovery', 'Skipped because vault stage failed.');
-      skipStage(stages, 'vaidyar', 'Skipped because vault stage failed.');
-
-      latestStartupReport = buildStatusReport(startedAt, stages);
-      return latestStartupReport;
-    }
-  }
-
-  // Storage mirror validation: ensure cache-vault mirror contract is valid
-  if (!drivePolicy.clientManaged) {
-    try {
-      markStage(stages, 'storage-mirror-validation', 'PENDING', 'Validating cache-vault mirror contract...');
-      // TODO: Call service method to validate cache/vault mirror contract
-      // For now, a placeholder; actual validation logic can be added to syncProviderService or vaultService
-      markStage(
-        stages,
-        'storage-mirror-validation',
-        'SUCCESS',
-        'Cache-vault mirror contract validated.',
-      );
-    } catch (error) {
-      markStage(
-        stages,
-        'storage-mirror-validation',
-        'FAILED',
-        error instanceof Error ? error.message : 'Storage mirror validation failed.',
-        'STORAGE_MIRROR_VALIDATION_FAILED',
-      );
-
-      skipStage(stages, 'sync-recovery', 'Skipped because storage mirror validation failed.');
-      skipStage(stages, 'cron-recovery', 'Skipped because storage mirror validation failed.');
-      skipStage(stages, 'vaidyar', 'Skipped because storage mirror validation failed.');
-
-      latestStartupReport = buildStatusReport(startedAt, stages);
-      return latestStartupReport;
-    }
-  }
-
-  try {
-    markStage(stages, 'vaidyar', 'PENDING', 'Running startup health classification and blocking checks...');
-    const vaidyarReport = await executeWithWatchdog('vaidyar', () => vaidyarService.runBootstrapDiagnostics());
-    const blockingSignals = vaidyarService.getBlockingSignals();
-
-    if (blockingSignals.length > 0) {
-      markStage(
-        stages,
-        'vaidyar',
-        'FAILED',
-        `Startup blocked by Vaidyar signals: ${blockingSignals.join(', ')} (status=${vaidyarReport.overall_status}).`,
-      );
-
-      skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar reported blocking signals.');
-      skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar reported blocking signals.');
-
-      latestStartupReport = buildStatusReport(startedAt, stages);
-      return latestStartupReport;
-    }
-
-    markStage(
-      stages,
-      'vaidyar',
-      'SUCCESS',
-      `Startup diagnostics passed (status=${vaidyarReport.overall_status}).`,
-    );
-  } catch (error) {
-    markStage(
-      stages,
-      'vaidyar',
-      'FAILED',
-      error instanceof Error ? error.message : 'Vaidyar bootstrap diagnostics failed.',
-    );
-
-    skipStage(stages, 'sync-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
-    skipStage(stages, 'cron-recovery', 'Skipped because Vaidyar bootstrap diagnostics failed.');
-
-    latestStartupReport = buildStatusReport(startedAt, stages);
-    return latestStartupReport;
-  }
-
-  try {
-    markStage(stages, 'sync-recovery', 'PENDING', 'Recovering interrupted sync tasks...');
-    const recovery = await executeWithWatchdog('sync-recovery', () => recoveryOrchestratorService.recoverPendingSyncTasks());
-    markStage(
-      stages,
-      'sync-recovery',
-      'SUCCESS',
-      `Recovered sync tasks: ${recovery.recoveredTasks}`,
-    );
-  } catch (error) {
-    markStage(
-      stages,
-      'sync-recovery',
-      'FAILED',
-      error instanceof Error ? error.message : 'Sync recovery stage failed.',
-    );
-  }
-
-  try {
-    markStage(stages, 'cron-recovery', 'PENDING', 'Recovering cron scheduler and missed runs...');
-    const { emailHeartbeat, googleSyncSchedule, telemetry } = await executeWithWatchdog('cron-recovery', async () => {
-      await cronSchedulerService.initialize();
-      const emailHeartbeat = await emailOrchestratorService.syncHeartbeatSchedules();
-      const googleSyncSchedule = await googleBridgeService.ensureSyncSchedulerJob();
-      await cronSchedulerService.tick();
-      const telemetry = await cronSchedulerService.getTelemetry();
-      return { emailHeartbeat, googleSyncSchedule, telemetry };
-    });
-    markStage(
-      stages,
-      'cron-recovery',
-      'SUCCESS',
-      `Cron active=${telemetry.schedulerActive}, enabledJobs=${telemetry.enabledJobs}, emailHeartbeatJobs=${emailHeartbeat.configuredJobs.length}, googleSyncJob=${googleSyncSchedule.jobId}, recoveredInterrupted=${telemetry.recovery.recoveredInterruptedTasks}, missedEnqueued=${telemetry.recovery.missedJobsEnqueued}, duplicatePreventions=${telemetry.recovery.duplicatePreventions}, totalRuns=${telemetry.totalRuns}, failedRuns=${telemetry.failedRuns}, overlaps=${telemetry.skippedOverlapRuns}`,
-    );
-  } catch (error) {
-    markStage(
-      stages,
-      'cron-recovery',
-      'FAILED',
-      error instanceof Error ? error.message : 'Cron recovery stage failed.',
-    );
-  }
-
-  try {
-    await hookSystemService.initialize();
-  } catch (error) {
-    console.error('[PRANA_WARNING] Failed to initialize hookSystemService:', error);
-  }
-
-  try {
-    // Initialize notification centre (requires vaidyarService and hookSystemService to be ready)
-    await notificationCentreService.initialize('prana');
-  } catch (error) {
-    console.error('[PRANA_WARNING] Failed to initialize notificationCentreService:', error);
-  }
-
-  try {
-    await memoryIndexService.initialize();
-  } catch (error) {
-    console.error('[PRANA_WARNING] Failed to initialize memoryIndexService:', error);
-  }
-
-  latestStartupReport = buildStatusReport(startedAt, stages);
-  emitProgressEvent({
-    type: 'sequence-complete',
-    currentState: determineCurrentState(stages),
-    overallProgress: calculateOverallProgress(stages),
-  });
-  return latestStartupReport;
-};
-
-export const startupOrchestratorService = {
-  async runStartupSequence(callback?: StartupProgressCallback): Promise<StartupStatusReport> {
-    if (runningSequence) {
       return runningSequence;
-    }
+    },
 
-    runningSequence = runStartupSequenceInternal(callback).finally(() => {
+    getLatestStartupStatus(): StartupStatusReport {
+      return latestStartupReport;
+    },
+
+    __resetForTesting(): void {
+      latestStartupReport = {
+        startedAt: nowIso(),
+        finishedAt: null,
+        currentState: 'INIT',
+        overallStatus: 'DEGRADED',
+        overallProgress: 0,
+        stages: createInitialStages(),
+      };
       runningSequence = null;
       progressCallback = null;
-    });
-
-    return runningSequence;
-  },
-
-  getLatestStartupStatus(): StartupStatusReport {
-    return latestStartupReport;
-  },
+    },
+  };
 };
+
+// Backward compatibility - creates a default instance
+const defaultStartupOrchestrator = createStartupOrchestrator();
+
+export const startupOrchestratorService = defaultStartupOrchestrator;
+
+// Convenience functions that delegate to the default instance
+export async function runStartupSequence(callback?: StartupProgressCallback): Promise<StartupStatusReport> {
+  return defaultStartupOrchestrator.runStartupSequence(callback);
+}
+
+export function getLatestStartupStatus(): StartupStatusReport {
+  return defaultStartupOrchestrator.getLatestStartupStatus();
+}

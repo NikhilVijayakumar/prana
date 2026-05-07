@@ -2,7 +2,7 @@ import { encryptSqliteBuffer, decryptSqliteBuffer } from './sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
+import Database from 'better-sqlite3';
 import { getSqliteRoot, mkdirSafe } from './governanceRepoService';
 
 const DB_FILE_NAME = 'context-history.sqlite';
@@ -53,61 +53,38 @@ interface ReplaceActiveContextPayload {
   }>;
 }
 
-let sqlRuntimePromise: Promise<SqlJsStatic> | null = null;
-let dbPromise: Promise<Database> | null = null;
-let cachedDatabase: Database | null = null;
+let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
 
-const resolveSqlJsAsset = (fileName: string): string => {
-  const candidates = [
-    join(process.cwd(), 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', fileName),
-    join(process.resourcesPath ?? '', 'node_modules', 'sql.js', 'dist', fileName),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return fileName;
-};
-
-const getSqlRuntime = async (): Promise<SqlJsStatic> => {
-  if (!sqlRuntimePromise) {
-    sqlRuntimePromise = initSqlJs({ locateFile: (fileName) => resolveSqlJsAsset(fileName) });
-  }
-
-  return sqlRuntimePromise;
-};
-
 const persistDatabase = async (database: Database): Promise<void> => {
-  const bytes = database.export();
+  const buffer = database.serialize();
   await mkdirSafe(getSqliteRoot());
-  await writeFile(getDbPath(), await encryptSqliteBuffer(bytes));
+  await writeFile(getDbPath(), await encryptSqliteBuffer(Buffer.from(buffer)));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
-  const sqlRuntime = await getSqlRuntime();
   await mkdirSafe(getSqliteRoot());
 
   let database: Database;
   if (existsSync(getDbPath())) {
     const raw = await readFile(getDbPath());
     try {
-      database = new sqlRuntime.Database(await decryptSqliteBuffer(Buffer.from(raw)));
+      const decrypted = await decryptSqliteBuffer(Buffer.from(raw));
+      const tempPath = `${getDbPath()}.tmp`;
+      await writeFile(tempPath, decrypted);
+      database = new Database(tempPath);
     } catch {
-      database = new sqlRuntime.Database(new Uint8Array(raw));
-      await persistDatabase(database);
+      const tempPath = `${getDbPath()}.tmp`;
+      await writeFile(tempPath, raw);
+      database = new Database(tempPath);
     }
   } else {
-    database = new sqlRuntime.Database();
+    database = new Database(':memory:');
   }
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS history_digests (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -121,9 +98,9 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run('CREATE INDEX IF NOT EXISTS idx_history_digests_session ON history_digests(session_id, compacted_at DESC);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_history_digests_session ON history_digests(session_id, compacted_at DESC);');
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS context_session_state (
       session_id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -133,7 +110,7 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS chat_history_raw (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -145,9 +122,9 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run('CREATE INDEX IF NOT EXISTS idx_chat_history_raw_session ON chat_history_raw(session_id, created_at DESC);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_chat_history_raw_session ON chat_history_raw(session_id, created_at DESC);');
 
-  database.run(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS chat_context_active (
       session_id TEXT NOT NULL,
       message_id TEXT NOT NULL,
@@ -160,19 +137,17 @@ const initializeDatabase = async (): Promise<Database> => {
     );
   `);
 
-  database.run('CREATE INDEX IF NOT EXISTS idx_chat_context_active_session ON chat_context_active(session_id, active_rank ASC);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_chat_context_active_session ON chat_context_active(session_id, active_rank ASC);');
 
-  await persistDatabase(database);
-  cachedDatabase = database;
+  db = database;
   return database;
 };
 
 const getDatabase = async (): Promise<Database> => {
-  if (!dbPromise) {
-    dbPromise = initializeDatabase();
+  if (!db) {
+    await initializeDatabase();
   }
-
-  return dbPromise;
+  return db!;
 };
 
 const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
@@ -183,29 +158,23 @@ const queueWrite = async (operation: () => Promise<void>): Promise<void> => {
 export const contextDigestStoreService = {
   async dispose(): Promise<void> {
     await writeQueue;
-    if (cachedDatabase) {
-      cachedDatabase.close();
-      cachedDatabase = null;
+    if (db) {
+      db.close();
+      db = null;
     }
-    dbPromise = null;
   },
 
   async ensureSessionActive(sessionId: string, summary?: string | null): Promise<void> {
     await queueWrite(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
-        INSERT INTO context_session_state (session_id, status, last_summary, archived_at, updated_at)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO context_session_state (session_id, status, last_summary, archived_at, updated_at)
         VALUES (?, 'ACTIVE', ?, NULL, ?)
-        ON CONFLICT(session_id) DO UPDATE SET
-          status = 'ACTIVE',
-          last_summary = excluded.last_summary,
-          archived_at = NULL,
-          updated_at = excluded.updated_at
       `);
 
       const now = new Date().toISOString();
-      statement.run([sessionId, summary ?? null, now]);
-      statement.free();
+      stmt.run([sessionId, summary ?? null, now]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -213,19 +182,14 @@ export const contextDigestStoreService = {
   async archiveSession(sessionId: string, summary?: string | null): Promise<void> {
     await queueWrite(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
-        INSERT INTO context_session_state (session_id, status, last_summary, archived_at, updated_at)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO context_session_state (session_id, status, last_summary, archived_at, updated_at)
         VALUES (?, 'ARCHIVED', ?, ?, ?)
-        ON CONFLICT(session_id) DO UPDATE SET
-          status = 'ARCHIVED',
-          last_summary = excluded.last_summary,
-          archived_at = excluded.archived_at,
-          updated_at = excluded.updated_at
       `);
 
       const now = new Date().toISOString();
-      statement.run([sessionId, summary ?? null, now, now]);
-      statement.free();
+      stmt.run([sessionId, summary ?? null, now, now]);
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -233,18 +197,12 @@ export const contextDigestStoreService = {
   async appendRawMessage(payload: UpsertRawMessagePayload): Promise<void> {
     await queueWrite(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
-        INSERT INTO chat_history_raw (id, session_id, role, content, token_estimate, created_at, payload_json)
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO chat_history_raw (id, session_id, role, content, token_estimate, created_at, payload_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          role = excluded.role,
-          content = excluded.content,
-          token_estimate = excluded.token_estimate,
-          created_at = excluded.created_at,
-          payload_json = excluded.payload_json
       `);
 
-      statement.run([
+      stmt.run([
         payload.id,
         payload.sessionId,
         payload.role,
@@ -253,7 +211,7 @@ export const contextDigestStoreService = {
         payload.createdAt,
         payload.payloadJson,
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -261,17 +219,17 @@ export const contextDigestStoreService = {
   async replaceActiveContext(payload: ReplaceActiveContextPayload): Promise<void> {
     await queueWrite(async () => {
       const db = await getDatabase();
-      const deleteStatement = db.prepare('DELETE FROM chat_context_active WHERE session_id = ?');
-      deleteStatement.run([payload.sessionId]);
-      deleteStatement.free();
+      const deleteStmt = db.prepare('DELETE FROM chat_context_active WHERE session_id = ?');
+      deleteStmt.run([payload.sessionId]);
+      deleteStmt.free();
 
-      const insertStatement = db.prepare(`
+      const insertStmt = db.prepare(`
         INSERT INTO chat_context_active (session_id, message_id, role, content, token_estimate, created_at, active_rank)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
 
       payload.messages.forEach((message, index) => {
-        insertStatement.run([
+        insertStmt.run([
           payload.sessionId,
           message.id,
           message.role,
@@ -282,7 +240,7 @@ export const contextDigestStoreService = {
         ]);
       });
 
-      insertStatement.free();
+      insertStmt.free();
       await persistDatabase(db);
     });
   },
@@ -292,7 +250,7 @@ export const contextDigestStoreService = {
 
     await queueWrite(async () => {
       const db = await getDatabase();
-      const statement = db.prepare(`
+      const stmt = db.prepare(`
         INSERT INTO history_digests (
           id,
           session_id,
@@ -306,7 +264,7 @@ export const contextDigestStoreService = {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      statement.run([
+      stmt.run([
         payload.id,
         payload.sessionId,
         payload.summary,
@@ -317,7 +275,7 @@ export const contextDigestStoreService = {
         payload.compactedAt,
         createdAt,
       ]);
-      statement.free();
+      stmt.free();
       await persistDatabase(db);
     });
 
@@ -336,7 +294,7 @@ export const contextDigestStoreService = {
 
   async getLatestDigest(sessionId: string): Promise<StoredHistoryDigest | null> {
     const db = await getDatabase();
-    const statement = db.prepare(`
+    const stmt = db.prepare(`
       SELECT id, session_id, summary, metadata_json, before_tokens, after_tokens, removed_messages, compacted_at, created_at
       FROM history_digests
       WHERE session_id = ?
@@ -344,14 +302,13 @@ export const contextDigestStoreService = {
       LIMIT 1
     `);
 
-    statement.bind([sessionId]);
-    if (!statement.step()) {
-      statement.free();
+    stmt.bind([sessionId]);
+    const row = stmt.get() as Record<string, unknown> | undefined;
+    stmt.free();
+
+    if (!row) {
       return null;
     }
-
-    const row = statement.getAsObject() as Record<string, unknown>;
-    statement.free();
 
     return {
       id: typeof row.id === 'string' ? row.id : '',
@@ -369,7 +326,7 @@ export const contextDigestStoreService = {
   async listDigests(sessionId: string, limit = 20): Promise<StoredHistoryDigest[]> {
     const db = await getDatabase();
     const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
-    const statement = db.prepare(`
+    const stmt = db.prepare(`
       SELECT id, session_id, summary, metadata_json, before_tokens, after_tokens, removed_messages, compacted_at, created_at
       FROM history_digests
       WHERE session_id = ?
@@ -377,25 +334,20 @@ export const contextDigestStoreService = {
       LIMIT ?
     `);
 
-    statement.bind([sessionId, safeLimit]);
+    stmt.bind([sessionId, safeLimit]);
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    stmt.free();
 
-    const rows: StoredHistoryDigest[] = [];
-    while (statement.step()) {
-      const row = statement.getAsObject() as Record<string, unknown>;
-      rows.push({
-        id: typeof row.id === 'string' ? row.id : '',
-        sessionId: typeof row.session_id === 'string' ? row.session_id : sessionId,
-        summary: typeof row.summary === 'string' ? row.summary : '',
-        metadataJson: typeof row.metadata_json === 'string' ? row.metadata_json : '{}',
-        beforeTokens: Number(row.before_tokens ?? 0),
-        afterTokens: Number(row.after_tokens ?? 0),
-        removedMessages: Number(row.removed_messages ?? 0),
-        compactedAt: typeof row.compacted_at === 'string' ? row.compacted_at : '',
-        createdAt: typeof row.created_at === 'string' ? row.created_at : '',
-      });
-    }
-
-    statement.free();
-    return rows;
+    return rows.map(row => ({
+      id: typeof row.id === 'string' ? row.id : '',
+      sessionId: typeof row.session_id === 'string' ? row.session_id : sessionId,
+      summary: typeof row.summary === 'string' ? row.summary : '',
+      metadataJson: typeof row.metadata_json === 'string' ? row.metadata_json : '{}',
+      beforeTokens: Number(row.before_tokens ?? 0),
+      afterTokens: Number(row.after_tokens ?? 0),
+      removedMessages: Number(row.removed_messages ?? 0),
+      compactedAt: typeof row.compacted_at === 'string' ? row.compacted_at : '',
+      createdAt: typeof row.created_at === 'string' ? row.created_at : '',
+    }));
   },
 };

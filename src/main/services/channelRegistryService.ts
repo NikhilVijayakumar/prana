@@ -1,28 +1,45 @@
 import { ChannelAdapter, ChannelCapabilityProfile } from './types/channelAdapterTypes';
 import { InternalChatAdapter, TelegramAdapter, WhatsAppAdapter } from './adapters';
 
-class ChannelRegistryService {
-  private readonly adapters = new Map<string, ChannelAdapter>();
+/**
+ * Factory function to create a channel registry.
+ * This is transitional - will be fully DB-backed in v2.
+ */
+export const createChannelRegistry = () => {
+  const adapters = new Map<string, ChannelAdapter>();
 
-  register(adapter: ChannelAdapter): void {
-    this.adapters.set(adapter.channelId, adapter);
-  }
+  // Register default adapters
+  adapters.set('internal-chat', new InternalChatAdapter());
+  adapters.set('telegram', new TelegramAdapter());
+  adapters.set('whatsapp', new WhatsAppAdapter());
 
-  get(channelId: string): ChannelAdapter | null {
-    return this.adapters.get(channelId) ?? null;
-  }
+  return {
+    register(adapter: ChannelAdapter): void {
+      this.adapters.set(adapter.channelId, adapter);
+    },
 
-  listAll(): ChannelAdapter[] {
-    return Array.from(this.adapters.values());
-  }
+    get(channelId: string): ChannelAdapter | null {
+      return adapters.get(channelId) ?? null;
+    },
 
-  async listCapabilities(): Promise<ChannelCapabilityProfile[]> {
-    return Promise.all(this.listAll().map(async (adapter) => adapter.getCapabilities()));
-  }
-}
+    listAll(): ChannelAdapter[] {
+      return Array.from(adapters.values());
+    },
 
-export const channelRegistryService = new ChannelRegistryService();
+    async listCapabilities(): Promise<ChannelCapabilityProfile[]> {
+      return Promise.all(this.listAll().map(async (adapter) => adapter.getCapabilities()));
+    },
 
-channelRegistryService.register(new InternalChatAdapter());
-channelRegistryService.register(new TelegramAdapter());
-channelRegistryService.register(new WhatsAppAdapter());
+    // For testing
+    __resetForTesting(): void {
+      adapters.clear();
+      // Re-register defaults
+      adapters.set('internal-chat', new InternalChatAdapter());
+      adapters.set('telegram', new TelegramAdapter());
+      adapters.set('whatsapp', new WhatsAppAdapter());
+    },
+  };
+};
+
+// Backward compatibility - creates a default instance
+export const channelRegistryService = createChannelRegistry();

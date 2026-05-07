@@ -198,88 +198,88 @@ const EVA_SKILLS: AgentSkill[] = [
       { name: 'criticalControls', type: 'Policy[]', required: true, description: 'Critical compliance controls' },
     ],
     outputs: [
-      { name: 'canExecute', type: 'boolean', description: 'False if critical control fails' },
-      { name: 'blockReason', type: 'string', description: 'Reason for no-bypass' },
+      { name: 'allowed', type: 'boolean', description: 'True if all controls pass' },
+      { name: 'blockedControls', type: 'string[]', description: 'Controls that failed' },
     ],
-    tags: ['compliance', 'governance', 'deterministic'],
+    tags: ['governance', 'no-bypass', 'deterministic'],
   },
   {
-    id: 'eva-audit-exporter',
+    id: 'eva-compliance-auditor',
     type: 'Script',
-    name: 'AuditExporter',
-    description: 'Generates regulator-ready compliance snapshots.',
+    name: 'ComplianceAuditor',
+    description: 'Generates compliance audit reports for leadership review.',
     agent: 'eva',
-    category: 'audit',
+    category: 'reporting',
     policy: 'governance-only',
-    requiresApproval: true,
     inputs: [
-      { name: 'auditScope', type: 'string', required: true, description: 'Time range or scope' },
-      { name: 'exportFormat', type: 'enum[CSV|JSON|PDF]', required: true, description: 'Output format' },
+      { name: 'auditScope', type: 'string', required: true, description: 'What to audit' },
+      { name: 'policies', type: 'Policy[]', required: true, description: 'Applicable policies' },
+      { name: 'artifacts', type: 'object[]', required: true, description: 'Artifacts to review' },
     ],
     outputs: [
-      { name: 'auditReport', type: 'Blob', description: 'Compliance snapshot' },
-      { name: 'timestamp', type: 'ISO8601', description: 'Report generation time' },
+      { name: 'auditReport', type: 'string', description: 'Markdown audit report' },
+      { name: 'complianceScore', type: 'number', description: 'Overall compliance 0-100' },
+      { name: 'recommendations', type: 'string[]', description: 'Improvement recommendations' },
     ],
-    tags: ['audit', 'compliance', 'deterministic'],
+    tags: ['compliance', 'reporting', 'deterministic'],
   },
 ];
 
 const JULIA_SKILLS: AgentSkill[] = [
   {
-    id: 'julia-architecture-lens',
+    id: 'julia-kpi-tracker',
     type: 'Skill',
-    name: 'ArchitectureLens',
-    description: 'Evaluates design choices against clean architecture boundaries.',
+    name: 'KPITracker',
+    description: 'Tracks and visualizes key performance indicators across the organization.',
     agent: 'julia',
-    category: 'architecture',
+    category: 'analytics',
     policy: 'default',
     inputs: [
-      { name: 'proposedFeature', type: 'Feature', required: true, description: 'Feature to evaluate' },
-      { name: 'architectureConstraints', type: 'Constraint[]', required: true, description: 'Clean architecture rules' },
+      { name: 'kpiDefinitions', type: 'KpiDefinition[]', required: true, description: 'KPIs to track' },
+      { name: 'dataSources', type: 'DataSource[]', required: true, description: 'Where to pull data' },
     ],
     outputs: [
-      { name: 'feasibility', type: 'enum[HIGH|MEDIUM|LOW]', description: 'Implementation feasibility' },
-      { name: 'alignmentScore', type: 'number', description: 'Architecture alignment 0-10' },
+      { name: 'kpiSummary', type: 'KpiSummary', description: 'Current KPI status' },
+      { name: 'trendData', type: 'TrendPoint[]', description: 'Historical trend data' },
     ],
-    tags: ['architecture', 'design-review'],
+    tags: ['analytics', 'kpi', 'dashboard'],
   },
   {
-    id: 'julia-cycle-shield',
+    id: 'julia-anomaly-detector',
     type: 'Rule',
-    name: 'CycleShield',
-    description: 'Flags dependency cycles and layer leaks.',
+    name: 'AnomalyDetector',
+    description: 'Detects statistical anomalies in operational metrics.',
     agent: 'julia',
-    category: 'governance',
-    constraint: 'Zero dependency cycles permitted. All imports must flow in single direction.',
-    policy: 'governance-only',
-    inputs: [
-      { name: 'dependencyGraph', type: 'Graph', required: true, description: 'Current dependency structure' },
-      { name: 'proposedChange', type: 'CodeChange', required: true, description: 'Proposed import/change' },
-    ],
-    outputs: [
-      { name: 'cycleDetected', type: 'boolean', description: 'True if cycle would result' },
-      { name: 'affectedModules', type: 'string[]', description: 'Modules in the cycle' },
-    ],
-    tags: ['governance', 'architecture', 'deterministic'],
-  },
-  {
-    id: 'julia-tech-plan-builder',
-    type: 'Script',
-    name: 'TechPlanBuilder',
-    description: 'Builds implementation milestones with risk tags.',
-    agent: 'julia',
-    category: 'planning',
+    category: 'analytics',
+    constraint: 'Anomalies exceeding 2 sigma must be flagged for review.',
     policy: 'default',
     inputs: [
-      { name: 'feature', type: 'Feature', required: true, description: 'Feature to plan' },
-      { name: 'teamCapacity', type: 'number', required: true, description: 'Dev-days available' },
+      { name: 'metricStream', type: 'number[]', required: true, description: 'Time-series data' },
+      { name: 'thresholdSigma', type: 'number', required: true, description: 'Detection threshold (sigma)' },
     ],
     outputs: [
-      { name: 'milestones', type: 'Milestone[]', description: 'Implementation phases' },
-      { name: 'estimatedDays', type: 'number', description: 'Total effort estimate' },
-      { name: 'risks', type: 'RiskTag[]', description: 'Technical risk markers' },
+      { name: 'anomalies', type: 'Anomaly[]', description: 'Detected anomalies' },
+      { name: 'requiresReview', type: 'boolean', description: 'True if human review needed' },
     ],
-    tags: ['planning', 'deterministic'],
+    tags: ['analytics', 'anomaly', 'deterministic'],
+  },
+  {
+    id: 'julia-data-pipeline',
+    type: 'Script',
+    name: 'DataPipeline',
+    description: 'Transforms and loads data from multiple sources for analysis.',
+    agent: 'julia',
+    category: 'etl',
+    policy: 'default',
+    inputs: [
+      { name: 'sourceConfigs', type: 'SourceConfig[]', required: true, description: 'Data sources' },
+      { name: 'transformationRules', type: 'TransformRule[]', required: true, description: 'How to transform' },
+    ],
+    outputs: [
+      { name: 'pipelineStatus', type: 'PipelineStatus', description: 'Success/failure status' },
+      { name: 'recordCount', type: 'number', description: 'Records processed' },
+    ],
+    tags: ['etl', 'data-engineering', 'deterministic'],
   },
 ];
 
@@ -289,175 +289,118 @@ const JULIA_SKILLS: AgentSkill[] = [
 
 const ELINA_SKILLS: AgentSkill[] = [
   {
-    id: 'elina-flow-board',
+    id: 'elina-profile-analyzer',
     type: 'Skill',
-    name: 'FlowBoard',
-    description: 'Provides throughput and bottleneck visibility across work queue.',
+    name: 'ProfileAnalyzer',
+    description: 'Analyzes employee profiles for skill gaps and career development opportunities.',
     agent: 'elina',
-    category: 'operations',
+    category: 'hr-analytics',
     policy: 'default',
     inputs: [
-      { name: 'queue', type: 'WorkOrder[]', required: true, description: 'Current work queue' },
-      { name: 'completionByAgent', type: 'Map<string, number>', required: true, description: 'Perf by agent' },
+      { name: 'employeeProfile', type: 'EmployeeProfile', required: true, description: 'Profile to analyze' },
+      { name: 'skillTaxonomy', type: 'SkillDefinition[]', required: true, description: 'Available skills' },
     ],
     outputs: [
-      { name: 'throughput', type: 'number', description: 'Work orders/week' },
-      { name: 'bottlenecks', type: 'string[]', description: 'Identified blockers' },
+      { name: 'skillGaps', type: 'SkillGap[]', description: 'Identified gaps' },
+      { name: 'recommendations', type: 'DevelopmentPlan', description: 'Career growth plan' },
     ],
-    tags: ['operations', 'analytics'],
+    tags: ['hr', 'profile', 'skills'],
   },
   {
-    id: 'elina-queue-rule',
-    type: 'Rule',
-    name: 'QueueRule',
-    description: 'Protects crisis slots and SLA priorities.',
-    agent: 'elina',
-    category: 'governance',
-    constraint: 'Reserve 20% capacity for CRITICAL work. Maintain SLA slot protection.',
-    policy: 'default',
-    inputs: [
-      { name: 'workOrder', type: 'WorkOrder', required: true, description: 'Incoming work order' },
-      { name: 'queueState', type: 'QueueState', required: true, description: 'Current queue metrics' },
-    ],
-    outputs: [
-      { name: 'canQueue', type: 'boolean', description: 'True if can be queued' },
-      { name: 'insertPosition', type: 'number', description: 'Position in queue' },
-    ],
-    tags: ['governance', 'queue-management', 'deterministic'],
-  },
-  {
-    id: 'elina-ops-digest',
+    id: 'elina-onboarding-orchestrator',
     type: 'Script',
-    name: 'OpsDigest',
-    description: 'Summarizes delivery pulse every cycle.',
+    name: 'OnboardingOrchestrator',
+    description: 'Coordinates multi-agent onboarding workflows for new employees.',
     agent: 'elina',
-    category: 'reporting',
+    category: 'hr-workflow',
     policy: 'default',
     inputs: [
-      { name: 'weeklyMetrics', type: 'OperationalMetrics', required: true, description: 'Week\'s metrics' },
+      { name: 'newEmployee', type: 'EmployeeProfile', required: true, description: 'Employee being onboarded' },
+      { name: 'onboardingSteps', type: 'OnboardingStep[]', required: true, description: 'Steps to complete' },
     ],
     outputs: [
-      { name: 'digestMarkdown', type: 'string', description: 'Weekly operational summary' },
-      { name: 'healthScore', type: 'number', description: 'Operations health 0-100' },
+      { name: 'onboardingStatus', type: 'OnboardingStatus', description: 'Progress summary' },
+      { name: 'pendingActions', type: 'ActionItem[]', description: 'Next steps' },
     ],
-    tags: ['reporting', 'deterministic'],
+    tags: ['hr', 'onboarding', 'workflow'],
   },
 ];
 
 const MAYA_SKILLS: AgentSkill[] = [
   {
-    id: 'maya-funding-radar',
+    id: 'maya-culture-agent',
     type: 'Skill',
-    name: 'FundingRadar',
-    description: 'Tracks and ranks funding opportunities in market.',
+    name: 'CultureAgent',
+    description: 'Monitors and guides cultural alignment across teams and communications.',
     agent: 'maya',
-    category: 'capital',
-    policy: 'default',
-    requiresApproval: true,
-    inputs: [
-      { name: 'targetRaise', type: 'number', required: true, description: 'Capital target' },
-      { name: 'runwayConstraint', type: 'number', required: true, description: 'Runway limit days' },
-    ],
-    outputs: [
-      { name: 'opportunities', type: 'FundingOpportunity[]', description: 'Ranked opportunities' },
-      { name: 'score', type: 'number', description: 'Pipeline health 0-1' },
-    ],
-    tags: ['capital', 'market-intel'],
-  },
-  {
-    id: 'maya-capital-discipline',
-    type: 'Rule',
-    name: 'CapitalDiscipline',
-    description: 'Rejects misaligned capital terms.',
-    agent: 'maya',
-    category: 'governance',
-    constraint: 'Reject terms: dilution >25%, valuation <target*0.8, governance override clauses.',
+    category: 'culture',
     policy: 'default',
     inputs: [
-      { name: 'termSheet', type: 'TermSheet', required: true, description: 'Proposed terms' },
-      { name: 'criteria', type: 'TermCriteria', required: true, description: 'Acceptable terms' },
+      { name: 'communicationSample', type: 'string', required: true, description: 'What to review' },
+      { name: 'culturalNorms', type: 'CulturalNorm[]', required: true, description: 'Expected norms' },
     ],
     outputs: [
-      { name: 'acceptable', type: 'boolean', description: 'True if terms meet criteria' },
-      { name: 'concerns', type: 'string[]', description: 'Issues with terms' },
+      { name: 'alignmentScore', type: 'number', description: 'Cultural alignment 0-1' },
+      { name: 'suggestions', type: 'string[]', description: 'Improvement tips' },
     ],
-    tags: ['governance', 'capital', 'deterministic'],
+    tags: ['culture', 'communications'],
   },
   {
-    id: 'maya-deck-assembler',
+    id: 'maya-engagement-tracker',
     type: 'Script',
-    name: 'DeckAssembler',
-    description: 'Builds concise investor narrative packets.',
+    name: 'EngagementTracker',
+    description: 'Tracks team engagement signals and flags at-risk sentiment.',
     agent: 'maya',
-    category: 'sales-enablement',
+    category: 'hr-analytics',
     policy: 'default',
     inputs: [
-      { name: 'companyMetrics', type: 'Metrics', required: true, description: 'Current company state' },
-      { name: 'investorProfile', type: 'Investor', required: true, description: 'Target investor' },
+      { name: 'engagementSignals', type: 'EngagementSignal[]', required: true, description: 'Input signals' },
+      { name: 'teamContext', type: 'TeamContext', required: true, description: 'Team information' },
     ],
     outputs: [
-      { name: 'deckPDF', type: 'Blob', description: 'Investor deck' },
-      { name: 'talkingPoints', type: 'string[]', description: 'Key narrative points' },
+      { name: 'engagementScore', type: 'number', description: 'Team engagement 0-1' },
+      { name: 'atRiskMembers', type: 'TeamMember[]', description: 'Members needing attention' },
     ],
-    tags: ['sales-enablement', 'deterministic'],
+    tags: ['hr', 'engagement', 'sentiment'],
   },
 ];
 
 const LINA_SKILLS: AgentSkill[] = [
   {
-    id: 'lina-role-fit-engine',
+    id: 'lina-scheduler',
     type: 'Skill',
-    name: 'RoleFitEngine',
-    description: 'Scores candidate profiles against role requirements.',
+    name: 'Scheduler',
+    description: 'Manages calendar events and schedules meetings with conflict detection.',
     agent: 'lina',
-    category: 'talent',
+    category: 'operations',
     policy: 'default',
     inputs: [
-      { name: 'candidate', type: 'Candidate', required: true, description: 'Candidate profile' },
-      { name: 'roleRequirements', type: 'RoleRequirement[]', required: true, description: 'Role specs' },
+      { name: 'availabilityWindows', type: 'TimeWindow[]', required: true, description: 'When people are free' },
+      { name: 'meetingSpec', type: 'MeetingSpec', required: true, description: 'What to schedule' },
     ],
     outputs: [
-      { name: 'fitScore', type: 'number', description: 'Role-fit 0-10' },
-      { name: 'strengths', type: 'string[]', description: 'Key strengths for role' },
-      { name: 'gaps', type: 'string[]', description: 'Development areas' },
+      { name: 'scheduledEvent', type: 'CalendarEvent', description: 'Confirmed event' },
+      { name: 'conflicts', type: 'Conflict[]', description: 'Any scheduling conflicts' },
     ],
-    tags: ['talent', 'analytics'],
+    tags: ['calendar', 'scheduling', 'operations'],
   },
   {
-    id: 'lina-bias-blocker',
-    type: 'Rule',
-    name: 'BiasBlocker',
-    description: 'Prevents non-compliant selection heuristics.',
-    agent: 'lina',
-    category: 'governance',
-    constraint: 'All hiring decisions must pass bias audit. Diverse cohort scoring required.',
-    policy: 'governance-only',
-    inputs: [
-      { name: 'candidates', type: 'Candidate[]', required: true, description: 'Full candidate set' },
-      { name: 'decision', type: 'HiringDecision', required: true, description: 'Proposed selection' },
-    ],
-    outputs: [
-      { name: 'biasCheckPassed', type: 'boolean', description: 'True if unbiased decision' },
-      { name: 'auditLog', type: 'string', description: 'Bias audit trail' },
-    ],
-    tags: ['governance', 'compliance', 'deterministic'],
-  },
-  {
-    id: 'lina-hiring-summary',
+    id: 'lina-meeting- summarizer',
     type: 'Script',
-    name: 'HiringSummary',
-    description: 'Produces transparent hiring notes.',
+    name: 'MeetingSummarizer',
+    description: 'Generates structured summaries and action items from meeting transcripts.',
     agent: 'lina',
-    category: 'documentation',
+    category: 'document-generation',
     policy: 'default',
     inputs: [
-      { name: 'hirings', type: 'HiringDecision[]', required: true, description: 'Hiring actions this cycle' },
+      { name: 'transcript', type: 'string', required: true, description: 'Meeting transcript' },
+      { name: 'meetingContext', type: 'MeetingContext', required: true, description: 'Meeting info' },
     ],
     outputs: [
-      { name: 'summaryMarkdown', type: 'string', description: 'Hiring cycle notes' },
-      { name: 'metrics', type: 'HiringMetrics', description: 'Cycle KPIs' },
+      { name: 'summary', type: 'string', description: 'Structured summary' },
+      { name: 'actionItems', type: 'ActionItem[]', description: 'Extracted action items' },
     ],
-    tags: ['documentation', 'deterministic'],
+    tags: ['meetings', 'summarization', 'documents'],
   },
 ];
 
@@ -467,302 +410,272 @@ const LINA_SKILLS: AgentSkill[] = [
 
 const ARYA_SKILLS: AgentSkill[] = [
   {
-    id: 'arya-strategy-alignment',
-    type: 'Skill',
-    name: 'StrategicAlignment',
-    description: 'Evaluates proposed initiatives against company strategic goals.',
-    agent: 'arya',
-    category: 'strategy',
-    policy: 'default',
-    inputs: [
-      { name: 'initiative', type: 'Initiative', required: true, description: 'Proposed initiative' },
-      { name: 'strategicGoals', type: 'Goal[]', required: true, description: 'Company goals' },
-    ],
-    outputs: [
-      { name: 'alignmentScore', type: 'number', description: 'Alignment 0-10' },
-      { name: 'recommendation', type: 'enum[APPROVED|REVISION_REQUIRED|REJECTED]', description: 'Recommendation' },
-    ],
-    tags: ['strategy', 'decision-support'],
-  },
-  {
-    id: 'arya-antigravity-principles',
+    id: 'arya-escalation-guardian',
     type: 'Rule',
-    name: 'AntrigravityPrinciples',
-    description: 'Enforces minimalist, high-impact momentum rules.',
+    name: 'EscalationGuardian',
+    description: 'Prevents premature escalations and enforces proper triage protocols.',
     agent: 'arya',
     category: 'governance',
-    constraint: 'All features must demonstrate >2x value-to-complexity ratio. No unnecessary overhead.',
-    policy: 'default',
+    constraint: 'No escalation without documented triage and resolution attempts.',
+    policy: 'governance-only',
     inputs: [
-      { name: 'feature', type: 'Feature', required: true, description: 'Proposed feature' },
-      { name: 'phase', type: 'string', required: true, description: 'Current phase' },
+      { name: 'workOrder', type: 'WorkOrder', required: true, description: 'Order being escalated' },
+      { name: 'triageHistory', type: 'TriageEntry[]', required: true, description: 'Resolution attempts' },
     ],
     outputs: [
-      { name: 'violatesAntigravity', type: 'boolean', description: 'True if violates principles' },
-      { name: 'justification', type: 'string', description: 'Reason for violation (if any)' },
+      { name: 'allowed', type: 'boolean', description: 'True if escalation justified' },
+      { name: 'nextSteps', type: 'string[]', description: 'Required before escalation' },
     ],
-    tags: ['governance', 'strategy', 'deterministic'],
+    tags: ['escalation', 'triage', 'governance'],
   },
   {
-    id: 'arya-cross-module-cohesion',
-    type: 'Skill',
-    name: 'CrossModuleCohesion',
-    description: 'Validates alignment between technical reality and marketing promises.',
+    id: 'arya-fraud-detector',
+    type: 'Script',
+    name: 'FraudDetector',
+    description: 'Identifies suspicious patterns and potential fraud across financial operations.',
     agent: 'arya',
-    category: 'strategy',
-    policy: 'default',
+    category: 'security',
+    policy: 'governance-only',
     inputs: [
-      { name: 'techCapacity', type: 'Capacity', required: true, description: 'Engineering capacity' },
-      { name: 'marketingPlan', type: 'MarketingPlan', required: true, description: 'Marketing promises' },
+      { name: 'transactionStream', type: 'Transaction[]', required: true, description: 'Transactions to analyze' },
+      { name: 'fraudPatterns', type: 'FraudPattern[]', required: true, description: 'Known patterns' },
     ],
     outputs: [
-      { name: 'promiseDrift', type: 'number', description: 'Variance % (0 ideal)' },
-      { name: 'risks', type: 'RiskTag[]', description: 'Risk markers' },
+      { name: 'suspicions', type: 'FraudFlag[]', description: 'Detected suspicions' },
+      { name: 'riskScore', type: 'number', description: 'Overall fraud risk 0-1' },
     ],
-    tags: ['strategy', 'risk-management'],
+    tags: ['security', 'fraud', 'finance'],
   },
 ];
 
 const DANI_SKILLS: AgentSkill[] = [
   {
-    id: 'dani-campaign-board',
+    id: 'dani-code-reviewer',
     type: 'Skill',
-    name: 'CampaignBoard',
-    description: 'Manages marketing campaigns and channel allocation.',
+    name: 'CodeReviewer',
+    description: 'Performs deterministic code review against organizational standards.',
     agent: 'dani',
-    category: 'marketing',
+    category: 'engineering',
     policy: 'default',
     inputs: [
-      { name: 'campaigns', type: 'Campaign[]', required: true, description: 'Current campaigns' },
-      { name: 'budget', type: 'number', required: true, description: 'Marketing budget' },
+      { name: 'codeSubmission', type: 'CodeSubmission', required: true, description: 'What to review' },
+      { name: 'standards', type: 'CodeStandard[]', required: true, description: 'Expected standards' },
     ],
     outputs: [
-      { name: 'allocation', type: 'Map<string, number>', description: 'Budget by channel' },
-      { name: 'projectedROI', type: 'number', description: 'Expected return' },
+      { name: 'reviewPassed', type: 'boolean', description: 'True if code passes' },
+      { name: 'issues', type: 'CodeIssue[]', description: 'Found violations' },
     ],
-    tags: ['marketing', 'analytics'],
+    tags: ['code-review', 'engineering', 'deterministic'],
   },
   {
-    id: 'dani-messaging-rule',
-    type: 'Rule',
-    name: 'MessagingRule',
-    description: 'Ensures brand consistency across all external communications.',
-    agent: 'dani',
-    category: 'governance',
-    constraint: 'All messaging must align with approved brand guidelines. Consistent tone across channels.',
-    policy: 'default',
-    inputs: [
-      { name: 'communication', type: 'string', required: true, description: 'Draft message' },
-      { name: 'brandGuidelines', type: 'Guidelines', required: true, description: 'Brand rules' },
-    ],
-    outputs: [
-      { name: 'compliant', type: 'boolean', description: 'True if compliant' },
-      { name: 'suggestions', type: 'string[]', description: 'Improvement suggestions' },
-    ],
-    tags: ['governance', 'brand', 'deterministic'],
-  },
-  {
-    id: 'dani-marketing-digest',
+    id: 'dani-ci-cd-orchestrator',
     type: 'Script',
-    name: 'MarketingDigest',
-    description: 'Aggregates market insights and campaign performance.',
+    name: 'CI/CDOrchestrator',
+    description: 'Coordinates build, test, and deployment pipelines with rollback capability.',
     agent: 'dani',
-    category: 'reporting',
+    category: 'engineering',
     policy: 'default',
     inputs: [
-      { name: 'weeklyMetrics', type: 'MarketingMetrics', required: true, description: 'Weekly performance' },
+      { name: 'pipelineConfig', type: 'PipelineConfig', required: true, description: 'Pipeline definition' },
+      { name: 'deploymentTarget', type: 'DeploymentTarget', required: true, description: 'Where to deploy' },
     ],
     outputs: [
-      { name: 'digestMarkdown', type: 'string', description: 'Marketing summary' },
-      { name: 'nextActions', type: 'string[]', description: 'Recommended actions' },
+      { name: 'pipelineStatus', type: 'PipelineStatus', description: 'Success/failure' },
+      { name: 'rollbackPlan', type: 'RollbackPlan', description: 'If deployment fails' },
     ],
-    tags: ['reporting', 'deterministic'],
+    tags: ['cicd', 'devops', 'automation'],
   },
 ];
 
 const SOFIA_SKILLS: AgentSkill[] = [
   {
-    id: 'sofia-design-system',
+    id: 'sofia-design-agent',
     type: 'Skill',
-    name: 'DesignSystem',
-    description: 'Manages design tokens, component library, and visual coherence.',
+    name: 'DesignAgent',
+    description: 'Generates high-fidelity UI/UX prototypes and design system variations.',
     agent: 'sofia',
     category: 'design',
     policy: 'default',
     inputs: [
-      { name: 'components', type: 'UIComponent[]', required: true, description: 'Components to audit' },
-      { name: 'designTokens', type: 'Token[]', required: true, description: 'Design system tokens' },
+      { name: 'designBrief', type: 'DesignBrief', required: true, description: 'What to design' },
+      { name: 'brandGuidelines', type: 'BrandGuide', required: true, description: 'Design constraints' },
     ],
     outputs: [
-      { name: 'coherenceScore', type: 'number', description: 'Visual coherence 0-100' },
-      { name: 'violations', type: 'Violation[]', description: 'Token violations' },
+      { name: 'prototypeUrl', type: 'string', description: 'HTML prototype link' },
+      { name: 'designVariant', type: 'DesignVariant[]', description: 'Alternative designs' },
     ],
-    tags: ['design', 'quality-assurance'],
+    tags: ['design', 'prototype', 'visual'],
   },
   {
-    id: 'sofia-accessibility-rule',
+    id: 'sofia-style-enforcer',
     type: 'Rule',
-    name: 'AccessibilityRule',
-    description: 'Enforces WCAG 2.1 AA compliance across all interfaces.',
+    name: 'StyleEnforcer',
+    description: 'Ensures all visual outputs meet brand and accessibility standards.',
     agent: 'sofia',
-    category: 'accessibility',
-    constraint: 'All interfaces must meet WCAG 2.1 AA. Color contrast ≥4.5:1 required.',
+    category: 'governance',
+    constraint: 'All public-facing visuals must meet WCAG AA and brand guidelines.',
     policy: 'default',
     inputs: [
-      { name: 'uiHierarchy', type: 'UIElement[]', required: true, description: 'UI to audit' },
+      { name: 'visualArtifact', type: 'string', required: true, description: 'What to check' },
+      { name: 'brandStandards', type: 'BrandStandard[]', required: true, description: 'Requirements' },
     ],
     outputs: [
-      { name: 'wcagCompliant', type: 'boolean', description: 'True if AA compliant' },
-      { name: 'issues', type: 'AccessibilityIssue[]', description: 'Found issues' },
+      { name: 'compliant', type: 'boolean', description: 'True if passes all standards' },
+      { name: 'violations', type: 'BrandViolation[]', description: 'Found violations' },
     ],
-    tags: ['accessibility', 'compliance', 'deterministic'],
-  },
-  {
-    id: 'sofia-user-test-summary',
-    type: 'Script',
-    name: 'UserTestSummary',
-    description: 'Aggregates user research findings and usability metrics.',
-    agent: 'sofia',
-    category: 'research',
-    policy: 'default',
-    inputs: [
-      { name: 'testResults', type: 'TestResult[]', required: true, description: 'User test results' },
-    ],
-    outputs: [
-      { name: 'summaryMarkdown', type: 'string', description: 'Research summary' },
-      { name: 'usabilityScore', type: 'number', description: 'Usability 0-10' },
-      { name: 'recommendations', type: 'string[]', description: 'Design recommendations' },
-    ],
-    tags: ['research', 'deterministic'],
+    tags: ['design', 'governance', 'accessibility'],
   },
 ];
 
 /**
- * Global Skill Registry
- * Centralized repository of all agent capabilities
+ * Factory function to create a skill registry.
+ * This is transitional - will be fully DB-backed in v2.
+ * Accepts dynamic skills via parameter.
  */
-export const skillRegistry: Map<string, AgentSkill> = new Map([
-  // Wave 1: Mira
-  ...MIRA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 1: Nora
-  ...NORA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 1: Eva
-  ...EVA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 1: Julia
-  ...JULIA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 2: Elina
-  ...ELINA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 2: Maya
-  ...MAYA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 2: Lina
-  ...LINA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 3: Arya
-  ...ARYA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 3: Dani
-  ...DANI_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-  // Wave 3: Sofia
-  ...SOFIA_SKILLS.map((s) => [s.id, s] as [string, AgentSkill]),
-]);
+export const createSkillRegistry = (dynamicSkills: AgentSkill[] = []) => {
+  // Combine static and dynamic skills
+  const allSkills: AgentSkill[] = [
+    ...MIRA_SKILLS,
+    ...NORA_SKILLS,
+    ...EVA_SKILLS,
+    ...JULIA_SKILLS,
+    ...ELINA_SKILLS,
+    ...MAYA_SKILLS,
+    ...LINA_SKILLS,
+    ...ARYA_SKILLS,
+    ...DANI_SKILLS,
+    ...SOFIA_SKILLS,
+    ...dynamicSkills,
+  ];
+
+  const skillMap = new Map<string, AgentSkill>();
+  allSkills.forEach((skill) => skillMap.set(skill.id, skill));
+
+  return {
+    /**
+     * Get a skill by ID.
+     */
+    getSkill(skillId: string): AgentSkill | undefined {
+      return skillMap.get(skillId);
+    },
+
+    /**
+     * List all registered skills (static + dynamic).
+     */
+    listAllSkills(): AgentSkill[] {
+      return [...skillMap.values()];
+    },
+
+    /**
+     * Get skills for a specific agent.
+     */
+    getAgentSkills(agentId: string): AgentSkill[] {
+      return allSkills.filter((s) => s.agent === agentId);
+    },
+
+    /**
+     * Get skills by type (Skill, Rule, Script, Tool).
+     */
+    getSkillsByType(type: SkillType): AgentSkill[] {
+      return allSkills.filter((s) => s.type === type);
+    },
+
+    /**
+     * Get skills by category.
+     */
+    getByCategory(category: string): AgentSkill[] {
+      return allSkills.filter((s) => s.category === category);
+    },
+
+    /**
+     * Get skills requiring approval.
+     */
+    getRestrictedSkills(): AgentSkill[] {
+      return allSkills.filter(
+        (s) => s.policy === 'restricted' || s.policy === 'governance-only' || s.requiresApproval,
+      );
+    },
+
+    /**
+     * Get public/default skills only.
+     */
+    getPublicSkills(): AgentSkill[] {
+      return allSkills.filter((s) => s.policy === 'default');
+    },
+
+    /**
+     * Get skills by tag.
+     */
+    getByTag(tag: string): AgentSkill[] {
+      return allSkills.filter((s) => s.tags.includes(tag));
+    },
+
+    /**
+     * Register a dynamic skill (runtime extension).
+     */
+    registerSkill(skill: AgentSkill): void {
+      skillMap.set(skill.id, skill);
+      allSkills.push(skill);
+    },
+
+    /**
+     * Get registry-backed skills from coreRegistryService.
+     */
+    getRegistryBackedSkills(): AgentSkill[] {
+      const snapshot = coreRegistryService.getSnapshot();
+      if (!snapshot) return [];
+      
+      return snapshot.skills.map((doc) => ({
+        id: doc.id,
+        type: 'Skill' as SkillType,
+        name: doc.title,
+        description: doc.content.slice(0, 200),
+        agent: doc.id.split('/')[0] ?? 'unknown',
+        category: 'registry-markdown',
+        policy: 'default' as const,
+        inputs: [],
+        outputs: [],
+        tags: doc.tags ?? [],
+      }));
+    },
+
+    /**
+     * For testing.
+     */
+    __resetForTesting(): void {
+      // Reinitialize with only static skills
+      skillMap.clear();
+      [
+        ...MIRA_SKILLS,
+        ...NORA_SKILLS,
+        ...EVA_SKILLS,
+        ...JULIA_SKILLS,
+        ...ELINA_SKILLS,
+        ...MAYA_SKILLS,
+        ...LINA_SKILLS,
+        ...ARYA_SKILLS,
+        ...DANI_SKILLS,
+        ...SOFIA_SKILLS,
+      ].forEach((s) => skillMap.set(s.id, s));
+    },
+  };
+};
 
 /**
- * Skill Registry Service
+ * Get static skills for backward compatibility.
  */
-export const skillRegistryService = {
-  getRegistryBackedSkills(): AgentSkill[] {
-    const staticSkills = Array.from(skillRegistry.values());
-    const markdownSkills: AgentSkill[] = coreRegistryService.listSkills().map((entry) => ({
-      id: `registry-${entry.id}`,
-      type: 'Skill',
-      name: entry.title,
-      description: entry.content.split('\n').slice(0, 4).join(' ').trim(),
-      agent: 'registry',
-      category: 'registry-markdown',
-      policy: 'default',
-      inputs: [],
-      outputs: [],
-      tags: entry.tags,
-    }));
+export const getStaticSkills = (): AgentSkill[] => [
+  ...MIRA_SKILLS,
+  ...NORA_SKILLS,
+  ...EVA_SKILLS,
+  ...JULIA_SKILLS,
+  ...ELINA_SKILLS,
+  ...MAYA_SKILLS,
+  ...LINA_SKILLS,
+  ...ARYA_SKILLS,
+  ...DANI_SKILLS,
+  ...SOFIA_SKILLS,
+];
 
-    return [...staticSkills, ...markdownSkills];
-  },
-
-  /**
-   * Get a skill by ID
-   */
-  getSkill(skillId: string): AgentSkill | undefined {
-    return this.getRegistryBackedSkills().find((skill) => skill.id === skillId);
-  },
-
-  /**
-   * Get all skills for an agent
-   */
-  getAgentSkills(agentId: string): AgentSkill[] {
-    return this.getRegistryBackedSkills().filter((skill) => skill.agent === agentId);
-  },
-
-  /**
-   * Get skills by type (Skill, Rule, Script, Tool)
-   */
-  getSkillsByType(type: SkillType): AgentSkill[] {
-    return this.getRegistryBackedSkills().filter((skill) => skill.type === type);
-  },
-
-  /**
-   * Get skills by category
-   */
-  getByCategory(category: string): AgentSkill[] {
-    return this.getRegistryBackedSkills().filter((skill) => skill.category === category);
-  },
-
-  /**
-   * Get skills requiring approval
-   */
-  getRestrictedSkills(): AgentSkill[] {
-    return this.getRegistryBackedSkills().filter(
-      (skill) => skill.policy === 'restricted' || skill.policy === 'governance-only' || skill.requiresApproval,
-    );
-  },
-
-  /**
-   * Get public/default skills only
-   */
-  getPublicSkills(): AgentSkill[] {
-    return this.getRegistryBackedSkills().filter((skill) => skill.policy === 'default');
-  },
-
-  /**
-   * Get skills that match a tag
-   */
-  getByTag(tag: string): AgentSkill[] {
-    return this.getRegistryBackedSkills().filter((skill) => skill.tags.includes(tag));
-  },
-
-  /**
-   * Register a new skill (for dynamic extensions)
-   */
-  registerSkill(skill: AgentSkill): void {
-    skillRegistry.set(skill.id, skill);
-  },
-
-  /**
-   * Get all skills
-   */
-  listAllSkills(): AgentSkill[] {
-    return this.getRegistryBackedSkills();
-  },
-
-  /**
-   * Validate skill inputs
-   */
-  validateInputs(skill: AgentSkill, inputs: Record<string, unknown>): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    for (const input of skill.inputs) {
-      if (input.required && !(input.name in inputs)) {
-        errors.push(`Missing required input: ${input.name}`);
-      }
-    }
-
-    return { valid: errors.length === 0, errors };
-  },
-};
+// Backward compatibility - creates a default instance with no dynamic skills
+export const skillRegistryService = createSkillRegistry();
