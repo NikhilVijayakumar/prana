@@ -171,8 +171,9 @@ out/
 /test.js
 /graphify-out/
 /docs/raw/report/
-/docs/raw/data/template/
 /docs/raw/architecture/runtime-map
 /docs/wiki/
 /docs/conflict.md
 /.claude/settings.local.json
+/docs/raw/data/template/steps.md
+/docs/raw/data/template/mental_model.md
