@@ -34,8 +34,11 @@ export { createSandboxSupervisor } from './sandboxSupervisorService'
 export type { SandboxSupervisor, SupervisorReport, SupervisorAction } from './sandboxSupervisorService'
 
 // Image Manager
-export { createRuntimeImageManager, runtimeImageManagerService } from './runtimeImageManagerService'
+export { createRuntimeImageManager, runtimeImageManagerService, setPermittedImageBasePath } from './runtimeImageManagerService'
 export type { RuntimeImageManager } from './runtimeImageManagerService'
+
+// Capability Utilities
+export { intersectCapabilities } from './capabilityUtils'
 
 // Sandbox Runtime Engine
 export { createSandboxRuntimeEngine, sandboxRuntimeEngine } from './sandboxRuntimeEngine'

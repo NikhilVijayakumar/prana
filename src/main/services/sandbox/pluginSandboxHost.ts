@@ -10,6 +10,7 @@ import { createRuntimeSessionManager } from './runtimeSessionManagerService'
 import { createSandboxSupervisor } from './sandboxSupervisorService'
 import { createSandboxIpcGateway } from './sandboxIpcGateway'
 import { runtimeImageManagerService } from './runtimeImageManagerService'
+import { intersectCapabilities } from './capabilityUtils'
 import { notificationCentreService } from '../notificationCentreService'
 
 const STUB_ENTRY = join(__dirname, 'runtimeStub.cjs')
@@ -20,7 +21,6 @@ export type PluginSandboxStatus = 'idle' | 'booting' | 'running' | 'stopping' | 
 export interface PluginSandboxLaunchResult {
   sessionId: string
   containerId: string
-  dbPath: string
 }
 
 // Writes fixture tables into a real SQLite DB at a temp path.
@@ -37,9 +37,12 @@ const setupSqliteDb = (fixture?: SandboxFixture): { db: Database.Database; dbPat
 
   if (fixture) {
     for (const [tableName, rows] of Object.entries(fixture.tables)) {
+      if (!isValidTableName(tableName)) continue
       if (!Array.isArray(rows) || rows.length === 0) continue
 
-      const cols = Object.keys(rows[0] as Record<string, unknown>)
+      const cols = Object.keys(rows[0] as Record<string, unknown>).filter((c) => isValidTableName(c))
+      if (cols.length === 0) continue
+
       db.exec(
         `CREATE TABLE IF NOT EXISTS ${tableName} (${cols.map((c) => `${c} TEXT`).join(', ')})`,
       )
@@ -59,6 +62,8 @@ const setupSqliteDb = (fixture?: SandboxFixture): { db: Database.Database; dbPat
   return { db, dbPath }
 }
 
+const isValidTableName = (t: string): boolean => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t)
+
 // Registers all host-side gateway handlers against the real SQLite DB.
 // These are the same operations the real host exposes — plugin code is identical in both environments.
 const registerHostHandlers = (
@@ -67,6 +72,7 @@ const registerHostHandlers = (
 ): void => {
   gateway.registerRoute('sqlite:read', async (payload) => {
     const { table, query } = payload as { table: string; query?: Record<string, unknown> }
+    if (!isValidTableName(table)) return []
     try {
       if (query && Object.keys(query).length > 0) {
         const conditions = Object.entries(query)
@@ -82,9 +88,11 @@ const registerHostHandlers = (
 
   gateway.registerRoute('sqlite:write', async (payload) => {
     const { table, rows } = payload as { table: string; rows: Record<string, unknown>[] }
+    if (!isValidTableName(table)) return { written: 0 }
     if (!rows.length) return { written: 0 }
 
-    const cols = Object.keys(rows[0])
+    const cols = Object.keys(rows[0]).filter((c) => isValidTableName(c))
+    if (cols.length === 0) return { written: 0 }
     try {
       db.exec(`CREATE TABLE IF NOT EXISTS ${table} (${cols.map((c) => `${c} TEXT`).join(', ')})`)
     } catch { /* table already exists */ }
@@ -283,7 +291,11 @@ export const createPluginSandboxHost = () => {
       orchestrator.transition(containerId, 'CREATED')
       orchestrator.transition(containerId, 'PREPARING')
 
-      const session = sessionManager.createSession(image.id, image.version, capabilities)
+      const effectiveCapabilities = image.manifest.permissions
+        ? intersectCapabilities(capabilities, image.manifest.permissions)
+        : capabilities
+
+      const session = sessionManager.createSession(image.id, image.version, effectiveCapabilities)
       sessionId = session.sessionId
       sessionManager.transitionState(sessionId, 'STARTING')
       orchestrator.transition(containerId, 'STARTING')
@@ -291,28 +303,29 @@ export const createPluginSandboxHost = () => {
       runtimeProcess = fork(entryPath, [], {
         silent: true,
         env: {
-          ...process.env,
           SANDBOX_SESSION_ID: sessionId,
           SANDBOX_RUNTIME_ID: image.id,
           SANDBOX_RUNTIME_VERSION: image.version,
-          // Plugin uses this path if it needs direct DB access during hydration bootstrap
           SANDBOX_SQLITE_PATH: dbPath,
         },
       })
 
-      runtimeProcess.on('message', (msg) => void onProcessMessage(msg as Record<string, unknown>))
+      runtimeProcess.on('message', (msg) => {
+        onProcessMessage(msg as Record<string, unknown>).catch((err) => {
+          if (sessionId) sessionManager.recordCrash(sessionId, `message handler error: ${String(err)}`)
+        })
+      })
       runtimeProcess.on('exit', onProcessExit)
 
-      runtimeProcess.stderr?.on('data', (chunk: Buffer) => {
-        if (sessionId && (status === 'running' || status === 'booting')) {
-          sessionManager.recordCrash(sessionId, `stderr: ${String(chunk).trim()}`)
-        }
+      runtimeProcess.stderr?.on('data', (_chunk: Buffer) => {
+        // stderr output is not a crash indicator — plugins write warnings to stderr normally
+        // crash detection is handled by onProcessExit
       })
 
-      // Capability injection tells the plugin what it is allowed to request via IPC
-      runtimeProcess.send({ type: 'capability:inject', capabilities })
+      // Capability injection tells the plugin what it is actually granted (post-intersection)
+      runtimeProcess.send({ type: 'capability:inject', capabilities: effectiveCapabilities })
 
-      return { sessionId, containerId, dbPath }
+      return { sessionId, containerId }
     },
 
     async shutdown(): Promise<void> {
@@ -360,10 +373,6 @@ export const createPluginSandboxHost = () => {
     async evaluateHealth() {
       if (!sessionId) return null
       return supervisor.evaluateNow(sessionId)
-    },
-
-    getGateway() {
-      return gateway
     },
 
     getDbPath(): string | null {

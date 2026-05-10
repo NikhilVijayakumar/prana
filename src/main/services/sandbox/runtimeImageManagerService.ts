@@ -1,9 +1,24 @@
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { access, readFile } from 'node:fs/promises'
+import { join, resolve, sep } from 'node:path'
 import type { RuntimeImage, RuntimeImageManifest } from './sandboxTypes'
 
-const imageCache = new Map<string, RuntimeImage>()
+let permittedImageBasePath: string | null = null
+
+export const setPermittedImageBasePath = (basePath: string): void => {
+  permittedImageBasePath = resolve(basePath)
+}
+
+const assertPathPermitted = (imagePath: string): void => {
+  const normalized = resolve(imagePath)
+  if (permittedImageBasePath !== null) {
+    const base = permittedImageBasePath.endsWith(sep)
+      ? permittedImageBasePath
+      : permittedImageBasePath + sep
+    if (!normalized.startsWith(base) && normalized !== permittedImageBasePath) {
+      throw new Error(`image path outside permitted directory: ${normalized}`)
+    }
+  }
+}
 
 const computeChecksum = (manifest: RuntimeImageManifest): string => {
   const content = JSON.stringify(manifest)
@@ -15,6 +30,8 @@ const computeChecksum = (manifest: RuntimeImageManifest): string => {
 }
 
 export const createRuntimeImageManager = () => {
+  const imageCache = new Map<string, RuntimeImage>()
+
   return {
     validateManifest(manifest: RuntimeImageManifest): void {
       if (!manifest.schemaVersion || manifest.schemaVersion < 1) {
@@ -26,8 +43,11 @@ export const createRuntimeImageManager = () => {
     },
 
     async resolveFromPath(imagePath: string): Promise<RuntimeImage> {
-      const manifestPath = join(imagePath, 'runtime.json')
-      if (!existsSync(manifestPath)) {
+      assertPathPermitted(imagePath)
+      const manifestPath = join(resolve(imagePath), 'runtime.json')
+      try {
+        await access(manifestPath)
+      } catch {
         throw new Error(`runtime manifest not found: ${manifestPath}`)
       }
 
@@ -35,8 +55,14 @@ export const createRuntimeImageManager = () => {
       const manifest = JSON.parse(raw) as RuntimeImageManifest
       this.validateManifest(manifest)
 
-      const entry = join(imagePath, manifest.runtime.entry)
-      if (!existsSync(entry)) {
+      const resolvedImagePath = resolve(imagePath)
+      const entry = resolve(join(resolvedImagePath, manifest.runtime.entry))
+      if (!entry.startsWith(resolvedImagePath + sep) && entry !== resolvedImagePath) {
+        throw new Error(`runtime entry escapes image directory: ${entry}`)
+      }
+      try {
+        await access(entry)
+      } catch {
         throw new Error(`runtime entry not found: ${entry}`)
       }
 

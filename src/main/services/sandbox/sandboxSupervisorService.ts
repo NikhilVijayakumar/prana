@@ -88,7 +88,7 @@ export const createSandboxSupervisor = (
       activeSessionId = sessionId
       if (monitorInterval) clearInterval(monitorInterval)
 
-      monitorInterval = setInterval(async () => {
+      monitorInterval = setInterval(() => {
         if (!activeSessionId) return
         const session = sessionManager.getSession(activeSessionId)
         if (!session || session.state !== 'RUNNING') return
@@ -96,10 +96,13 @@ export const createSandboxSupervisor = (
         const activeContainer = orchestrator.getActiveModuleContainer()
         if (!activeContainer) return
 
-        const report = await evaluateSession(session)
-        if (!report.healthy) {
-          applyActions(report, activeContainer.containerId)
-        }
+        evaluateSession(session)
+          .then((report) => {
+            if (!report.healthy) applyActions(report, activeContainer.containerId)
+          })
+          .catch(() => {
+            // supervisor evaluation failed — monitoring continues on next tick
+          })
       }, MONITOR_INTERVAL_MS)
     },
 

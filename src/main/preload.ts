@@ -260,8 +260,7 @@ contextBridge.exposeInMainWorld('api', {
     onEscalation: (callback: (event: any, { taskId, reason }: { taskId: string; reason: string }) => void) => {
       ipcRenderer.on('app:escalation-required', callback);
       return () => ipcRenderer.removeListener('app:escalation-required', callback);
-    },
-    clearEscalation: (payload: { taskId: string }) => ipcRenderer.invoke('app:escalation-cleared', payload)
+    }
   },
   workOrders: {
     submitDirectorRequest: (payload: {
@@ -299,40 +298,40 @@ contextBridge.exposeInMainWorld('api', {
         contextWindow?: number
         reservedOutputTokens?: number
       }
-    }) => ipcRenderer.invoke('context:bootstrap-session', payload),
+    }) => ipcRenderer.invoke('context-engine:bootstrap', payload),
     ingest: (payload: { sessionId: string; role: 'system' | 'user' | 'assistant' | 'tool'; content: string }) =>
-      ipcRenderer.invoke('context:ingest', payload),
+      ipcRenderer.invoke('context-engine:ingest', payload),
     ingestBatch: (payload: {
       sessionId: string
       messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }>
-    }) => ipcRenderer.invoke('context:ingest-batch', payload),
+    }) => ipcRenderer.invoke('context-engine:ingest-batch', payload),
     assemble: (payload: { sessionId: string; maxTokensOverride?: number }) =>
-      ipcRenderer.invoke('context:assemble', payload),
+      ipcRenderer.invoke('context-engine:assemble', payload),
     compact: (payload: { sessionId: string; reason?: string }) =>
-      ipcRenderer.invoke('context:compact', payload),
+      ipcRenderer.invoke('context-engine:compact', payload),
     afterTurn: (payload: { sessionId: string }) =>
-      ipcRenderer.invoke('context:after-turn', payload),
+      ipcRenderer.invoke('context-engine:after-turn', payload),
     prepareNewContext: (payload: { sessionId: string }) =>
-      ipcRenderer.invoke('context:prepare-new-context', payload),
+      ipcRenderer.invoke('context-engine:prepare-new-context', payload),
     startNewWithContext: (payload: {
       sourceSessionId: string
       targetSessionId: string
       summaryOverride?: string
-    }) => ipcRenderer.invoke('context:start-new-with-context', payload),
+    }) => ipcRenderer.invoke('context-engine:start-new-with-context', payload),
     getLatestDigest: (payload: { sessionId: string }) =>
-      ipcRenderer.invoke('context:get-latest-digest', payload),
+      ipcRenderer.invoke('context-engine:get-latest-digest', payload),
     listDigests: (payload: { sessionId: string; limit?: number }) =>
-      ipcRenderer.invoke('context:list-digests', payload),
+      ipcRenderer.invoke('context-engine:list-digests', payload),
     getSessionSnapshot: (payload: { sessionId: string }) =>
-      ipcRenderer.invoke('context:get-session-snapshot', payload),
-    listSessions: () => ipcRenderer.invoke('context:list-sessions'),
-    getTelemetry: () => ipcRenderer.invoke('context:get-telemetry'),
+      ipcRenderer.invoke('context-engine:get-session', payload),
+    listSessions: () => ipcRenderer.invoke('context-engine:list-sessions'),
+    getTelemetry: () => ipcRenderer.invoke('context-engine:get-telemetry'),
     disposeSession: (payload: { sessionId: string }) =>
-      ipcRenderer.invoke('context:dispose-session', payload),
+      ipcRenderer.invoke('context-engine:dispose', payload),
     prepareSubagentSpawn: (payload: { parentSessionId: string; childSessionId: string }) =>
-      ipcRenderer.invoke('context:prepare-subagent-spawn', payload),
+      ipcRenderer.invoke('context-engine:prepare-subagent-spawn', payload),
     onSubagentEnded: (payload: { parentSessionId: string; childSessionId: string; summary: string }) =>
-      ipcRenderer.invoke('context:on-subagent-ended', payload)
+      ipcRenderer.invoke('context-engine:on-subagent-ended', payload)
   },
   notifications: {
       list: (payload?: {
