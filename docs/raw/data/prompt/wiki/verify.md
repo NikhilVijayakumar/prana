@@ -408,6 +408,88 @@ Avoid excessive implementation detail.
 
 ---
 
+## Overall Wiki Scorecard
+
+Store dimension scores for trend tracking and release comparison.
+
+| Dimension | Score | Trend | Notes |
+|-----------|-------|-------|-------|
+| Implementation Alignment | ⬜ | ⬜ | |
+| Graph Integrity | ⬜ | ⬜ | |
+| Architecture Accuracy | ⬜ | ⬜ | |
+| Coverage Completeness | ⬜ | ⬜ | |
+| Navigation Quality | ⬜ | ⬜ | |
+| Token Efficiency | ⬜ | ⬜ | |
+
+Score values: `PASS` / `PASS_WITH_WARNINGS` / `FAILED`
+
+Generate machine-readable scoring summaries when possible.
+
+---
+
+## Report Persistence
+
+Persist the FULL unabridged verification report to:
+
+```text
+/docs/raw/report/wiki/latest
+```
+
+Directory structure:
+- `latest/` — most recent report
+- `archived/` — historical reports
+
+### Workflow
+
+1. Before creating new report, move current `latest` to `archived`
+2. Create one report file per verification execution
+3. Use deterministic filenames with timestamp + suite name
+
+### Filename format
+
+```text
+wiki-verification-[target]-[timestamp].md
+```
+
+Example:
+
+```text
+wiki-verification-full-2026-05-20T17-00-00.md
+```
+
+### Persisted report requirements
+
+The persisted report must contain:
+- full findings
+- drift evidence
+- scorecard
+- severity classifications
+- recommended actions
+
+Do NOT summarize or truncate persisted reports. Persist the raw report exactly as generated.
+
+### Report Stability Requirement
+
+The verification output must be stable and machine-readable.
+
+Avoid:
+- conversational wording
+- motivational commentary
+- unnecessary prose
+
+Prefer:
+- deterministic structure
+- repeatable headings
+- stable formatting
+
+The report will later be consumed by:
+- CI systems
+- architecture dashboards
+- governance tooling
+- regression comparison pipelines
+
+---
+
 # Success Criteria
 
 Verification succeeds when:
