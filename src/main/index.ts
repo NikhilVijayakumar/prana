@@ -11,116 +11,116 @@
 // Core Runtime Services
 // ============================================================================
 
-export { createPranaPlatformRuntime, setPranaPlatformRuntime, getPranaPlatformRuntime, pranaPlatformRuntime } from './services/pranaPlatformRuntime';
-export { createStartupOrchestrator, getLatestStartupStatus } from './services/startupOrchestratorService';
-export { createTokenManager, tokenManagerService } from './services/tokenManagerService';
-export { createSystemHealthService } from './services/systemHealthService';
+export { createPranaPlatformRuntime, setPranaPlatformRuntime, getPranaPlatformRuntime, pranaPlatformRuntime } from './common/config/pranaPlatformRuntime';
+export { createStartupOrchestrator, getLatestStartupStatus } from './features/operations/startupOrchestratorService';
+export { createTokenManager, tokenManagerService } from './common/config/tokenManagerService';
+export { createSystemHealthService } from './features/governance/systemHealthService';
 
 // ============================================================================
 // Authentication & Security
 // ============================================================================
 
-export { authService } from './services/authService';
-export { authStoreService } from './services/authStoreService';
+export { authService } from './features/auth/authService';
+export { authStoreService } from './features/auth/authStoreService';
 
 // ============================================================================
 // Storage & Database
 // ============================================================================
 
-export { SqliteService, createSqliteService } from './services/sqliteService';
-export { sqliteCacheService } from './services/sqliteCacheService';
-export { sqliteConfigStoreService } from './services/sqliteConfigStoreService';
+export { SqliteService, createSqliteService } from './common/storage/sqliteService';
+export { sqliteCacheService } from './common/storage/sqliteCacheService';
+export { sqliteConfigStoreService } from './common/storage/sqliteConfigStoreService';
 
 // ============================================================================
 // Vault Services
 // ============================================================================
 
-export { vaultService } from './services/vaultService';
-export { vaultMetadataService } from './services/vaultMetadataService';
-export { assertSafeVaultPath, getVirtualDriveProvider, rcloneVirtualDriveProvider, PATH_TRAVERSAL_VIOLATION } from './services/virtualDriveProvider';
-export { driveControllerService } from './services/driveControllerService';
+export { vaultService } from './features/vault/vaultService';
+export { vaultMetadataService } from './features/vault/vaultMetadataService';
+export { assertSafeVaultPath, getVirtualDriveProvider, rcloneVirtualDriveProvider, PATH_TRAVERSAL_VIOLATION } from './features/vault/virtualDriveProvider';
+export { driveControllerService } from './features/vault/driveControllerService';
 
 // ============================================================================
 // Sync & Data Transfer
 // ============================================================================
 
-export { createSyncEngine, syncEngineService } from './services/syncEngineService';
-export { createSyncProvider, syncProviderService } from './services/syncProviderService';
-export { syncStoreService } from './services/syncStoreService';
+export { createSyncEngine, syncEngineService } from './features/sync/syncEngineService';
+export { createSyncProvider, syncProviderService } from './features/sync/syncProviderService';
+export { syncStoreService } from './features/sync/syncStoreService';
 
 // ============================================================================
 // Scheduling & Cron
 // ============================================================================
 
-export { createCronScheduler, cronSchedulerService } from './services/cronSchedulerService';
+export { createCronScheduler, cronSchedulerService } from './features/orchestration/cronSchedulerService';
 
 // ============================================================================
 // Communication & Channels
 // ============================================================================
 
-export { createChannelRouter, channelRouterService } from './services/channelRouterService';
-export { createChannelRegistry, channelRegistryService } from './services/channelRegistryService';
-export { createEmailService, configureEmailService, emailService } from './services/emailService';
-export { emailOrchestratorService } from './services/emailOrchestratorService';
-export { emailKnowledgeContextStoreService } from './services/emailKnowledgeContextStoreService';
-export { googleBridgeService, GoogleBridgeService } from './services/googleBridgeService';
-export { googleSheetsCacheService } from './services/googleSheetsCacheService';
+export { createChannelRouter, channelRouterService } from './features/communication/channelRouterService';
+export { createChannelRegistry, channelRegistryService } from './features/communication/channelRegistryService';
+export { createEmailService, configureEmailService, emailService } from './features/communication/emailService';
+export { emailOrchestratorService } from './features/communication/emailOrchestratorService';
+export { emailKnowledgeContextStoreService } from './features/communication/emailKnowledgeContextStoreService';
+export { googleBridgeService, GoogleBridgeService } from './features/communication/googleBridgeService';
+export { googleSheetsCacheService } from './features/communication/googleSheetsCacheService';
 
 // ============================================================================
 // Context & Intelligence
 // ============================================================================
 
-export { contextEngineService } from './services/contextEngineService';
-export { contextDigestStoreService } from './services/contextDigestStoreService';
-export { memoryIndexService } from './services/memoryIndexService';
-export { contextOptimizerService } from './services/contextOptimizerService';
-export { businessContextStoreService } from './services/businessContextStoreService';
-export { businessContextRegistryService } from './services/businessContextRegistryService';
-export { businessContextValidationService } from './services/businessContextValidationService';
-export { businessAlignmentService } from './services/businessAlignmentService';
+export { contextEngineService } from './features/context/contextEngineService';
+export { contextDigestStoreService } from './features/context/contextDigestStoreService';
+export { memoryIndexService } from './features/context/memoryIndexService';
+export { contextOptimizerService } from './features/context/contextOptimizerService';
+export { businessContextStoreService } from './features/context/businessContextStoreService';
+export { businessContextRegistryService } from './features/context/businessContextRegistryService';
+export { businessContextValidationService } from './features/context/businessContextValidationService';
+export { businessAlignmentService } from './features/context/businessAlignmentService';
 
 // ============================================================================
 // Registry Services
 // ============================================================================
 
-export { createCoreRegistry, coreRegistryService } from './services/coreRegistryService';
-export { createSkillRegistry, getStaticSkills, skillRegistryService } from './services/skillRegistry';
-export { createAgentRegistry, agentRegistryService } from './services/agentRegistryService';
-export { taskRegistryService } from './services/taskRegistryService';
-export { createQueueOrchestrator, queueOrchestratorService } from './services/queueOrchestratorService';
-export { mountRegistryService } from './services/mountRegistryService';
+export { createCoreRegistry, coreRegistryService } from './features/registry/coreRegistryService';
+export { createSkillRegistry, getStaticSkills, skillRegistryService } from './features/agent/skillRegistry';
+export { createAgentRegistry, agentRegistryService } from './features/agent/agentRegistryService';
+export { taskRegistryService } from './features/registry/taskRegistryService';
+export { createQueueOrchestrator, queueOrchestratorService } from './features/orchestration/queueOrchestratorService';
+export { mountRegistryService } from './features/registry/mountRegistryService';
 
 // ============================================================================
 // Operations & Workflows
 // ============================================================================
 
-export { operationsService } from './services/operationsService';
-export { workOrderService } from './services/workOrderService';
-export { createHookSystem, hookSystemService } from './services/hookSystemService';
+export { operationsService } from './features/operations/operationsService';
+export { workOrderService } from './features/operations/workOrderService';
+export { createHookSystem, hookSystemService } from './features/governance/hookSystemService';
 
 // ============================================================================
 // Notifications
 // ============================================================================
 
-export { createNotificationCentre, subscribe, notificationCentreService } from './services/notificationCentreService';
-export { notificationStoreService } from './services/notificationStoreService';
+export { createNotificationCentre, subscribe, notificationCentreService } from './features/communication/notificationCentreService';
+export { notificationStoreService } from './features/communication/notificationStoreService';
 
 // ============================================================================
 // Visual & Templates
 // ============================================================================
 
-export { templateService } from './services/templateService';
-export { visualIdentityService } from './services/visualIdentityService';
+export { templateService } from './features/operations/templateService';
+export { visualIdentityService } from './features/operations/visualIdentityService';
 
 // ============================================================================
 // System & Governance
 // ============================================================================
 
-export { createVaidyar, vaidyarService } from './services/vaidyarService';
-export { ensureGovernanceRepoReady, getAppDataRoot, getGovernanceRepoPath, getMountsBaseDir, setAppDataRootOverride, setSqliteRootOverride } from './services/governanceRepoService';
-export { registryRuntimeStoreService } from './services/registryRuntimeStoreService';
-export { onboardingStageStoreService } from './services/onboardingStageStoreService';
-export { governanceLifecycleQueueStoreService } from './services/governanceLifecycleQueueStoreService';
+export { createVaidyar, vaidyarService } from './features/governance/vaidyarService';
+export { ensureGovernanceRepoReady, getAppDataRoot, getGovernanceRepoPath, getMountsBaseDir, setAppDataRootOverride, setSqliteRootOverride } from './features/governance/governanceRepoService';
+export { registryRuntimeStoreService } from './features/registry/registryRuntimeStoreService';
+export { onboardingStageStoreService } from './features/governance/onboardingStageStoreService';
+export { governanceLifecycleQueueStoreService } from './features/governance/governanceLifecycleQueueStoreService';
 
 // ============================================================================
 // Sandbox Runtime
@@ -141,7 +141,7 @@ export {
   createPluginSandboxHost,
   pluginSandboxHost,
   BUILT_IN_FIXTURES,
-} from './services/sandbox/index';
+} from './features/sandbox/index';
 
 export type {
   RuntimeState,
@@ -163,74 +163,74 @@ export type {
   PluginSandboxLaunchResult,
   SupervisorReport,
   SupervisorAction,
-} from './services/sandbox/index';
+} from './features/sandbox/index';
 
 // ============================================================================
 // Administration Integration
 // ============================================================================
 
-export { administrationIntegrationService, AdministrationIntegrationService } from './services/administrationIntegrationService';
+export { administrationIntegrationService, AdministrationIntegrationService } from './features/operations/administrationIntegrationService';
 
 // ============================================================================
 // Execution & Agents
 // ============================================================================
 
-export { subagentService } from './services/subagentService';
-export { agentExecutionService } from './services/agentExecutionService';
-export { commandRouterService } from './services/commandRouterService';
-export { orchestrationManager } from './services/orchestrationManager';
-export { runtimeModelAccessService } from './services/runtimeModelAccessService';
+export { subagentService } from './features/agent/subagentService';
+export { agentExecutionService } from './features/agent/agentExecutionService';
+export { commandRouterService } from './features/orchestration/commandRouterService';
+export { orchestrationManager } from './features/orchestration/orchestrationManager';
+export { runtimeModelAccessService } from './features/intelligence/runtimeModelAccessService';
 
 // ============================================================================
 // Policies & Compliance
 // ============================================================================
 
-export { policyOrchestratorService } from './services/policyOrchestratorService';
-export { toolPolicyService } from './services/toolPolicyService';
-export { complianceScanService } from './services/complianceScanService';
+export { policyOrchestratorService } from './features/governance/policyOrchestratorService';
+export { toolPolicyService } from './features/governance/toolPolicyService';
+export { complianceScanService } from './features/governance/complianceScanService';
 
 // ============================================================================
 // Utilities
 // ============================================================================
 
-export { auditLogService, AUDIT_ACTIONS, parseAuditJsonLine } from './services/auditLogService';
-export { registerIpcHandlers } from './services/ipcService';
-export { runtimeDocumentStoreService } from './services/runtimeDocumentStoreService';
-export { recoveryService } from './services/recoveryService';
-export { recoveryOrchestratorService } from './services/recoveryOrchestratorService';
-export { transactionCoordinator } from './services/transactionCoordinator';
-export { conflictResolver } from './services/conflictResolver';
-export { protocolInterceptor } from './services/protocolInterceptor';
+export { auditLogService, AUDIT_ACTIONS, parseAuditJsonLine } from './features/governance/auditLogService';
+export { registerIpcHandlers } from './features/governance/ipcService';
+export { runtimeDocumentStoreService } from './features/operations/runtimeDocumentStoreService';
+export { recoveryService } from './features/operations/recoveryService';
+export { recoveryOrchestratorService } from './features/operations/recoveryOrchestratorService';
+export { transactionCoordinator } from './features/sync/transactionCoordinator';
+export { conflictResolver } from './features/sync/conflictResolver';
+export { protocolInterceptor } from './features/orchestration/protocolInterceptor';
 
 // ============================================================================
 // Vector Search & RAG
 // ============================================================================
 
-export { vectorSearchService } from './services/vectorSearchService';
-export { ragOrchestratorService } from './services/ragOrchestratorService';
+export { vectorSearchService } from './features/intelligence/vectorSearchService';
+export { ragOrchestratorService } from './features/intelligence/ragOrchestratorService';
 
 // ============================================================================
 // Compilation & Review Services
 // ============================================================================
 
-export { weeklyReviewCompilerService } from './services/weeklyReviewCompilerService';
-export { summarizationAgentService } from './services/summarizationAgentService';
-export { visualAuditService } from './services/visualAuditService';
+export { weeklyReviewCompilerService } from './features/operations/weeklyReviewCompilerService';
+export { summarizationAgentService } from './features/intelligence/summarizationAgentService';
+export { visualAuditService } from './features/governance/visualAuditService';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-export { getPranaRuntimeConfig, setPranaRuntimeConfig, validatePranaRuntimeConfig, MIN_VAULT_KDF_ITERATIONS, MIN_SYNC_PUSH_INTERVAL_MS } from './services/pranaRuntimeConfig';
+export { getPranaRuntimeConfig, setPranaRuntimeConfig, validatePranaRuntimeConfig, MIN_VAULT_KDF_ITERATIONS, MIN_SYNC_PUSH_INTERVAL_MS } from './common/config/pranaRuntimeConfig';
 
 // ============================================================================
 // Types (re-export for consumer convenience)
 // ============================================================================
 
-export type { PranaRuntimeConfig } from './services/pranaRuntimeConfig';
-export type { PranaPlatformRuntime } from './services/pranaPlatformRuntime';
-export type { StartupStatusReport } from './services/startupOrchestratorService';
-export type { SqliteServiceOptions } from './services/sqliteService';
-export type { VirtualDriveProvider } from './services/virtualDriveProvider';
-export type { AgentSkill } from './services/skillRegistry';
-export type { CronJob } from './services/cronSchedulerService';
+export type { PranaRuntimeConfig } from './common/config/pranaRuntimeConfig';
+export type { PranaPlatformRuntime } from './common/config/pranaPlatformRuntime';
+export type { StartupStatusReport } from './features/operations/startupOrchestratorService';
+export type { SqliteServiceOptions } from './common/storage/sqliteService';
+export type { VirtualDriveProvider } from './features/vault/virtualDriveProvider';
+export type { AgentSkill } from './features/agent/skillRegistry';
+export type { CronJob } from './features/orchestration/cronSchedulerService';
