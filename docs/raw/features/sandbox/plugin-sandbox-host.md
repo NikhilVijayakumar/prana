@@ -1,10 +1,11 @@
 # Plugin Sandbox Host
 
-> **See `sandbox-runtime-architecture.md` for the full runtime architecture.**
+> **Status: Implemented and live.** See `src/main/services/sandbox/pluginSandboxHost.ts`.
+> See `sandbox-runtime-architecture.md` for the full runtime architecture.
 
 ## Purpose
 
-Plugin Sandbox Host is a lightweight runtime launcher used for plugin/runtime development inside the Prana ecosystem.
+Plugin Sandbox Host is a lightweight runtime launcher for testing plugins and runtime libraries inside a simulated Prana host — **without running the full application**. It is the primary development and testing entry point for runtime modules.
 
 It exists to:
 
@@ -480,17 +481,95 @@ Hydrated Runtime State
 
 ---
 
-# Recommended Technology Stack
+# Technology Stack
 
-| Component         | Technology                     |
-| ----------------- | ------------------------------ |
-| Sandbox Host      | Electron + TypeScript          |
-| Runtime Container | child_process / utilityProcess |
-| Operational Store | SQLite                         |
-| Durable Storage   | Vault                          |
-| Fixture Loader    | JSON / SQLite fixtures         |
-| Runtime Isolation | Process isolation              |
-| Cleanup Engine    | Runtime teardown lifecycle     |
+| Component | Technology | Notes |
+|-----------|-----------|-------|
+| Sandbox Host | Electron + TypeScript | `pluginSandboxHost.ts` |
+| Runtime Container | `child_process.fork()` | Process isolation (NOT virtual drive, NOT utilityProcess) |
+| Operational Store | SQLite via `better-sqlite3` | Real DB at `<tmpdir>/prana-sandbox/<uuid>.sqlite` |
+| Durable Storage | Vault | Not used in sandbox mode |
+| Fixture Loader | JSON → SQLite | Writes into real tables before fork |
+| IPC | Node.js message passing | `process.send()` / `process.on('message')` |
+| Cleanup | Runtime teardown + `unlinkSync` | Temp SQLite file deleted on shutdown |
+
+> **Process isolation over virtual drives**: An earlier design used a virtual drive abstraction. The final implementation uses `child_process.fork()` because it is Electron-native, requires no filesystem virtualization, and plugins interact with the host exclusively through IPC — making virtual drive isolation unnecessary.
+
+---
+
+# How the Plugin Sandbox Host Works
+
+## Launch sequence
+
+```text
+pluginSandboxHost.launch(imagePath, capabilities, fixture?)
+        ↓
+Resolve runtime image from imagePath (reads runtime.json manifest)
+        ↓
+Create real SQLite DB at /tmp/prana-sandbox/<uuid>.sqlite
+        ↓
+Write fixture tables into SQLite (deterministic state injection)
+        ↓
+Register host-side IPC gateway handlers against SQLite
+(sqlite:read, sqlite:write, notifications:emit, sync:read)
+        ↓
+fork(entryPath, [], { env: { SANDBOX_SESSION_ID, SANDBOX_RUNTIME_ID,
+                              SANDBOX_RUNTIME_VERSION, SANDBOX_SQLITE_PATH } })
+        ↓
+Plugin process starts, reads env vars, connects via IPC
+        ↓
+Plugin is operational — queries SQLite through IPC (same as production)
+```
+
+## Shutdown sequence
+
+```text
+pluginSandboxHost.shutdown()
+        ↓
+Send shutdown signal to forked process
+        ↓
+Wait for graceful exit (5 000 ms timeout)
+        ↓
+Force-kill if timeout exceeded
+        ↓
+Close SQLite DB handle
+        ↓
+Delete temp SQLite file
+        ↓
+Destroy runtime containers and session
+```
+
+## Plugin process environment
+
+The forked plugin process receives:
+
+| Env Var | Value |
+|---------|-------|
+| `SANDBOX_SESSION_ID` | UUID for this session |
+| `SANDBOX_RUNTIME_ID` | Runtime ID from manifest |
+| `SANDBOX_RUNTIME_VERSION` | Runtime version from manifest |
+| `SANDBOX_SQLITE_PATH` | Absolute path to temp SQLite DB |
+
+The plugin uses `pluginRuntimeClient.ts` to read these env vars and set up its IPC connection to the host.
+
+---
+
+# Fixture Format
+
+```json
+{
+  "tables": {
+    "notifications": [
+      { "id": "1", "title": "Test notification", "body": "Body text" }
+    ],
+    "ai_state": [
+      { "model": "claude-3", "enabled": "true" }
+    ]
+  }
+}
+```
+
+Table names and column names are validated against `/^[a-zA-Z_][a-zA-Z0-9_]*$/` before insertion. All values are stored as TEXT. Object values are JSON-stringified.
 
 ---
 

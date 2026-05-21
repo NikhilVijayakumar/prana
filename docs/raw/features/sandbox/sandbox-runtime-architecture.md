@@ -1,5 +1,10 @@
 # Prana Sandbox Runtime Architecture
 
+> **Status: Implemented and live.**
+> Implementation: `src/main/services/sandbox/` (12 files — `sandboxRuntimeEngine.ts`, `runtimeOrchestratorService.ts`, `runtimeSessionManagerService.ts`, `sandboxSupervisorService.ts`, `sandboxIpcGateway.ts`, `runtimeImageManagerService.ts`, `pluginSandboxHost.ts`, `pluginRuntimeClient.ts`, `capabilityUtils.ts`, `runtimeStub.cjs`, `sandboxTypes.ts`, `index.ts`)
+
+---
+
 # Overview
 
 Prana Sandbox Runtime is a runtime orchestration fabric designed for:
@@ -14,6 +19,8 @@ Prana Sandbox Runtime is a runtime orchestration fabric designed for:
 * disposable runtime sessions
 
 The runtime system is conceptually inspired by Docker.
+
+> **Architectural decision — process isolation over virtual drives**: An earlier design considered using a virtual drive abstraction to isolate plugin execution. This was replaced with process-level isolation using `child_process.fork()`. Reasons: simpler, Electron-native, no filesystem virtualization overhead, and sufficient for the operational-state-driven model where plugins communicate only through IPC.
 
 However, Prana is NOT:
 
@@ -254,18 +261,30 @@ Every runtime container has:
 ## Runtime State Machine
 
 ```text
-IDLE
-CREATED
-PREPARING
-STARTING
-RUNNING
-SUSPENDING
-STOPPING
-DESTROYED
-FAILED
+IDLE → CREATED → PREPARING → STARTING → RUNNING → STOPPING → DESTROYED
+                                              ↓          ↑
+                                         SUSPENDING ─────┘
+                                              ↓
+                                         STOPPING → DESTROYED
+                                              ↓
+                                           FAILED → IDLE
 ```
 
-Only the Sandbox Runtime Engine may transition runtime states.
+Valid transitions (enforced by `VALID_TRANSITIONS` map in `runtimeOrchestratorService.ts`):
+
+| From | To (allowed) |
+|------|-------------|
+| IDLE | CREATED, FAILED |
+| CREATED | PREPARING, FAILED |
+| PREPARING | STARTING, FAILED |
+| STARTING | RUNNING, FAILED |
+| RUNNING | SUSPENDING, STOPPING, FAILED |
+| SUSPENDING | RUNNING, STOPPING, FAILED |
+| STOPPING | DESTROYED, FAILED |
+| DESTROYED | (terminal) |
+| FAILED | IDLE |
+
+Invalid transitions throw immediately. Only the Sandbox Runtime Engine may trigger transitions.
 
 ---
 
@@ -953,14 +972,14 @@ Sandbox Supervisor monitors runtime container health.
 
 ### Monitoring Responsibilities
 
-| Concern | Strategy |
-|---------|----------|
-| Crash detection | Heartbeat monitoring |
-| Deadlock detection | IPC timeout tracking |
-| Zombie processes | Process tree cleanup |
-| Memory leaks | Heap threshold monitoring |
-| Infinite loops | Event loop lag monitoring |
-| Hung startup | Startup timeout enforcement |
+| Concern | Strategy | Threshold |
+|---------|----------|-----------|
+| Crash detection | Heartbeat monitoring | 15 000 ms since last activity → `recover` |
+| Memory leaks | Heap threshold monitoring | > 512 MB → `restart` |
+| IPC latency | Timeout tracking | > 2 000 ms → logged |
+| Vaidyar blocked | Diagnostic signal | `Blocked` status → `destroy` |
+
+Monitoring interval: **5 000 ms**.
 
 Responsibilities:
 
@@ -1047,6 +1066,41 @@ Operational runtime state
 ```
 
 rather than mocked services.
+
+---
+
+# Engine-Level State
+
+The `SandboxRuntimeEngine` has its own top-level state distinct from container states:
+
+```text
+uninitialized → booting → operational → shutdown
+                    ↓
+                 failed
+```
+
+`operational` is the only state in which module lifecycle operations (`startModuleContainer`, `stopModuleContainer`) are accepted. The engine transitions to `operational` only after the Host Runtime Container's Startup Orchestrator reaches `OPERATIONAL`.
+
+`suppressHostBoot: true` may be passed in development/test mode to skip the Startup Orchestrator boot and jump directly to `operational`.
+
+---
+
+# IPC Handlers (Renderer → Main)
+
+Registered in `ipcService.ts`. All sandbox operations are exposed through these handlers:
+
+| Handler | Description |
+|---------|-------------|
+| `sandbox:initialize` | Initialize engine; boot Host Runtime Container via Startup Orchestrator |
+| `sandbox:status` | Return engine state + full container listing |
+| `sandbox:start-module` | Start a Runtime Module Container from a resolved image path |
+| `sandbox:stop-module` | Stop the currently active Runtime Module Container |
+| `sandbox:shutdown` | Shutdown the entire engine; destroy all sessions |
+| `sandbox:plugin-launch` | Create a Plugin Sandbox Host instance and fork the plugin process |
+| `sandbox:plugin-shutdown` | Shutdown a Plugin Sandbox Host instance |
+| `sandbox:plugin-status` | Get Plugin Sandbox Host status (`idle`/`booting`/`running`/`stopping`/`stopped`/`crashed`) |
+| `sandbox:plugin-journal` | Retrieve session journal entries (max 1000 entries) |
+| `sandbox:plugin-health` | Run an on-demand health evaluation for the active plugin session |
 
 ---
 
