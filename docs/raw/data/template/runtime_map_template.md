@@ -1,6 +1,6 @@
-# Service Runtime Contract
+# Feature Runtime Map
 
-> Runtime governance contract for a single runtime service.
+> Runtime governance contract for a single feature (one or more source files).
 > Part of:
 > features → invariants → runtime-map → audit-governance
 
@@ -10,13 +10,18 @@
 
 | Field                  | Value                                                                                                                                   |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Service                | `{service-name}`                                                                                                                        |
+| Feature                | `{feature-name}`                                                                                                                        |
 | Feature Doc            | `docs/raw/features/{feature-path}.md`                                                                                                   |
-| Implementation         | `src/main/services/{service}.ts`                                                                                                        |
-| Runtime Map            | `docs/raw/architecture/runtime-map/{service-name}.md`                                                                                   |
+| Implementation         | `src/main/features/{feature-dir}/`                                                                                                      |
+| Source Files           | `{file1.ts}, {file2.ts}, ...`                                                                                                           |
+| Common Dependencies    | `config, storage, types, ...` (omit if none)                                                                                            |
+| Runtime Map            | `docs/raw/architecture/runtime-map/{feature-name}.md`                                                                                   |
 | Layer                  | `1-5`                                                                                                                                   |
 | Runtime Classification | `Orchestrator / Coordinator / Capability Adapter / Persistence Boundary / Lifecycle Manager / Runtime Gateway / Infrastructure Adapter` |
 | Status                 | `✅ Compliant / ⚠️ Transitional / ❌ Violation`                                                                                           |
+| Last Generated         | `YYYY-MM-DD HH:MM`                                                                                                                      |
+| Last Updated           | `YYYY-MM-DD HH:MM`                                                                                                                      |
+| Workflow Version       | `1.0`                                                                                                                                   |
 | Last Reviewed          | `YYYY-MM-DD`                                                                                                                            |
 | Audit Suites Applied   | `runtime_purity / architectural_integrity / platform_neutrality / runtime_extensibility / runtime_security`                             |
 
@@ -24,7 +29,7 @@
 
 # 1. Responsibility
 
-Single runtime responsibility.
+Feature responsibility (one or more source files).
 
 One reason to change.
 
@@ -383,6 +388,7 @@ Describe:
 | Statelessness |        |       |
 | Determinism   |        |       |
 | Replayability |        |       |
+| **Section Score** | **—** | **/10** |
 
 ---
 
@@ -393,6 +399,7 @@ Describe:
 | Boundary Integrity   |        |       |
 | Dependency Direction |        |       |
 | Lifecycle Safety     |        |       |
+| **Section Score** | **—** | **/10** |
 
 ---
 
@@ -403,6 +410,7 @@ Describe:
 | Host Agnosticism   |        |       |
 | Storage Neutrality |        |       |
 | Policy Neutrality  |        |       |
+| **Section Score** | **—** | **/10** |
 
 ---
 
@@ -413,6 +421,7 @@ Describe:
 | Composability                 |        |       |
 | Capability Contract Integrity |        |       |
 | Extension Safety              |        |       |
+| **Section Score** | **—** | **/10** |
 
 ---
 
@@ -425,6 +434,21 @@ Describe:
 | IPC Security             |        |       |
 | Storage Security         |        |       |
 | Extension Security       |        |       |
+| **Section Score** | **—** | **/10** |
+
+---
+
+## Score Summary
+
+| Category                  | Score | Grade |
+| ------------------------- | ----- | ----- |
+| Runtime Purity            |       |       |
+| Architectural Integrity   |       |       |
+| Platform Neutrality       |       |       |
+| Runtime Extensibility     |       |       |
+| Runtime Security          |       |       |
+| **Grand Total**           | **/10** |       |
+| **Relative Score**        | **±**  |       |
 
 ---
 
@@ -515,11 +539,11 @@ Future removals and migrations.
 ## Statelessness Verification
 
 ```bash
-grep -r "private.*=" src/main/services/{service}.ts | grep -v "readonly"
+grep -r "private.*=" src/main/features/{feature-dir}/ | grep -v "readonly"
 ```
 
 ```bash
-grep -r "new Map\|new Set\|\[\]" src/main/services/{service}.ts
+grep -r "new Map\|new Set\|\[\]" src/main/features/{feature-dir}/
 ```
 
 ---
@@ -527,7 +551,7 @@ grep -r "new Map\|new Set\|\[\]" src/main/services/{service}.ts
 ## Determinism Verification
 
 ```bash
-grep -r "Date.now\|Math.random\|randomUUID" src/main/services/{service}.ts
+grep -r "Date.now\|Math.random\|randomUUID" src/main/services/{feature-dir}/
 ```
 
 ---
@@ -535,11 +559,11 @@ grep -r "Date.now\|Math.random\|randomUUID" src/main/services/{service}.ts
 ## Lifecycle Verification
 
 ```bash
-grep -r "setInterval\|setTimeout" src/main/services/{service}.ts
+grep -r "setInterval\|setTimeout" src/main/services/{feature-dir}/
 ```
 
 ```bash
-grep -r "void .*Promise\|void .*async" src/main/services/{service}.ts
+grep -r "void .*Promise\|void .*async" src/main/services/{feature-dir}/
 ```
 
 ---
@@ -547,7 +571,7 @@ grep -r "void .*Promise\|void .*async" src/main/services/{service}.ts
 ## Dependency Verification
 
 ```bash
-grep -r "better-sqlite3\|electron\|react" src/main/services/{service}.ts
+grep -r "better-sqlite3\|electron\|react" src/main/services/{feature-dir}/
 ```
 
 ---
@@ -555,7 +579,7 @@ grep -r "better-sqlite3\|electron\|react" src/main/services/{service}.ts
 ## Security Verification
 
 ```bash
-grep -r "eval\|exec\|spawn\|child_process" src/main/services/{service}.ts
+grep -r "eval\|exec\|spawn\|child_process" src/main/services/{feature-dir}/
 ```
 
 ---

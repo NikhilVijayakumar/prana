@@ -652,3 +652,27 @@ When updating existing runtime maps:
 * append new transitional violations instead of replacing historical drift
 
 Maintain deterministic formatting across regenerations.
+
+---
+
+# Timestamp Requirements
+
+Every runtime-map Metadata section must include:
+
+- `Last Generated` — UTC timestamp of initial creation (`YYYY-MM-DD HH:MM`). Set once, never change.
+- `Last Updated` — UTC timestamp of this regeneration (`YYYY-MM-DD HH:MM`). Update on every regeneration.
+- `Workflow Version` — `1.0`
+
+When updating: preserve `Last Generated`, update `Last Updated`. When generating new: set both to current time.
+
+---
+
+# Workflow Integration
+
+This prompt is part of the runtime-map workflow defined in `docs/raw/data/workflow/runtime-map-workflow.md`.
+
+You may also reference:
+- `docs/raw/data/prompt/runtime-map/generate-service-map.md` — for per-service generation from source code
+- `docs/raw/data/prompt/runtime-map/grade-analysis.md` — for interpreting batch grade results
+- `docs/raw/data/template/generate-service-map.md` — schema for the generation prompt
+- `docs/raw/data/template/grade-analysis.md` — schema for the grade analysis prompt
