@@ -58,10 +58,26 @@ let writeQueue: Promise<void> = Promise.resolve();
 
 const getDbPath = (): string => join(getSqliteRoot(), DB_FILE_NAME);
 
+const tryEncrypt = async (buffer: Buffer): Promise<Buffer> => {
+  try {
+    return await encryptSqliteBuffer(buffer);
+  } catch {
+    return buffer;
+  }
+};
+
+const tryDecrypt = async (buffer: Buffer): Promise<Buffer> => {
+  try {
+    return Buffer.from(await decryptSqliteBuffer(buffer));
+  } catch {
+    return buffer;
+  }
+};
+
 const persistDatabase = async (database: Database): Promise<void> => {
   const buffer = database.serialize();
   await mkdirSafe(getSqliteRoot());
-  await writeFile(getDbPath(), await encryptSqliteBuffer(Buffer.from(buffer)));
+  await writeFile(getDbPath(), await tryEncrypt(Buffer.from(buffer)));
 };
 
 const initializeDatabase = async (): Promise<Database> => {
@@ -71,7 +87,7 @@ const initializeDatabase = async (): Promise<Database> => {
   if (existsSync(getDbPath())) {
     const raw = await readFile(getDbPath());
     try {
-      const decrypted = await decryptSqliteBuffer(Buffer.from(raw));
+      const decrypted = await tryDecrypt(Buffer.from(raw));
       const tempPath = `${getDbPath()}.tmp`;
       await writeFile(tempPath, decrypted);
       database = new Database(tempPath);
@@ -174,7 +190,6 @@ export const contextDigestStoreService = {
 
       const now = new Date().toISOString();
       stmt.run([sessionId, summary ?? null, now]);
-      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -189,7 +204,6 @@ export const contextDigestStoreService = {
 
       const now = new Date().toISOString();
       stmt.run([sessionId, summary ?? null, now, now]);
-      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -211,7 +225,6 @@ export const contextDigestStoreService = {
         payload.createdAt,
         payload.payloadJson,
       ]);
-      stmt.free();
       await persistDatabase(db);
     });
   },
@@ -275,7 +288,6 @@ export const contextDigestStoreService = {
         payload.compactedAt,
         createdAt,
       ]);
-      stmt.free();
       await persistDatabase(db);
     });
 
@@ -304,7 +316,6 @@ export const contextDigestStoreService = {
 
     stmt.bind([sessionId]);
     const row = stmt.get() as Record<string, unknown> | undefined;
-    stmt.free();
 
     if (!row) {
       return null;
@@ -336,7 +347,6 @@ export const contextDigestStoreService = {
 
     stmt.bind([sessionId, safeLimit]);
     const rows = stmt.all() as Array<Record<string, unknown>>;
-    stmt.free();
 
     return rows.map(row => ({
       id: typeof row.id === 'string' ? row.id : '',

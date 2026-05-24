@@ -1,3 +1,5 @@
+import { storageRulesService, type StorageRuleResult, type StorageRulesCheckInput } from './storageRulesService';
+
 export interface DesignAuditMetric {
   id: string;
   name: string;
@@ -6,11 +8,28 @@ export interface DesignAuditMetric {
   status: 'pass' | 'fail' | 'warn';
 }
 
+export interface StorageGovernanceAuditMetric {
+  id: string;
+  name: string;
+  ruleId: string;
+  passed: boolean;
+  details: string;
+}
+
+export interface StorageGovernanceAuditSection {
+  summary: 'pass' | 'fail' | 'warn';
+  totalRules: number;
+  passedRules: number;
+  failedRules: number;
+  metrics: StorageGovernanceAuditMetric[];
+}
+
 export interface DesignAuditPayload {
   lastRun: string;
   overallHealth: number;
   tokensSynced: boolean;
   metrics: DesignAuditMetric[];
+  storageGovernance?: StorageGovernanceAuditSection;
 }
 
 export interface VisualAuditSignalInput {
@@ -21,11 +40,42 @@ export interface VisualAuditSignalInput {
   degradedProviderCount: number;
 }
 
+export interface VisualAuditWithGovernanceInput extends VisualAuditSignalInput {
+  storageRulesInput?: StorageRulesCheckInput;
+}
+
 const clampHealth = (value: number): number => {
   return Math.max(0, Math.min(100, Math.round(value)));
 };
 
-export const buildDesignAuditPayload = (signal: VisualAuditSignalInput): DesignAuditPayload => {
+const buildStorageGovernanceAudit = (input: VisualAuditWithGovernanceInput): StorageGovernanceAuditSection | undefined => {
+  if (!input.storageRulesInput) {
+    return undefined;
+  }
+
+  const ruleResult = storageRulesService.check(input.storageRulesInput);
+  const metrics: StorageGovernanceAuditMetric[] = ruleResult.results.map((r: StorageRuleResult) => ({
+    id: `SR-${r.ruleId}`,
+    name: r.name,
+    ruleId: r.ruleId,
+    passed: r.passed,
+    details: r.details,
+  }));
+
+  const passedRules = metrics.filter((m) => m.passed).length;
+  const totalRules = metrics.length;
+  const failedRules = totalRules - passedRules;
+
+  return {
+    summary: failedRules === 0 ? 'pass' : failedRules <= 2 ? 'warn' : 'fail',
+    totalRules,
+    passedRules,
+    failedRules,
+    metrics,
+  };
+};
+
+export const buildDesignAuditPayload = (signal: VisualAuditWithGovernanceInput): DesignAuditPayload => {
   const contrastValue =
     signal.complianceOverallStatus === 'critical'
       ? `${(3.9 + signal.degradedProviderCount * 0.1).toFixed(1)}:1 minimum observed`
@@ -78,16 +128,19 @@ export const buildDesignAuditPayload = (signal: VisualAuditSignalInput): DesignA
     return accumulator;
   }, 0);
 
+  const storageGovernance = buildStorageGovernanceAudit(signal);
+
   return {
     lastRun: new Date().toISOString(),
     overallHealth: clampHealth(100 - penalties),
     tokensSynced: signal.blockedSkillsCount === 0 && signal.degradedProviderCount === 0,
     metrics,
+    storageGovernance,
   };
 };
 
 export const visualAuditService = {
-  createPayload(signal: VisualAuditSignalInput): DesignAuditPayload {
+  createPayload(signal: VisualAuditWithGovernanceInput): DesignAuditPayload {
     return buildDesignAuditPayload(signal);
   },
 };

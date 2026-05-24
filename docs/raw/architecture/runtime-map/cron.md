@@ -398,6 +398,13 @@ No security surface — scheduler is an internal coordination service.
 
 
 
+
+
+
+
+
+
+
 ## Score Summary
 
 | Category                  | Score | Grade |
@@ -408,7 +415,7 @@ No security surface — scheduler is an internal coordination service.
 | Runtime Extensibility     | 9.3/10 | A |
 | Runtime Security          | 10.0/10 | A |
 | **Grand Total**           | **7.5/10** | **B+** |
-| **Relative Score**        | **+0.8** | **C** |
+| **Relative Score**        | **+6.1** | **A** |
 
 ---
 

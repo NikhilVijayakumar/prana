@@ -1,6 +1,6 @@
 import { encryptSqliteBuffer, decryptSqliteBuffer } from '../../common/storage/sqliteCryptoUtil';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { agentRegistryService } from '../agent/agentRegistryService';

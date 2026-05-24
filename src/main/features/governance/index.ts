@@ -8,6 +8,7 @@ export * from './ipcService';
 export * from './loopProtectionService';
 export * from './onboardingStageStoreService';
 export * from './policyOrchestratorService';
+export * from './storageRulesService';
 export * from './systemHealthService';
 export * from './toolPolicyService';
 export * from './vaidyarService';

@@ -11,7 +11,7 @@ import { createSandboxSupervisor } from './sandboxSupervisorService'
 import { createSandboxIpcGateway } from './sandboxIpcGateway'
 import { runtimeImageManagerService } from './runtimeImageManagerService'
 import { intersectCapabilities } from './capabilityUtils'
-import { notificationCentreService } from '../notificationCentreService'
+import { notificationCentreService } from '../communication/notificationCentreService'
 
 const STUB_ENTRY = join(__dirname, 'runtimeStub.cjs')
 const SHUTDOWN_TIMEOUT_MS = 5_000
@@ -21,6 +21,15 @@ export type PluginSandboxStatus = 'idle' | 'booting' | 'running' | 'stopping' | 
 export interface PluginSandboxLaunchResult {
   sessionId: string
   containerId: string
+}
+
+export interface PluginSandboxLaunchOptions {
+  // Suppresses Startup Orchestrator boot; SQLite is seeded from fixture only.
+  // Provides a production-equivalent IPC surface without production services.
+  dummyHostMode?: boolean
+  // DUMMY_PLUGIN_SCENARIO env var injected into the stub process.
+  // Supported: 'silent' | 'read-heavy' | 'write-heavy' | 'notification-emitter' | 'crash-prone' | 'permission-violating'
+  scenario?: string
 }
 
 // Writes fixture tables into a real SQLite DB at a temp path.
@@ -150,6 +159,21 @@ export const createPluginSandboxHost = () => {
   let containerId: string | null = null
   let sessionId: string | null = null
   let status: PluginSandboxStatus = 'idle'
+  let isDummyHost = false
+  let exitResolvers: Array<() => void> = []
+  let runningResolvers: Array<() => void> = []
+
+  const notifyExitWaiters = (): void => {
+    const pending = exitResolvers
+    exitResolvers = []
+    for (const resolve of pending) resolve()
+  }
+
+  const notifyRunningWaiters = (): void => {
+    const pending = runningResolvers
+    runningResolvers = []
+    for (const resolve of pending) resolve()
+  }
 
   const teardownDb = (): void => {
     if (db) {
@@ -174,6 +198,7 @@ export const createPluginSandboxHost = () => {
         if (typeof msg.pid === 'number') sessionManager.setProcessId(sessionId, msg.pid)
         status = 'running'
         supervisor.startMonitoring(sessionId)
+        notifyRunningWaiters()
         break
       }
 
@@ -217,6 +242,7 @@ export const createPluginSandboxHost = () => {
           orchestrator.destroyContainer(containerId)
         }
         supervisor.stopMonitoring()
+        notifyExitWaiters()
         break
       }
 
@@ -230,6 +256,7 @@ export const createPluginSandboxHost = () => {
         }
         supervisor.stopMonitoring()
         teardownDb()
+        notifyExitWaiters()
         break
       }
     }
@@ -248,6 +275,7 @@ export const createPluginSandboxHost = () => {
     supervisor.stopMonitoring()
     teardownDb()
     runtimeProcess = null
+    notifyExitWaiters()
   }
 
   return {
@@ -255,12 +283,14 @@ export const createPluginSandboxHost = () => {
       imagePath?: string,
       fixture?: SandboxFixture,
       capabilities: RuntimeCapabilities = { sqlite: { read: true, write: true } },
+      options: PluginSandboxLaunchOptions = {},
     ): Promise<PluginSandboxLaunchResult> {
       if (status !== 'idle' && status !== 'stopped') {
         throw new Error(`plugin sandbox host is already ${status} — call shutdown() first`)
       }
 
       status = 'booting'
+      isDummyHost = options.dummyHostMode ?? false
 
       // Build real SQLite DB from fixture before process starts — plugin hydrates from it on boot
       const setup = setupSqliteDb(fixture)
@@ -307,6 +337,7 @@ export const createPluginSandboxHost = () => {
           SANDBOX_RUNTIME_ID: image.id,
           SANDBOX_RUNTIME_VERSION: image.version,
           SANDBOX_SQLITE_PATH: dbPath,
+          ...(options.scenario ? { DUMMY_PLUGIN_SCENARIO: options.scenario } : {}),
         },
       })
 
@@ -354,8 +385,34 @@ export const createPluginSandboxHost = () => {
       status = 'stopped'
     },
 
+    // Resolves when the plugin process has reached 'running' state (runtime:ready received).
+    waitUntilRunning(): Promise<void> {
+      if (status === 'running') return Promise.resolve()
+      if (status === 'stopped' || status === 'crashed' || status === 'idle') {
+        return Promise.reject(new Error(`plugin exited before reaching running state (status: ${status})`))
+      }
+      return new Promise<void>((resolve) => {
+        runningResolvers.push(resolve)
+      })
+    },
+
+    // Resolves when the plugin process exits for any reason (clean shutdown, crash, or scenario completion).
+    // Useful in E2E tests to await scenario completion before asserting journal state.
+    waitForPluginExit(): Promise<void> {
+      if (status === 'stopped' || status === 'crashed' || status === 'idle') {
+        return Promise.resolve()
+      }
+      return new Promise<void>((resolve) => {
+        exitResolvers.push(resolve)
+      })
+    },
+
     getStatus(): PluginSandboxStatus {
       return status
+    },
+
+    isDummyHostMode(): boolean {
+      return isDummyHost
     },
 
     getSession() {

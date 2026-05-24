@@ -43,12 +43,21 @@ Rules:
 - **Grading fixed & run**: regex handles blank line before `---`, stores /10 values; all 15 existing runtime-maps graded (grand avg 6.7/10); `--report` flag writes `report/runtime-map/report.md`
 - **Discovery script** (`scripts/runtime-map-service-discovery.py`): scans 129 services, outputs manifest + terminal table
 - **DDD restructure completed**: 134 files moved from flat `services/` to 14 feature folders under `src/main/` (auth, vault, sync, communication, agent, orchestration, sandbox, storage, context, registry, governance, operations, intelligence, config + types/, utils/, workers/)
-- **Import paths migrated**: `scripts/migrate-imports.py` rewrote all relative imports across `.ts` files (2 passes: first pass 300+ rewrites, second pass fixed types/ subdirectory edge case — 323 more rewrites, 9 files changed)
+- **Import paths migrated**: `scripts/migrate-imports.py` rewrote all relative imports across `.ts` files (2 passes: first pass 300+ rewrites, second pass fixed 323 more rewrites, 9 files changed)
 - **Type check passes with 0 errors** (was 70 errors)
 - **Barrel files** created per feature folder; main index.ts updated
 - **Stale file-path comments** fixed in 4 files
 
+## Session Summary (May 22 2026)
+
+### Done
+
+- **Fixed discovery script bugs**: Windows path separator (`\` vs `/`) broke `FEATURE_FILE_MAP` key lookup; normalized `doc_rel` with `.replace("\\", "/")`
+- **Improved FEATURE_FILE_MAP coverage**: broadened 12 entries (context `*`, sandbox `*`, vault `vault*`), added patterns for chat adapters, governance, RAG, onboarding lifecycle, model gateway, channel registry — all 23 features now resolve source files
+- **Fixed unicode console issues**: replaced box-drawing (U+2500), em dashes (U+2014), checkmarks (U+2713) with ASCII equivalents in `grade.py`, `discovery.py`, `orchestrate.py`, `generate-manual.py`
+- **Ran Phase 5-7 (Grade/Report/Index)**: 34 maps scored (grand avg 2.1/10), report written to `report/runtime-map/report.md`, index regenerated at `docs/raw/architecture/runtime-map/index.md`
+- **Created `scripts/runtime-map-generate-manual.py`**: interactive prompt-paste workflow for generating runtime maps without API keys — loops through missing/stale features, prints composed prompt with source code + template, accepts pasted LLM response, parses JSON, writes file
+
 ### Next
-1. Run `graphify update .` to sync the graph
-2. Batch runtime-map generation for remaining ~100 services using the workflow
-3. Verify discovery/grading scripts still work post-restructure
+1. Run `python scripts/runtime-map-grade.py --report && python scripts/runtime-map-index.py` to grade/index existing maps
+2. Run `graphify update .` to sync the knowledge graph

@@ -496,6 +496,8 @@ Vault is NOT:
 * operational runtime storage
 * shared runtime database
 * plugin-owned persistence
+* directly accessible by host services during runtime operation
+* directly accessible by runtime modules
 
 Vault is:
 
@@ -528,28 +530,94 @@ Vault supports:
 
 # Vault Lifecycle
 
-Vault Runtime Container is lazy-loaded.
+Vault Runtime Container follows a startup-projection and shutdown-flush lifecycle.
+
+No host service or runtime module accesses Vault directly during runtime operation. All Vault data is accessed through the SQLite cache.
 
 Flow:
 
 ```text
-Vault Request
+Host Runtime Startup
       ↓
-Start Vault Container
+Vault → SQLite Projection
+(decrypt and load durable artifacts into operational store)
       ↓
-Perform Operation
+Vault Container suspends
       ↓
-Flush State
+Runtime Operational
+(all reads/writes through SQLite cache)
       ↓
-Destroy Vault Container
+Runtime Shutdown
+      ↓
+SQLite → Vault Flush
+(re-encrypt and persist durable artifacts back to Vault)
+      ↓
+Vault Container Destroyed
 ```
 
 Benefits:
 
-* reduced memory usage
-* reduced attack surface
-* reduced runtime overhead
+* SQLite is the single runtime access surface — consistent operational model
+* Vault not accessible during normal operation — reduced attack surface
 * deterministic persistence lifecycle
+* sandbox and test modes operate identically without Vault infrastructure
+
+---
+
+# Vault-SQLite Sync Protocol
+
+## Projection (Startup)
+
+On host startup, durable Vault artifacts are projected into the SQLite operational store:
+
+```text
+Vault Container starts
+      ↓
+Decrypt durable artifacts
+      ↓
+Write projected records into SQLite vault_cache tables
+      ↓
+Vault Container suspends
+```
+
+The SQLite `vault_cache` tables are the live operational representation of Vault state during runtime.
+
+## Flush (Shutdown)
+
+On host shutdown and on explicit flush requests, SQLite `vault_cache` records are written back to Vault:
+
+```text
+Runtime teardown initiated
+      ↓
+Read modified vault_cache records from SQLite
+      ↓
+Re-encrypt and write back to Vault
+      ↓
+Vault Container destroyed
+```
+
+## Conflict Policy
+
+SQLite cache is authoritative during runtime operation.
+
+On cold start:
+
+* if no existing SQLite state — Vault projection is the source of truth
+* if existing SQLite state is present (e.g., after a crash) — SQLite state is compared against the last Vault checkpoint; the more recent record wins and conflicts are journaled
+
+## Encryption Boundary
+
+The host decrypts Vault data during projection. The SQLite `vault_cache` operates on plaintext within the trusted host process. The host re-encrypts before flushing back to Vault.
+
+The encryption boundary is exclusively at the Vault container interface.
+
+## Sandbox and Test Mode
+
+In sandbox and test mode, Vault projection is replaced by fixture injection.
+
+The SQLite cache is seeded directly from fixture files. No Vault container starts. No flush occurs on teardown — the temp SQLite file is discarded.
+
+This allows sandbox sessions to operate identically to production without requiring Vault infrastructure.
 
 ---
 
@@ -1069,6 +1137,43 @@ rather than mocked services.
 
 ---
 
+## Dummy Host Mode
+
+Dummy Host Mode is a Plugin Sandbox Host configuration that provides a complete, fixture-backed host IPC surface without running any production services.
+
+In Dummy Host Mode:
+
+* Startup Orchestrator is suppressed (`suppressHostBoot: true`)
+* SQLite cache is seeded entirely from fixture data
+* all host IPC handlers are active against the fixture-backed SQLite
+* the plugin receives a production-equivalent IPC surface
+
+Used for: plugin feature development, IPC contract testing, lifecycle validation.
+
+See `plugin-sandbox-host.md#Dummy-Host-Mode` for full configuration and usage.
+
+---
+
+## Dummy Plugin
+
+The Dummy Plugin is a scripted variant of `runtimeStub.cjs` that exercises the full plugin-host IPC protocol with deterministic, scripted behaviour.
+
+Scenarios: silent (baseline lifecycle), read-heavy, write-heavy, notification emitter, crash-prone, permission-violating.
+
+Used for: host IPC routing testing, capability enforcement validation, crash recovery testing.
+
+See `plugin-sandbox-host.md#Dummy-Plugin` for scenarios and entry point.
+
+---
+
+## Dummy Pair E2E
+
+Dummy Host Mode and Dummy Plugin together form a self-contained E2E harness that validates the full sandbox runtime contract without production or Vault dependencies.
+
+See `plugin-sandbox-host.md#E2E-Testing-With-Dummy-Pair` for test anatomy and invariants.
+
+---
+
 # Engine-Level State
 
 The `SandboxRuntimeEngine` has its own top-level state distinct from container states:
@@ -1193,6 +1298,14 @@ Runtime modules receive only explicitly granted permissions.
 ## Invariant: Runtime Storage Mediation
 
 Runtime modules never directly access persistence internals.
+
+---
+
+## Invariant: Vault Access Only Through SQLite Sync
+
+No host service or runtime module accesses Vault directly during runtime operation.
+
+All Vault data is projected into the SQLite cache on host startup and flushed back to Vault on shutdown.
 
 ---
 

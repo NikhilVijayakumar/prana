@@ -186,9 +186,9 @@ def generate_report(all_scores, grand_totals, cross_grand_avg, cross_section_avg
         f"{'Total':>6s} | {'Grade':>4s} | {'vs Avg':>6s} | {'Rel G':>4s} |\n"
     )
     lines.append(
-        f"| {'─' * 45} | {'─' * 6} | {'─' * 9} | "
-        f"{'─' * 9} | {'─' * 9} | {'─' * 9} | "
-        f"{'─' * 6} | {'─' * 4} | {'─' * 6} | {'─' * 4} |\n"
+        f"| {'-' * 45} | {'-' * 6} | {'-' * 9} | "
+        f"{'-' * 9} | {'-' * 9} | {'-' * 9} | "
+        f"{'-' * 6} | {'-' * 4} | {'-' * 6} | {'-' * 4} |\n"
     )
 
     # Sort by grand total descending
@@ -220,7 +220,7 @@ def generate_report(all_scores, grand_totals, cross_grand_avg, cross_section_avg
     grade_counts = Counter(letter_grade(grand_totals.get(f.name, 0)) for f in files)
     lines.append("## Grade Distribution\n\n")
     lines.append(f"| {'Grade':>6s} | {'Count':>5s} |\n")
-    lines.append(f"| {'─' * 6} | {'─' * 5} |\n")
+    lines.append(f"| {'-' * 6} | {'-' * 5} |\n")
     for g in ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F"]:
         if grade_counts[g] > 0:
             lines.append(f"| {g:>6s} | {grade_counts[g]:5d} |\n")
@@ -232,7 +232,7 @@ def generate_report(all_scores, grand_totals, cross_grand_avg, cross_section_avg
     )
     lines.append("## Top Performers\n\n")
     lines.append(f"| {'Rank':>4s} | {'Feature':45s} | {'Total':>6s} | {'Grade':>4s} |\n")
-    lines.append(f"| {'─' * 4} | {'─' * 45} | {'─' * 6} | {'─' * 4} |\n")
+    lines.append(f"| {'-' * 4} | {'-' * 45} | {'-' * 6} | {'-' * 4} |\n")
     for i, fpath in enumerate(ranked[:3], 1):
         gt = grand_totals.get(fpath.name, 0)
         name = fpath.name.replace('.md', '')
@@ -243,7 +243,7 @@ def generate_report(all_scores, grand_totals, cross_grand_avg, cross_section_avg
 
     lines.append("\n## Areas of Concern\n\n")
     lines.append(f"| {'Rank':>4s} | {'Feature':45s} | {'Total':>6s} | {'Grade':>4s} |\n")
-    lines.append(f"| {'─' * 4} | {'─' * 45} | {'─' * 6} | {'─' * 4} |\n")
+    lines.append(f"| {'-' * 4} | {'-' * 45} | {'-' * 6} | {'-' * 4} |\n")
     for i, fpath in enumerate(ranked[-3:], 0):
         gt = grand_totals.get(fpath.name, 0)
         name = fpath.name.replace('.md', '')
@@ -303,7 +303,7 @@ def main():
                 scores[section] = avg
         all_scores[fpath.name] = scores
         write_lines(fpath, lines)
-        print(f"  Phase 1: {fpath.name} — {len(scores)} sections")
+        print(f"  Phase 1: {fpath.name} - {len(scores)} sections")
 
     # Phase 2: Compute cross-file averages
     cross_section_avgs = {}
@@ -329,7 +329,7 @@ def main():
         content = upsert_score_summary(content, scores, gt, rel)
         write_text(fpath, content)
         print(
-            f"  Phase 3: {fpath.name} — "
+            f"  Phase 3: {fpath.name} - "
             f"GT {gt:.1f}/10 ({rel:+.1f})"
         )
 
@@ -340,9 +340,9 @@ def main():
         )
 
     # Print results
-    print(f"\n{'─' * 80}")
+    print(f"\n{'-' * 80}")
     print(f"{'Feature':45s}  {'Total':>6s}  {'Grade':>4s}  {'vs Avg':>6s}  {'Rel G':>4s}")
-    print(f"{'─' * 80}")
+    print(f"{'-' * 80}")
     for fpath in sorted(files):
         gt = grand_totals[fpath.name]
         rel = gt - cross_grand_avg
@@ -354,7 +354,7 @@ def main():
             f"{letter_grade(rel, REL_GRADE_THRESHOLDS):>4s}"
         )
     print(f"\nCross-file grand average: {cross_grand_avg:.1f}/10")
-    print("✓ All files updated")
+    print("[OK] All files updated")
 
 
 if __name__ == '__main__':

@@ -133,6 +133,7 @@ const writeSnapshot = async (snapshot: LocalRuntimeConfigSnapshot): Promise<void
 
 export const sqliteConfigStoreService = {
   getDatabase,
+  readSnapshotSync,
 
   async getRuntimeConfigSnapshot(): Promise<LocalRuntimeConfigSnapshot | null> {
     return readSnapshot();

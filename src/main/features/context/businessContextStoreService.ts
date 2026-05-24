@@ -15,6 +15,15 @@ export interface BusinessContextRecord {
   updatedAt: string;
 }
 
+export interface BusinessSnapshotRecord {
+  snapshotId: string;
+  source: string;
+  payloadJson: string;
+  score: number;
+  status: 'VALID' | 'INVALID';
+  createdAt: string;
+}
+
 let db: Database | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 
@@ -44,6 +53,16 @@ const initializeDatabase = async (): Promise<Database> => {
       payload_json TEXT NOT NULL,
       status TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+  `);
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS business_snapshot (
+      snapshot_id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      score INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'VALID',
+      created_at TEXT NOT NULL
     );
   `);
 
@@ -82,6 +101,15 @@ const mapRow = (row: Record<string, unknown>): BusinessContextRecord => {
     updatedAt: String(row.updated_at ?? nowIso()),
   };
 };
+
+const mapSnapshotRow = (row: Record<string, unknown>): BusinessSnapshotRecord => ({
+  snapshotId: String(row.snapshot_id ?? ''),
+  source: String(row.source ?? ''),
+  payloadJson: String(row.payload_json ?? '{}'),
+  score: Number(row.score ?? 0),
+  status: String(row.status ?? 'VALID') as BusinessSnapshotRecord['status'],
+  createdAt: String(row.created_at ?? nowIso()),
+});
 
 export const businessContextStoreService = {
   async upsertContext(input: {
@@ -137,6 +165,53 @@ export const businessContextStoreService = {
       : database.prepare('SELECT * FROM business_context ORDER BY updated_at DESC').all() as Record<string, unknown>[];
 
     return rows.map(mapRow);
+  },
+
+  async createSnapshot(input: {
+    snapshotId: string;
+    source: string;
+    payloadJson: string;
+    score: number;
+    status: BusinessSnapshotRecord['status'];
+  }): Promise<BusinessSnapshotRecord> {
+    const record: BusinessSnapshotRecord = {
+      snapshotId: input.snapshotId,
+      source: input.source,
+      payloadJson: input.payloadJson,
+      score: input.score,
+      status: input.status,
+      createdAt: nowIso(),
+    };
+
+    await queueWrite(async () => {
+      const database = await getDatabase();
+      database.prepare(`
+        INSERT INTO business_snapshot (snapshot_id, source, payload_json, score, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        record.snapshotId,
+        record.source,
+        record.payloadJson,
+        record.score,
+        record.status,
+        record.createdAt,
+      );
+      await persistDatabase(database);
+    });
+
+    return record;
+  },
+
+  async getSnapshot(snapshotId: string): Promise<BusinessSnapshotRecord | null> {
+    const database = await getDatabase();
+    const row = database.prepare('SELECT * FROM business_snapshot WHERE snapshot_id = ?').get(snapshotId) as Record<string, unknown> | undefined;
+    return row ? mapSnapshotRow(row) : null;
+  },
+
+  async listSnapshots(limit = 20): Promise<BusinessSnapshotRecord[]> {
+    const database = await getDatabase();
+    const rows = database.prepare('SELECT * FROM business_snapshot ORDER BY created_at DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+    return rows.map(mapSnapshotRow);
   },
 
   async __resetForTesting(): Promise<void> {

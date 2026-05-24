@@ -42,6 +42,9 @@ import { visualIdentityService } from '../operations/visualIdentityService'
 import { notificationCentreService } from '../communication/notificationCentreService'
 import { NotificationListFilters } from '../communication/notificationStoreService'
 import { vaidyarService } from './vaidyarService'
+import { storageRulesService, type StorageRulesCheckInput } from './storageRulesService'
+import { visualAuditService, type VisualAuditWithGovernanceInput } from './visualAuditService'
+import { hostDependencyCapabilityService } from './hostDependencyCapabilityService'
 import { sandboxRuntimeEngine } from '../sandbox/sandboxRuntimeEngine'
 import { createPluginSandboxHost } from '../sandbox/pluginSandboxHost'
 import { setPermittedImageBasePath } from '../sandbox/runtimeImageManagerService'
@@ -3035,4 +3038,62 @@ export const registerIpcHandlers = (options?: {
       return host.evaluateHealth()
     },
   ))
+
+  // ── Governance IPC Bridge ────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    'governance:check-storage-rules',
+    safe(async (_event, payload: { storageRulesInput: StorageRulesCheckInput }) => {
+
+                       const schema = z.object({ storageRulesInput: z.any() });
+                       const parsed = schema.safeParse(payload);
+                       if (!parsed.success) {
+                          throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                       }
+                     
+      return storageRulesService.check(payload.storageRulesInput)
+    })
+  )
+
+  ipcMain.handle(
+    'governance:check-storage-rules-docs',
+    safe(async (_event, payload: { govDocsRoot: string }) => {
+
+                       const schema = z.object({ govDocsRoot: z.string() });
+                       const parsed = schema.safeParse(payload);
+                       if (!parsed.success) {
+                          throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                       }
+                     
+      return storageRulesService.checkDocs(payload.govDocsRoot)
+    })
+  )
+
+  ipcMain.handle(
+    'governance:get-audit-report',
+    safe(async (_event, payload: { signal: VisualAuditWithGovernanceInput }) => {
+
+                       const schema = z.object({ signal: z.any() });
+                       const parsed = schema.safeParse(payload);
+                       if (!parsed.success) {
+                          throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                       }
+                     
+      return visualAuditService.createPayload(payload.signal)
+    })
+  )
+
+  ipcMain.handle(
+    'governance:check-host-deps',
+    safe(async (_event, payload?: { storageGovernanceDocsRoot?: string }) => {
+
+                       const schema = z.object({ storageGovernanceDocsRoot: z.string().optional() });
+                       const parsed = schema.safeParse(payload);
+                       if (!parsed.success) {
+                          throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
+                       }
+                     
+      return hostDependencyCapabilityService.evaluate(payload?.storageGovernanceDocsRoot)
+    })
+  )
 }

@@ -417,6 +417,156 @@ This allows:
 
 ---
 
+# Dummy Host Mode
+
+## Purpose
+
+Dummy Host Mode is a specialized configuration of Plugin Sandbox Host that provides a complete, fixture-backed host IPC surface for plugin development and testing — without running any production services.
+
+In Dummy Host Mode:
+
+* the Startup Orchestrator does not run (`suppressHostBoot: true`)
+* all production services are absent
+* the SQLite cache is seeded entirely from fixture data
+* all host IPC handlers are registered against the fixture-backed SQLite
+* the full IPC gateway surface is available to the plugin
+
+The plugin cannot distinguish Dummy Host Mode from a production host. It receives the same IPC responses, the same capability grants, and the same lifecycle signals.
+
+## When To Use
+
+| Scenario | Use Dummy Host Mode |
+| --- | --- |
+| Plugin feature development | Yes |
+| Plugin IPC contract testing | Yes |
+| Plugin lifecycle validation | Yes |
+| Plugin capability boundary testing | Yes |
+| Full production integration | No — use real host |
+
+## Configuration
+
+```ts
+pluginSandboxHost.launch(imagePath, capabilities, fixture, {
+  dummyHostMode: true
+})
+```
+
+## Vault Behaviour In Dummy Host Mode
+
+No Vault projection occurs in Dummy Host Mode. The SQLite fixture replaces Vault data entirely. This provides deterministic, isolated state without requiring Vault infrastructure.
+
+---
+
+# Dummy Plugin
+
+## Purpose
+
+The Dummy Plugin is a minimal, contract-conformant plugin implementation used to test host-side behaviour without requiring a real plugin.
+
+It is the counterpart to Dummy Host Mode:
+
+| Tool | Tests |
+| --- | --- |
+| Dummy Host Mode | Plugin behaviour against a known host surface |
+| Dummy Plugin | Host behaviour against a known plugin implementation |
+
+## What Dummy Plugin Does
+
+The Dummy Plugin:
+
+* connects to the host via the standard IPC protocol
+* sends a scripted sequence of IPC requests (`sqlite:read`, `sqlite:write`, `notifications:emit`, `sync:read`)
+* validates host IPC responses
+* executes a controlled lifecycle (start → operational → shutdown)
+* records results back to the host via structured journal entries
+
+## Dummy Plugin Scenarios
+
+| Scenario | Purpose |
+| --- | --- |
+| Silent plugin | Minimal IPC — validates baseline lifecycle |
+| Read-heavy plugin | High sqlite:read volume — validates host IPC throughput |
+| Write-heavy plugin | High sqlite:write volume — validates host write mediation |
+| Notification emitter | Emits operational events — validates Notification Centre routing |
+| Crash-prone plugin | Deliberate crash — validates host crash detection and recovery |
+| Permission-violating plugin | Requests beyond capability grant — validates capability enforcement |
+
+## Entry Point
+
+The Dummy Plugin is a scripted variant of `runtimeStub.cjs`.
+
+Scenario is selected via environment variable:
+
+```text
+DUMMY_PLUGIN_SCENARIO=crash-prone
+```
+
+## Architectural Note
+
+The Dummy Plugin is NOT a mock. It is a real plugin process that exercises the real IPC protocol. It differs from production plugins only in having scripted, deterministic behaviour rather than domain logic.
+
+---
+
+# E2E Testing With Dummy Pair
+
+## Overview
+
+The Dummy Host and Dummy Plugin together form a self-contained E2E test harness that validates the full sandbox runtime contract without any production dependencies.
+
+```text
+Dummy Host (pluginSandboxHost in dummyHostMode)
+        ↓
+Fixture-backed SQLite cache
+        ↓
+Dummy Plugin (runtimeStub.cjs with scenario)
+        ↓
+IPC round-trips
+        ↓
+Journal assertions
+```
+
+## What E2E Tests Validate
+
+| Concern | How |
+| --- | --- |
+| Host startup with fixture state | Dummy Host boot |
+| Plugin process fork and connect | Dummy Plugin launch |
+| IPC routing correctness | Dummy Plugin requests + host responses |
+| Capability enforcement | Permission-violating Dummy Plugin scenario |
+| Runtime lifecycle (all states) | Full Dummy Host + Plugin session |
+| Crash recovery | Crash-prone Dummy Plugin scenario |
+| Deterministic cleanup | Post-session resource audit |
+
+## Test Anatomy
+
+A minimal E2E test:
+
+```ts
+const host = await pluginSandboxHost.launch(DUMMY_IMAGE, CAPABILITIES, FIXTURE, {
+  dummyHostMode: true
+})
+
+await host.waitForPluginExit()
+
+const journal = await host.getJournal()
+expect(journal).toContain({ type: 'ipc:success', channel: 'sqlite:read' })
+
+await host.shutdown()
+```
+
+## E2E Invariant
+
+E2E tests using the Dummy Pair must not require:
+
+* a running Electron app
+* Vault infrastructure
+* network access
+* production service initialization
+
+The Dummy Pair is fully self-contained.
+
+---
+
 # Runtime Module Independence
 
 ## Important Principle
@@ -581,9 +731,18 @@ Plugin Sandbox Host must execute real sandbox runtime lifecycle.
 
 ---
 
-## Invariant: No Runtime Mocking
+## Invariant: No Runtime Mocking — Stubs Are Not Mocks
 
-Infrastructure services should not be mocked.
+Infrastructure services are not mocked.
+
+The Dummy Host and Dummy Plugin are not mocks. They are contract-conformant stub implementations backed by real SQLite state and the real IPC protocol. They execute the real sandbox lifecycle rather than simulating it.
+
+| Approach | Dummy Host / Dummy Plugin |
+| --- | --- |
+| Fakes infrastructure responses | Provides real infrastructure surface |
+| Bypasses runtime lifecycle | Executes real runtime lifecycle |
+| State is simulated | State is real (SQLite fixture) |
+| Contract may drift from production | Contract is identical to production |
 
 ---
 

@@ -360,13 +360,11 @@ export const governanceLifecycleQueueStoreService = {
     let changes = 0;
     await queueWrite(async () => {
       const database = await getDatabase();
+      database.prepare('DELETE FROM cron_execution_log WHERE job_id = ?').run(jobId);
+      database.prepare('DELETE FROM cron_locks WHERE job_id = ?').run(jobId);
+      database.prepare('DELETE FROM task_queue WHERE job_id = ?').run(jobId);
       const result = database.prepare('DELETE FROM cron_jobs WHERE id = ?').run(jobId);
       changes = result.changes;
-
-      if (changes > 0) {
-        database.prepare('DELETE FROM cron_locks WHERE job_id = ?').run(jobId);
-      }
-
       await persistDatabase(database);
     });
     return changes > 0;

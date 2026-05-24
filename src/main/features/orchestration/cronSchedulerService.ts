@@ -1,5 +1,5 @@
+
 import { CronExpressionParser } from 'cron-parser';
-import { getAppDataRoot, mkdirSafe } from '../governance/governanceRepoService';
 import { hookSystemService } from '../governance/hookSystemService';
 import {
   CronJobRecoveryPolicy,
@@ -54,22 +54,44 @@ export interface CronRecoverySummary {
   completedAt: string | null;
 }
 
-const STORE_FILE = 'cron-schedules.json';
-const TICK_INTERVAL_MS = 30_000;
-const LOCK_TIMEOUT_MS = 30_000;
 const MAX_CATCH_UP_WINDOWS_PER_SWEEP = 96;
-
-interface PersistedCronState {
-  jobs: CronJob[];
-  updatedAt: string;
-}
 
 type CronJobExecutor = () => Promise<void>;
 
-const getStorePath = (): string => join(getAppDataRoot(), STORE_FILE);
+const parseCron = (expression: string, baseDate?: Date): ReturnType<typeof CronExpressionParser.parse> | null => {
+  try {
+    const opts = baseDate ? { currentDate: baseDate } : undefined;
+    return CronExpressionParser.parse(expression, opts);
+  } catch {
+    return null;
+  }
+};
 
-const cloneJob = (job: CronJob): CronJob => ({ ...job });
-const cloneRecoverySummary = (): CronRecoverySummary => ({ ...latestRecoverySummary });
+const computeNextRunIso = (expression: string, baseDate: Date): string => {
+  const interval = parseCron(expression, baseDate);
+  if (!interval) return '';
+  try {
+    const next = interval.next();
+    if (next === null) return '';
+    return typeof next.toISOString === 'function' ? next.toISOString() : String(next);
+  } catch {
+    return '';
+  }
+};
+
+export const validateExpression = (expression: string): boolean => {
+  if (!expression || typeof expression !== 'string') return false;
+  const trimmed = expression.trim();
+  if (!trimmed) return false;
+  const interval = parseCron(trimmed);
+  if (!interval) return false;
+  try {
+    const next = interval.next();
+    return next !== null;
+  } catch {
+    return false;
+  }
+};
 
 const getSyncCronDefaults = (): {
   pushCronExpression: string;
@@ -84,7 +106,6 @@ const getSyncCronDefaults = (): {
       cronEnabled: sync.cronEnabled,
     };
   } catch {
-    // Test environments can initialize cron before runtime bootstrap.
     return {
       pushCronExpression: '*/30 * * *',
       pullCronExpression: '*/30 * * *',
@@ -164,16 +185,6 @@ const defaultJobs = (): CronJob[] => {
   ];
 };
 
-const computeNextRunIso = (expression: string, baseDate: Date): string => {
-  try {
-    const interval = CronExpressionParser.parseExpression(expression);
-    const next = interval.next();
-    return next ? next.toISOString() : '';
-  } catch {
-    return '';
-  }
-};
-
 const mapStateRecordToJob = (record: CronJobStateRecord): CronJob => {
   const computedNextRun = computeNextRunIso(record.expression, new Date());
   return {
@@ -194,32 +205,7 @@ const mapStateRecordToJob = (record: CronJobStateRecord): CronJob => {
   };
 };
 
-const ensureStoreExists = async (): Promise<void> => {
-  await mkdirSafe(getAppDataRoot());
-  const path = getStorePath();
-  
-  if (!existsSync(path)) {
-    const seeded: PersistedCronState = {
-      jobs: defaultJobs(),
-      updatedAt: nowIso(),
-    };
-    await writeFile(path, JSON.stringify(seeded, null, 2), 'utf8');
-  }
-};
-
-const readStore = async (): Promise<PersistedCronState> => {
-  await ensureStoreExists();
-  const raw = await readFile(getStorePath(), 'utf8');
-  const parsed = JSON.parse(raw) as PersistedCronState;
-  return {
-    jobs: Array.isArray(parsed.jobs) ? parsed.jobs : defaultJobs(),
-    updatedAt: parsed.updatedAt ?? nowIso(),
-  };
-};
-
-// This is now a factory function - no module-level state
 export const createCronScheduler = () => {
-  // Instance-level state (not module-level)
   let initialized = false;
   let lastTickAt: string | null = null;
   let latestRecoverySummary: CronRecoverySummary = {
@@ -231,7 +217,7 @@ export const createCronScheduler = () => {
     failedTasks: 0,
     completedAt: null,
   };
-  
+
   const jobs = new Map<string, CronJob>();
   const customJobExecutorsByJobId = new Map<string, CronJobExecutor>();
   const customJobExecutorsByTarget = new Map<string, CronJobExecutor>();
@@ -239,43 +225,260 @@ export const createCronScheduler = () => {
   const nowIso = (): string => new Date().toISOString();
 
   const enqueueDueJobs = async (now: Date, source: 'SCHEDULED' | 'MISSED'): Promise<{ detected: number; enqueued: number; duplicatePreventions: number }> => {
-    // This would integrate with governanceLifecycleQueueStoreService
-    // For now, return empty
-    return { detected: 0, enqueued: 0, duplicatePreventions: 0 };
+    let detected = 0;
+    let enqueued = 0;
+    let duplicatePreventions = 0;
+
+    for (const job of jobs.values()) {
+      if (!job.enabled || job.running) continue;
+      if (!job.nextRunAt) continue;
+
+      const nextRunTime = Date.parse(job.nextRunAt);
+      if (Number.isNaN(nextRunTime)) continue;
+
+      if (nextRunTime > now.getTime()) continue;
+
+      detected++;
+
+      if (source === 'MISSED' && job.recoveryPolicy === 'SKIP') {
+        const newNextRun = computeNextRunIso(job.expression, new Date(nextRunTime + 1000));
+        if (newNextRun) {
+          job.nextRunAt = newNextRun;
+        }
+        continue;
+      }
+
+      if (source === 'MISSED' && job.recoveryPolicy === 'RUN_ONCE') {
+        const result = await governanceLifecycleQueueStoreService.enqueueTask({
+          jobId: job.id,
+          jobName: job.name,
+          scheduledFor: job.nextRunAt,
+          source: 'RECOVERY',
+        });
+        if (result.duplicatePrevented) {
+          duplicatePreventions++;
+        }
+        if (result.inserted) {
+          enqueued++;
+        }
+        const newNextRun = computeNextRunIso(job.expression, new Date(nextRunTime + 1000));
+        if (newNextRun) {
+          job.nextRunAt = newNextRun;
+        }
+        continue;
+      }
+
+      if (source === 'MISSED' && job.recoveryPolicy === 'CATCH_UP') {
+        let cursor = new Date(nextRunTime);
+        let catchUpCount = 0;
+        while (cursor.getTime() <= now.getTime() && catchUpCount < MAX_CATCH_UP_WINDOWS_PER_SWEEP) {
+          const scheduledFor = cursor.toISOString();
+          const result = await governanceLifecycleQueueStoreService.enqueueTask({
+            jobId: job.id,
+            jobName: job.name,
+            scheduledFor,
+            source: 'RECOVERY',
+          });
+          if (result.duplicatePrevented) {
+            duplicatePreventions++;
+          }
+          if (result.inserted) {
+            enqueued++;
+          }
+          const nextCursorStr = computeNextRunIso(job.expression, new Date(cursor.getTime() + 1000));
+          if (!nextCursorStr) break;
+          cursor = new Date(nextCursorStr);
+          catchUpCount++;
+        }
+        const newNextRun = computeNextRunIso(job.expression, new Date(cursor.getTime() + 1000));
+        if (newNextRun) {
+          job.nextRunAt = newNextRun;
+        }
+        continue;
+      }
+
+      const result = await governanceLifecycleQueueStoreService.enqueueTask({
+        jobId: job.id,
+        jobName: job.name,
+        scheduledFor: job.nextRunAt,
+        source: source === 'SCHEDULED' ? 'SCHEDULED' : 'RECOVERY',
+      });
+      if (result.duplicatePrevented) {
+        duplicatePreventions++;
+      }
+      if (result.inserted) {
+        enqueued++;
+      }
+      const newNextRun = computeNextRunIso(job.expression, new Date(nextRunTime + 1000));
+      if (newNextRun) {
+        job.nextRunAt = newNextRun;
+      }
+    }
+
+    return { detected, enqueued, duplicatePreventions };
   };
 
   const processPendingTaskQueue = async (): Promise<{ processed: number; failed: number }> => {
-    // This would integrate with governanceLifecycleQueueStoreService
-    return { processed: 0, failed: 0 };
+    const pendingTasks = await governanceLifecycleQueueStoreService.listPendingTasks();
+    let processed = 0;
+    let failed = 0;
+
+    for (const task of pendingTasks) {
+      const job = jobs.get(task.jobId);
+      if (!job) {
+        await governanceLifecycleQueueStoreService.markTaskFailed(task.taskId, 'Job not found');
+        failed++;
+        continue;
+      }
+
+      if (job.running) {
+        continue;
+      }
+
+      job.running = true;
+      await governanceLifecycleQueueStoreService.markTaskRunning(task.taskId);
+
+      try {
+        const lockResult = await governanceLifecycleQueueStoreService.acquireCronLock({
+          jobId: job.id,
+          lockTimeoutMs: job.maxRuntimeMs,
+        });
+
+        if (!lockResult.acquired) {
+          job.running = false;
+          processed++;
+          continue;
+        }
+
+        const startedAt = nowIso();
+        let runStatus: CronRunStatus = 'SUCCESS';
+        let errorMessage: string | null = null;
+
+        try {
+          await runJobAction(job);
+        } catch (err) {
+          runStatus = 'FAILED';
+          errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        }
+
+        const completedAt = nowIso();
+        job.lastRunAt = completedAt;
+        job.lastRunStatus = runStatus;
+        job.lastRunSource = 'scheduler';
+        job.runCount++;
+        job.running = false;
+
+        if (runStatus === 'SUCCESS') {
+          await governanceLifecycleQueueStoreService.markTaskCompleted(task.taskId);
+        } else {
+          await governanceLifecycleQueueStoreService.markTaskFailed(task.taskId, errorMessage ?? 'Unknown error');
+        }
+
+        await governanceLifecycleQueueStoreService.appendCronExecutionLog({
+          jobId: job.id,
+          startedAt,
+          completedAt,
+          status: runStatus === 'SUCCESS' ? 'success' : runStatus === 'FAILED' ? 'failed' : 'skipped_overlap',
+          errorMessage,
+          source: task.source === 'RECOVERY' ? 'recovery' : 'scheduler',
+        });
+
+        if (runStatus === 'SUCCESS') {
+          processed++;
+        } else {
+          failed++;
+        }
+
+        await governanceLifecycleQueueStoreService.releaseCronLock(job.id);
+
+        await hookSystemService.emitAndWait('schedule.tick', {
+          jobId: job.id,
+          jobName: job.name,
+          status: runStatus,
+          source: task.source,
+        });
+
+        await governanceLifecycleQueueStoreService.upsertCronJob({
+          id: job.id,
+          name: job.name,
+          expression: job.expression,
+          target: job.target,
+          status: job.enabled ? 'active' : 'paused',
+          recoveryPolicy: job.recoveryPolicy,
+          retentionDays: job.retentionDays,
+          maxRuntimeMs: job.maxRuntimeMs,
+          lastRunAt: job.lastRunAt,
+          nextRunAt: job.nextRunAt,
+        });
+      } catch (err) {
+        job.running = false;
+        const errMsg = err instanceof Error ? err.message : 'Unknown error';
+        await governanceLifecycleQueueStoreService.markTaskFailed(task.taskId, errMsg);
+        failed++;
+      }
+    }
+
+    return { processed, failed };
+  };
+
+  const runJobAction = async (job: CronJob): Promise<void> => {
+    const customExecutor = customJobExecutorsByJobId.get(job.id) ?? customJobExecutorsByTarget.get(job.target);
+    if (customExecutor) {
+      await customExecutor();
+      return;
+    }
+
+    if (job.id === SYNC_PUSH_CRON_JOB_ID || job.target === 'SYNC_PUSH') {
+      await syncProviderService.triggerBackgroundPush();
+      return;
+    }
+
+    if (job.id === SYNC_PULL_CRON_JOB_ID || job.target === 'SYNC_PULL') {
+      await syncProviderService.triggerBackgroundPull();
+      return;
+    }
   };
 
   const tickInternal = async (): Promise<void> => {
     const now = new Date();
     lastTickAt = now.toISOString();
-    
     await enqueueDueJobs(now, 'SCHEDULED');
     await processPendingTaskQueue();
   };
 
-  // NOTE: setInterval removed - scheduler is now on-demand only
-  // Call tick() manually or use external scheduler
-
   const ensureInitialized = async (): Promise<void> => {
-    if (initialized) {
-      return;
+    if (initialized) return;
+
+    let stored = await governanceLifecycleQueueStoreService.listCronJobs();
+
+    if (stored.length === 0) {
+      const defaults = defaultJobs();
+      for (const job of defaults) {
+        await governanceLifecycleQueueStoreService.upsertCronJob({
+          id: job.id,
+          name: job.name,
+          expression: job.expression,
+          target: job.target,
+          status: job.enabled ? 'active' : 'paused',
+          recoveryPolicy: job.recoveryPolicy,
+          retentionDays: job.retentionDays,
+          maxRuntimeMs: job.maxRuntimeMs,
+          lastRunAt: job.lastRunAt,
+          nextRunAt: job.nextRunAt,
+        });
+      }
+      stored = await governanceLifecycleQueueStoreService.listCronJobs();
     }
-    
-    // Load jobs from governanceLifecycleQueueStoreService
-    const stored = await governanceLifecycleQueueStoreService.listCronJobs();
+
     stored.forEach((record) => {
       const job = mapStateRecordToJob(record);
       jobs.set(job.id, job);
     });
-    
+
     const recoveredInterruptedTasks = await governanceLifecycleQueueStoreService.recoverInterruptedTasks();
     const missedSummary = await enqueueDueJobs(new Date(), 'MISSED');
     const processedSummary = await processPendingTaskQueue();
-    
+
     latestRecoverySummary = {
       recoveredInterruptedTasks,
       missedJobsDetected: missedSummary.detected,
@@ -285,26 +488,8 @@ export const createCronScheduler = () => {
       failedTasks: processedSummary.failed,
       completedAt: nowIso(),
     };
-    
-    initialized = true;
-  };
 
-  const runJobAction = async (job: CronJob): Promise<void> => {
-    const customExecutor = customJobExecutorsByJobId.get(job.id) ?? customJobExecutorsByTarget.get(job.target);
-    if (customExecutor) {
-      await customExecutor();
-      return;
-    }
-    
-    if (job.id === SYNC_PUSH_CRON_JOB_ID || job.target === 'SYNC_PUSH') {
-      await syncProviderService.triggerBackgroundPush();
-      return;
-    }
-    
-    if (job.id === SYNC_PULL_CRON_JOB_ID || job.target === 'SYNC_PULL') {
-      await syncProviderService.triggerBackgroundPull();
-      return;
-    }
+    initialized = true;
   };
 
   return {
@@ -314,7 +499,7 @@ export const createCronScheduler = () => {
 
     async listJobs(): Promise<CronJob[]> {
       await ensureInitialized();
-      return [...jobs.values()].map(cloneJob).sort((a, b) => a.name.localeCompare(b.name));
+      return [...jobs.values()].map(j => ({ ...j })).sort((a, b) => a.name.localeCompare(b.name));
     },
 
     async upsertJob(input: {
@@ -328,7 +513,7 @@ export const createCronScheduler = () => {
       maxRuntimeMs?: number;
     }): Promise<CronJob> {
       await ensureInitialized();
-      
+
       if (!input.id.trim()) {
         throw new Error('Cron job id is required.');
       }
@@ -338,7 +523,7 @@ export const createCronScheduler = () => {
       if (!validateExpression(input.expression)) {
         throw new Error('Invalid cron expression. Supported: */N * * *, M H * *, M H * * DOW');
       }
-      
+
       const existing = jobs.get(input.id);
       const baseDate = new Date();
       const nextRunAt = computeNextRunIso(input.expression, baseDate);
@@ -358,7 +543,7 @@ export const createCronScheduler = () => {
         runCount: existing?.runCount ?? 0,
         running: existing?.running ?? false,
       };
-      
+
       jobs.set(input.id, merged);
       await governanceLifecycleQueueStoreService.upsertCronJob({
         id: merged.id,
@@ -371,10 +556,10 @@ export const createCronScheduler = () => {
         maxRuntimeMs: merged.maxRuntimeMs,
         lastRunAt: merged.lastRunAt,
         nextRunAt: merged.nextRunAt,
-        createdAt: existing?.lastRunAt ?? nowIso(),
+        createdAt: merged.lastRunAt ?? nowIso(),
         updatedAt: nowIso(),
       });
-      return cloneJob(merged);
+      return { ...merged };
     },
 
     async removeJob(jobId: string): Promise<boolean> {
@@ -390,40 +575,71 @@ export const createCronScheduler = () => {
       await ensureInitialized();
       const job = jobs.get(jobId);
       if (!job) return null;
-      
       job.enabled = false;
-      await governanceLifecycleQueueStoreService.upsertCronJob({
-        ...mapStateRecordToJob({
-          ...job,
-          status: 'paused',
-        } as any),
-      });
-      return cloneJob(job);
+      return { ...job };
     },
 
     async resumeJob(jobId: string): Promise<CronJob | null> {
       await ensureInitialized();
       const job = jobs.get(jobId);
       if (!job) return null;
-      
       job.enabled = true;
       job.nextRunAt = computeNextRunIso(job.expression, new Date());
-      await governanceLifecycleQueueStoreService.upsertCronJob({
-        ...mapStateRecordToJob({
-          ...job,
-          status: 'active',
-        } as any),
-      });
-      return cloneJob(job);
+      return { ...job };
     },
 
     async runNow(jobId: string): Promise<CronJob | null> {
       await ensureInitialized();
       const job = jobs.get(jobId);
       if (!job) return null;
-      
-      await runJobAction(job);
-      return cloneJob(job);
+
+      if (job.running) {
+        job.lastRunStatus = 'SKIPPED_OVERLAP';
+        return { ...job };
+      }
+
+      job.running = true;
+
+      try {
+        const startedAt = nowIso();
+        let runStatus: CronRunStatus = 'SUCCESS';
+        let errorMessage: string | null = null;
+
+        try {
+          await runJobAction(job);
+        } catch (err) {
+          runStatus = 'FAILED';
+          errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        }
+
+        const completedAt = nowIso();
+        job.lastRunAt = completedAt;
+        job.lastRunStatus = runStatus;
+        job.lastRunSource = 'manual';
+        job.runCount++;
+        job.running = false;
+
+        await governanceLifecycleQueueStoreService.appendCronExecutionLog({
+          jobId: job.id,
+          startedAt,
+          completedAt,
+          status: runStatus === 'SUCCESS' ? 'success' : runStatus === 'FAILED' ? 'failed' : 'skipped_overlap',
+          errorMessage,
+          source: 'manual',
+        });
+
+        await hookSystemService.emitAndWait('schedule.tick', {
+          jobId: job.id,
+          jobName: job.name,
+          status: runStatus,
+          source: 'manual',
+        });
+      } catch (err) {
+        job.running = false;
+        job.lastRunStatus = 'FAILED';
+      }
+
+      return { ...job };
     },
 
     async tick(): Promise<void> {
@@ -466,29 +682,50 @@ export const createCronScheduler = () => {
       const all = [...jobs.values()];
       return {
         totalJobs: all.length,
-        enabledJobs: all.filter((job) => job.enabled).length,
-        runningJobs: all.filter((job) => job.running).length,
-        totalRuns: all.reduce((sum, job) => sum + job.runCount, 0),
-        failedRuns: all.filter((job) => job.lastRunStatus === 'FAILED').length,
-        skippedOverlapRuns: all.filter((job) => job.lastRunStatus === 'SKIPPED_OVERLAP').length,
-        schedulerActive: false, // No more setInterval
+        enabledJobs: all.filter((j) => j.enabled).length,
+        runningJobs: all.filter((j) => j.running).length,
+        totalRuns: all.reduce((sum, j) => sum + j.runCount, 0),
+        failedRuns: all.filter((j) => j.lastRunStatus === 'FAILED').length,
+        skippedOverlapRuns: all.filter((j) => j.lastRunStatus === 'SKIPPED_OVERLAP').length,
+        schedulerActive: false,
         lastTickAt,
-        recovery: cloneRecoverySummary(),
+        recovery: { ...latestRecoverySummary },
       };
     },
 
     async dispose(): Promise<void> {
-      // No more tickTimer to clear
       initialized = false;
       jobs.clear();
       customJobExecutorsByJobId.clear();
       customJobExecutorsByTarget.clear();
     },
 
-    __resetForTesting: {
-      initialized: false,
-      lastTickAt: null,
-      latestRecoverySummary: {
+    __computeNextRunForTesting(expression: string, baseIso: string): string {
+      return computeNextRunIso(expression, new Date(baseIso));
+    },
+
+    async __setJobStateForTesting(jobId: string, state: Partial<Pick<CronJob, 'nextRunAt' | 'enabled' | 'running' | 'lastRunAt' | 'lastRunStatus' | 'runCount'>>): Promise<void> {
+      const job = jobs.get(jobId);
+      if (!job) throw new Error(`Job ${jobId} not found`);
+      Object.assign(job, state);
+      await governanceLifecycleQueueStoreService.upsertCronJob({
+        id: job.id,
+        name: job.name,
+        expression: job.expression,
+        target: job.target,
+        status: job.enabled ? 'active' : 'paused',
+        recoveryPolicy: job.recoveryPolicy,
+        retentionDays: job.retentionDays,
+        maxRuntimeMs: job.maxRuntimeMs,
+        lastRunAt: job.lastRunAt,
+        nextRunAt: job.nextRunAt,
+      });
+    },
+
+    async __resetForTesting(): Promise<void> {
+      initialized = false;
+      lastTickAt = null;
+      latestRecoverySummary = {
         recoveredInterruptedTasks: 0,
         missedJobsDetected: 0,
         missedJobsEnqueued: 0,
@@ -496,13 +733,12 @@ export const createCronScheduler = () => {
         processedTasks: 0,
         failedTasks: 0,
         completedAt: null,
-      },
-      jobs: new Map<string, CronJob>(),
-      customJobExecutorsByJobId: new Map<string, CronJobExecutor>(),
-      customJobExecutorsByTarget: new Map<string, CronJobExecutor>(),
+      };
+      jobs.clear();
+      customJobExecutorsByJobId.clear();
+      customJobExecutorsByTarget.clear();
     },
   };
 };
 
-// Keep the old export for backward compatibility (but it's now a factory)
 export const cronSchedulerService = createCronScheduler();

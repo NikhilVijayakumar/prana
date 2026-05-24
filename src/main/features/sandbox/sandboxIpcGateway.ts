@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeCapabilities, CapabilityValidationResult, IPCMessage } from '../../common/types/sandboxTypes'
-import { notificationCentreService } from '../notificationCentreService'
+import { notificationCentreService } from '../communication/notificationCentreService'
 
 type GatewayRouteHandler = (payload: unknown) => Promise<unknown>
 

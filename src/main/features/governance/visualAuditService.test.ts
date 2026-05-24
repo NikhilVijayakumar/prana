@@ -29,4 +29,66 @@ describe('visualAuditService', () => {
     expect(payload.tokensSynced).toBe(false);
     expect(payload.metrics.some((metric) => metric.status !== 'pass')).toBe(true);
   });
+
+  it('includes storage governance audit section when storage rules input is provided', () => {
+    const payload = buildDesignAuditPayload({
+      complianceOverallStatus: 'secure',
+      complianceViolationsCount: 0,
+      queuePendingCount: 0,
+      blockedSkillsCount: 0,
+      degradedProviderCount: 0,
+      storageRulesInput: {
+        vaultDomains: [
+          { domainKey: 'global_metadata', vaultPath: 'global_metadata/' },
+        ],
+        cacheDomains: [
+          { domainKey: 'global_metadata', tableName: 'app_registry', storeName: 'hybrid-sync.sqlite' },
+          { domainKey: 'runtime_config', tableName: 'runtime_config_meta', storeName: 'config.sqlite' },
+        ],
+        appKey: 'prana',
+        appName: 'Prana Runtime',
+      },
+    });
+
+    expect(payload.storageGovernance).toBeDefined();
+    expect(payload.storageGovernance?.totalRules).toBe(5);
+    expect(payload.storageGovernance?.passedRules).toBeGreaterThan(0);
+    expect(payload.storageGovernance?.summary).toBe('pass');
+  });
+
+  it('reports storage governance failure when rules are violated', () => {
+    const payload = buildDesignAuditPayload({
+      complianceOverallStatus: 'secure',
+      complianceViolationsCount: 0,
+      queuePendingCount: 0,
+      blockedSkillsCount: 0,
+      degradedProviderCount: 0,
+      storageRulesInput: {
+        vaultDomains: [
+          { domainKey: 'orphan_vault_domain', vaultPath: 'orphan/' },
+        ],
+        cacheDomains: [
+          { domainKey: 'global_metadata', tableName: 'app_registry', storeName: 'hybrid-sync.sqlite' },
+        ],
+        appKey: '',
+        appName: '',
+      },
+    });
+
+    expect(payload.storageGovernance).toBeDefined();
+    expect(payload.storageGovernance?.failedRules).toBeGreaterThan(0);
+    expect(payload.storageGovernance?.summary).toBe('fail');
+  });
+
+  it('omits storage governance section when input is not provided', () => {
+    const payload = buildDesignAuditPayload({
+      complianceOverallStatus: 'secure',
+      complianceViolationsCount: 0,
+      queuePendingCount: 0,
+      blockedSkillsCount: 0,
+      degradedProviderCount: 0,
+    });
+
+    expect(payload.storageGovernance).toBeUndefined();
+  });
 });

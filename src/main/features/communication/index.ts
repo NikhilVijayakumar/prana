@@ -7,6 +7,7 @@ export * from './emailOrchestratorService';
 export * from './emailService';
 export * from './googleBridgeService';
 export * from './googleSheetsCacheService';
+export * from './googleWorkspaceSurfaceService';
 export * from './notificationCentreService';
 export * from './notificationRateLimiterService';
 export * from './notificationStoreService';

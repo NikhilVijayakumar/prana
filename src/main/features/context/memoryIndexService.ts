@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { getAppDataRoot, mkdirSafe } from '../governance/governanceRepoService';
@@ -304,7 +304,6 @@ const indexTextInternal = async (
     );
   });
   
-  chunkStmt.free();
   await persistDatabase(database);
   
   return document;

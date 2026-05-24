@@ -470,6 +470,13 @@ Rationale:
 
 
 
+
+
+
+
+
+
+
 ## Score Summary
 
 | Category                  | Score | Grade |
@@ -480,7 +487,7 @@ Rationale:
 | Runtime Extensibility     | 8.0/10 | A- |
 | Runtime Security          | 9.3/10 | A |
 | **Grand Total**           | **9.2/10** | **A** |
-| **Relative Score**        | **+2.6** | **A** |
+| **Relative Score**        | **+7.8** | **A** |
 
 ---
 

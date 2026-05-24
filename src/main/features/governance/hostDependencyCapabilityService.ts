@@ -1,13 +1,15 @@
 import { existsSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { executeCommand } from '../operations/processService';
 import { sqliteConfigStoreService } from '../../common/storage/sqliteConfigStoreService';
 
-export type HostDependencyId = 'ssh' | 'git' | 'virtual-drive';
+export type HostDependencyId = 'ssh' | 'git' | 'virtual-drive' | 'storage-governance-docs';
 
 export interface HostDependencyDiagnostic {
   dependency: HostDependencyId;
   available: boolean;
-  source: 'PATH' | 'CONFIG';
+  source: 'PATH' | 'CONFIG' | 'FILESYSTEM';
   command: string;
   message: string;
 }
@@ -83,13 +85,73 @@ const checkVirtualDriveDependency = async (): Promise<HostDependencyDiagnostic> 
   return checkPathDependency('virtual-drive', 'rclone', ['version'], 'Virtual drive runtime (rclone) is available on PATH.');
 };
 
+const checkStorageGovernanceDocs = async (govDocsRoot: string): Promise<HostDependencyDiagnostic> => {
+  if (!existsSync(govDocsRoot)) {
+    return {
+      dependency: 'storage-governance-docs',
+      available: false,
+      source: 'FILESYSTEM',
+      command: govDocsRoot,
+      message: `Governance docs root not found: ${govDocsRoot}`,
+    };
+  }
+
+  const cacheDir = join(govDocsRoot, 'cache');
+  const vaultDir = join(govDocsRoot, 'vault');
+
+  const cacheExists = existsSync(cacheDir);
+  const vaultExists = existsSync(vaultDir);
+
+  if (!cacheExists && !vaultExists) {
+    return {
+      dependency: 'storage-governance-docs',
+      available: false,
+      source: 'FILESYSTEM',
+      command: govDocsRoot,
+      message: 'Neither cache nor vault governance docs directory found.',
+    };
+  }
+
+  let cacheFiles = 0;
+  if (cacheExists) {
+    try {
+      cacheFiles = (await readdir(cacheDir)).length;
+    } catch {
+      cacheFiles = 0;
+    }
+  }
+
+  let vaultFiles = 0;
+  if (vaultExists) {
+    try {
+      vaultFiles = (await readdir(vaultDir)).length;
+    } catch {
+      vaultFiles = 0;
+    }
+  }
+
+  return {
+    dependency: 'storage-governance-docs',
+    available: cacheFiles > 0,
+    source: 'FILESYSTEM',
+    command: govDocsRoot,
+    message: cacheFiles > 0
+      ? `Governance docs present: ${cacheFiles} cache file(s), ${vaultFiles} vault file(s).`
+      : 'Governance docs directory exists but no cache contract files found.',
+  };
+};
+
 export const hostDependencyCapabilityService = {
-  async evaluate(): Promise<HostDependencyCapabilityResult> {
+  async evaluate(storageGovernanceDocsRoot?: string): Promise<HostDependencyCapabilityResult> {
     const diagnostics: HostDependencyDiagnostic[] = [];
 
     diagnostics.push(await checkPathDependency('ssh', 'ssh', ['-V'], 'SSH binary is available on PATH.'));
     diagnostics.push(await checkPathDependency('git', 'git', ['--version'], 'Git binary is available on PATH.'));
     diagnostics.push(await checkVirtualDriveDependency());
+
+    if (storageGovernanceDocsRoot) {
+      diagnostics.push(await checkStorageGovernanceDocs(storageGovernanceDocsRoot));
+    }
 
     const missing = diagnostics
       .filter((entry) => !entry.available)

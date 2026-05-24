@@ -204,6 +204,16 @@ export const createHookSystem = () => {
       action: 'audit',
       messageTemplate: 'Session bootstrap observed for {{sessionId}}',
     },
+    {
+      id: 'hook-default-schedule-tick',
+      event: 'schedule.tick',
+      enabled: true,
+      priority: 30,
+      timeoutMs: 1000,
+      retries: 0,
+      action: 'audit',
+      messageTemplate: 'Schedule tick: {{jobName}} ({{jobId}}) - {{status}}',
+    },
   ];
 
   const ensureLoaded = async (): Promise<void> => {

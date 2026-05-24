@@ -212,35 +212,24 @@ export const commandRouterService = {
 
     const progressedStates: Array<'EXECUTING' | 'SYNTHESIS' | 'REVIEW'> = ['EXECUTING'];
 
-    // Execute the agent asynchronously
-    (async () => {
-      const agent = agentRegistryService.getAgent(started.workOrder.targetEmployeeId);
-      if (agent && agentRegistryService.isImplemented(started.workOrder.targetEmployeeId)) {
-        try {
-          const outcome = await agentExecutionService.executeAgent(agent, started.workOrder.id);
-          if (outcome.success) {
-            // Update with agent synthesis
-            workOrderService.updateState(started.workOrder.id, 'SYNTHESIS', {
-              summary: outcome.result.synthesis,
-            });
-          } else {
-            workOrderService.updateState(started.workOrder.id, 'FAILED', {
-              error: outcome.message,
-            });
-          }
-        } catch (error) {
-          console.error('Agent execution failed:', error);
-        }
-      } else {
-        // Fallback: generic synthesis if agent not implemented
-        workOrderService.updateState(started.workOrder.id, 'SYNTHESIS', {
-          summary: `Synthesis prepared for ${started.workOrder.targetEmployeeId.toUpperCase()} in ${started.workOrder.moduleRoute}.`,
-        });
+    let synthesisSummary: string;
+    const agent = agentRegistryService.getAgent(started.workOrder.targetEmployeeId);
+    if (agent && agentRegistryService.isImplemented(started.workOrder.targetEmployeeId)) {
+      try {
+        const outcome = await agentExecutionService.executeAgent(agent, started.workOrder.id);
+        synthesisSummary = outcome.success
+          ? outcome.result.synthesis
+          : `Synthesis prepared for ${started.workOrder.targetEmployeeId.toUpperCase()} in ${started.workOrder.moduleRoute}.`;
+      } catch (error) {
+        console.error('Agent execution failed:', error);
+        synthesisSummary = `Synthesis prepared for ${started.workOrder.targetEmployeeId.toUpperCase()} in ${started.workOrder.moduleRoute}.`;
       }
-    })();
+    } else {
+      synthesisSummary = `Synthesis prepared for ${started.workOrder.targetEmployeeId.toUpperCase()} in ${started.workOrder.moduleRoute}.`;
+    }
 
     const synthesis = workOrderService.updateState(started.workOrder.id, 'SYNTHESIS', {
-      summary: `Synthesis prepared for ${started.workOrder.targetEmployeeId.toUpperCase()} in ${started.workOrder.moduleRoute}.`,
+      summary: synthesisSummary,
     });
 
     if (!synthesis) {

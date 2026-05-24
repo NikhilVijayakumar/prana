@@ -5,9 +5,11 @@ import type {
   GoogleFormFeedbackResponse,
 } from '../operations/administrationIntegrationService';
 import type { DocumentConversionService } from '../operations/documentConversionService';
+import type { KnowledgeSurface } from '../../common/types/knowledgeSurfaceTypes';
 import { cronSchedulerService } from '../orchestration/cronSchedulerService';
 import { sqliteConfigStoreService } from '../../common/storage/sqliteConfigStoreService';
 import { runtimeDocumentStoreService } from '../operations/runtimeDocumentStoreService';
+import { createWorkspaceSurface } from './googleWorkspaceSurfaceService';
 
 export interface GoogleDocsPublishResult {
   status: 'PUBLISHED' | 'SKIPPED' | 'FAILED';
@@ -437,6 +439,7 @@ export class GoogleBridgeService {
   private readonly docsPublisher: GoogleDocsPublisherProtocol;
   private readonly docsPuller: GoogleDocsPullerProtocol;
   private readonly config: GoogleBridgeConfig;
+  private readonly surface: KnowledgeSurface;
   private latestSync: GoogleDriveSyncResult | null = null;
 
   constructor(
@@ -478,6 +481,8 @@ export class GoogleBridgeService {
       this.docsPublisher = new FileBackedDocsPublisher();
       this.docsPuller = new FileBackedDocsPuller(conversionService);
     }
+
+    this.surface = createWorkspaceSurface(conversionService);
   }
 
   getSnapshot(): GoogleBridgeSnapshot {
@@ -491,6 +496,10 @@ export class GoogleBridgeService {
       docsConnected: isLive && this.config.docsEnabled,
       latestSync: this.latestSync,
     };
+  }
+
+  getSurface(): KnowledgeSurface {
+    return this.surface;
   }
 
   getSheetsGateway(): GoogleSheetsGatewayProtocol {

@@ -267,7 +267,7 @@ export const taskRegistryService = {
         `);
         dedupeStmt.bind([record.dedupeKey]);
         const row = dedupeStmt.get() as Record<string, unknown> | undefined;
-        dedupeStmt.free();
+
         if (row) {
           return { record: mapRow(row), inserted: false, duplicatePrevented: true };
         }
@@ -297,7 +297,7 @@ export const taskRegistryService = {
         record.createdAt,
         record.updatedAt,
       ]);
-      stmt.free();
+  
       await persistDatabase(database);
       return { record, inserted: true, duplicatePrevented: false };
     });
@@ -339,7 +339,7 @@ export const taskRegistryService = {
     `);
     stmt.bind([...params, limit]);
     const rows = stmt.all() as Array<Record<string, unknown>>;
-    stmt.free();
+
     return rows.map(row => mapRow(row));
   },
 
@@ -348,7 +348,7 @@ export const taskRegistryService = {
     const stmt = database.prepare('SELECT * FROM task_registry WHERE task_id = ? LIMIT 1');
     stmt.bind([taskId]);
     const row = stmt.get() as Record<string, unknown> | undefined;
-    stmt.free();
+
     return row ? mapRow(row) : null;
   },
 
@@ -384,7 +384,7 @@ export const taskRegistryService = {
           );
           stmt.bind(deps);
           const depRows = stmt.all() as Array<Record<string, unknown>>;
-          stmt.free();
+      
           const allCompleted = depRows.every(row => row.status === 'COMPLETED');
           if (!allCompleted) {
             continue;
@@ -406,7 +406,7 @@ export const taskRegistryService = {
         WHERE task_id = ?
       `);
       stmt.run(['RUNNING', executedAt, options.workerId, leaseExpiresAt, executedAt, next.taskId]);
-      stmt.free();
+  
       await persistDatabase(database);
       return {
         ...next,
@@ -434,7 +434,7 @@ export const taskRegistryService = {
         WHERE task_id = ?
       `);
       stmt.run(['COMPLETED', completedAt, completedAt, taskId]);
-      stmt.free();
+  
       await persistDatabase(database);
       return {
         ...existing,
@@ -462,7 +462,7 @@ export const taskRegistryService = {
         WHERE task_id = ?
       `);
       stmt.run(['CANCELLED', updatedAt, updatedAt, reason ?? null, taskId]);
-      stmt.free();
+  
       await persistDatabase(database);
       return {
         ...existing,
@@ -490,7 +490,7 @@ export const taskRegistryService = {
         WHERE task_id = ?
       `);
       stmt.run(['EXPIRED', updatedAt, updatedAt, reason ?? null, taskId]);
-      stmt.free();
+  
       await persistDatabase(database);
       return {
         ...existing,
@@ -523,7 +523,7 @@ export const taskRegistryService = {
         WHERE task_id = ?
       `);
       stmt.run([nextStatus, nextRetryCount, nextScheduledAt, updatedAt, error.slice(0, 1_000), taskId]);
-      stmt.free();
+  
       await persistDatabase(database);
       return {
         ...existing,
@@ -558,7 +558,7 @@ export const taskRegistryService = {
         stmt.run(['RETRY_PENDING', updatedAt, 'Recovered after interrupted execution lease.', task.taskId]);
       }
 
-      stmt.free();
+  
       await persistDatabase(database);
       return recoverable.length;
     });
@@ -608,6 +608,99 @@ export const taskRegistryService = {
     }
 
     return { totals, byLane, overdueTasks };
+  },
+
+  async retryTask(taskId: string): Promise<TaskRegistryRecord | null> {
+    const existing = await this.getTask(taskId);
+    if (!existing || existing.status !== 'FAILED') return null;
+    return queueWrite(async () => {
+      const database = await getDatabase();
+      const now = nowIso();
+      const stmt = database.prepare(`
+        UPDATE task_registry
+        SET status = ?, retry_count = 0, scheduled_at = ?, lease_owner = NULL, lease_expires_at = NULL,
+            updated_at = ?, last_error = NULL
+        WHERE task_id = ?
+      `);
+      stmt.run(['QUEUED', now, now, taskId]);
+  
+      await persistDatabase(database);
+      return {
+        ...existing,
+        status: 'QUEUED',
+        retryCount: 0,
+        scheduledAt: now,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        updatedAt: now,
+      };
+    });
+  },
+
+  async expireTimedOutTasks(): Promise<number> {
+    return queueWrite(async () => {
+      const database = await getDatabase();
+      const now = nowIso();
+      const running = await this.listTasks({ statuses: ['RUNNING'], limit: 1_000 });
+      const timedOut = running.filter(
+        (task) => task.timeoutAt && Date.parse(task.timeoutAt) <= Date.now()
+      );
+      if (timedOut.length === 0) return 0;
+
+      const stmt = database.prepare(`
+        UPDATE task_registry
+        SET status = ?, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?, last_error = ?
+        WHERE task_id = ?
+      `);
+      for (const task of timedOut) {
+        stmt.run(['EXPIRED', now, `Task timed out at ${task.timeoutAt}`, task.taskId]);
+      }
+  
+      await persistDatabase(database);
+      return timedOut.length;
+    });
+  },
+
+  async listDlqTasks(limit = 100): Promise<TaskRegistryRecord[]> {
+    return this.listTasks({ statuses: ['DLQ'], limit });
+  },
+
+  async replayFromDlq(taskId: string): Promise<TaskRegistryRecord | null> {
+    const existing = await this.getTask(taskId);
+    if (!existing || existing.status !== 'DLQ') return null;
+    return queueWrite(async () => {
+      const database = await getDatabase();
+      const now = nowIso();
+      const stmt = database.prepare(`
+        UPDATE task_registry
+        SET status = ?, retry_count = 0, scheduled_at = ?, lease_owner = NULL, lease_expires_at = NULL,
+            updated_at = ?, last_error = NULL
+        WHERE task_id = ?
+      `);
+      stmt.run(['QUEUED', now, now, taskId]);
+  
+      await persistDatabase(database);
+      return {
+        ...existing,
+        status: 'QUEUED',
+        retryCount: 0,
+        scheduledAt: now,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        updatedAt: now,
+      };
+    });
+  },
+
+  async findByPayloadRef(payloadRef: string): Promise<TaskRegistryRecord | null> {
+    const database = await getDatabase();
+    const stmt = database.prepare('SELECT * FROM task_registry WHERE payload_ref = ? ORDER BY created_at DESC LIMIT 1');
+    stmt.bind([payloadRef]);
+    const row = stmt.get() as Record<string, unknown> | undefined;
+
+    return row ? mapRow(row) : null;
   },
 
   async __resetForTesting(): Promise<void> {

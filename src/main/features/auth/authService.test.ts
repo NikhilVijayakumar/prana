@@ -14,11 +14,11 @@ let store: {
 
 const sendEmailMock = vi.fn();
 
-vi.mock('./governanceRepoService', () => ({
+vi.mock('../governance/governanceRepoService', () => ({
   ensureGovernanceRepoReady: vi.fn(),
 }));
 
-vi.mock('./runtimeConfigService', () => ({
+vi.mock('../../common/config/runtimeConfigService', () => ({
   getRuntimeBootstrapConfig: vi.fn(() => ({
     director: {
       name: 'Director',
@@ -28,7 +28,7 @@ vi.mock('./runtimeConfigService', () => ({
   })),
 }));
 
-vi.mock('./emailService', () => ({
+vi.mock('../communication/emailService', () => ({
   sendEmail: sendEmailMock,
 }));
 
@@ -51,6 +51,128 @@ vi.mock('./authStoreService', () => ({
     }),
   },
 }));
+
+describe('authService login flow', () => {
+  beforeEach(() => {
+    store = {
+      directorName: 'Director',
+      email: 'director@example.com',
+      passwordHash: bcrypt.hashSync('Director1', 10),
+      otpHash: null,
+      otpExpiresAt: null,
+      lastPasswordResetAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+      attemptCount: 0,
+      attemptLockUntil: undefined,
+    };
+    sendEmailMock.mockReset();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+  });
+
+  it('succeeds with valid email and password', async () => {
+    const { authService } = await import('./authService');
+    const result = await authService.login('director@example.com', 'Director1');
+
+    expect(result.success).toBe(true);
+    expect(result.directorName).toBe('Director');
+    expect(result.email).toBe('director@example.com');
+    expect(result.sessionToken).toMatch(/^prana_session_/);
+    expect(result.sessionTokenExpiresAt).toBeTypeOf('string');
+    expect(store?.attemptCount).toBe(0);
+    expect(store?.attemptLockUntil).toBeUndefined();
+  });
+
+  it('rejects invalid password with invalid_credentials reason', async () => {
+    const { authService } = await import('./authService');
+    const result = await authService.login('director@example.com', 'WrongPassword1');
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('invalid_credentials');
+    expect(result.sessionToken).toBeNull();
+    expect(store?.attemptCount).toBe(1);
+  });
+
+  it('rejects email mismatch with email_mismatch reason', async () => {
+    const { authService } = await import('./authService');
+    const result = await authService.login('wrong@example.com', 'Director1');
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('email_mismatch');
+    expect(result.sessionToken).toBeNull();
+    expect(store?.attemptCount).toBe(1);
+  });
+
+  it('applies soft lockout after 3 failed attempts', async () => {
+    const { authService } = await import('./authService');
+
+    for (let i = 0; i < 3; i++) {
+      const result = await authService.login('director@example.com', 'WrongPassword1');
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe('invalid_credentials');
+    }
+
+    expect(store?.attemptCount).toBe(3);
+    expect(store?.attemptLockUntil).toBeGreaterThan(Date.now());
+  });
+
+  it('applies hard lockout after 10 failed attempts', async () => {
+    const { authService } = await import('./authService');
+
+    for (let i = 0; i < 10; i++) {
+      const result = await authService.login('director@example.com', 'WrongPassword1');
+      expect(result.success).toBe(false);
+    }
+
+    expect(store?.attemptCount).toBe(10);
+    expect(store?.attemptLockUntil).toBeGreaterThan(Date.now());
+  });
+
+  it('returns invalid_credentials (not lockout detail) when account is locked', async () => {
+    const { authService } = await import('./authService');
+
+    for (let i = 0; i < 5; i++) {
+      await authService.login('director@example.com', 'WrongPassword1');
+    }
+
+    const lockedResult = await authService.login('director@example.com', 'WrongPassword1');
+    expect(lockedResult.success).toBe(false);
+    expect(lockedResult.reason).toBe('invalid_credentials');
+    expect(lockedResult.sessionToken).toBeNull();
+  });
+
+  it('resets attempt counter on successful login', async () => {
+    const { authService } = await import('./authService');
+
+    await authService.login('director@example.com', 'WrongPassword1');
+    await authService.login('director@example.com', 'WrongPassword1');
+    expect(store?.attemptCount).toBe(2);
+
+    const result = await authService.login('director@example.com', 'Director1');
+    expect(result.success).toBe(true);
+    expect(store?.attemptCount).toBe(0);
+    expect(store?.attemptLockUntil).toBeUndefined();
+  });
+
+  it('generates unique session tokens on each login', async () => {
+    const { authService } = await import('./authService');
+
+    const first = await authService.login('director@example.com', 'Director1');
+    store!.attemptCount = 0; // reset for second login
+    store!.attemptLockUntil = undefined;
+    const second = await authService.login('director@example.com', 'Director1');
+
+    expect(first.sessionToken).not.toBe(second.sessionToken);
+    expect(first.sessionTokenExpiresAt).toBeTypeOf('string');
+    expect(second.sessionTokenExpiresAt).toBeTypeOf('string');
+  });
+
+  it('is case-insensitive for email comparison', async () => {
+    const { authService } = await import('./authService');
+    const result = await authService.login('DIRECTOR@EXAMPLE.COM', 'Director1');
+
+    expect(result.success).toBe(true);
+    expect(result.email).toBe('director@example.com');
+  });
+});
 
 describe('authService OTP flow', () => {
   beforeEach(() => {

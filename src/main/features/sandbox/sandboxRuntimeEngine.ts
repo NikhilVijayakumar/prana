@@ -1,17 +1,21 @@
 import { createRuntimeOrchestrator } from './runtimeOrchestratorService'
 import { createRuntimeSessionManager } from './runtimeSessionManagerService'
 import { createSandboxSupervisor } from './sandboxSupervisorService'
-import { sandboxIpcGateway } from './sandboxIpcGateway'
 import { runtimeImageManagerService } from './runtimeImageManagerService'
 import { startupOrchestratorService } from '../startupOrchestratorService'
 import { intersectCapabilities } from './capabilityUtils'
+import { createVaultSqliteSync, VaultSqliteSync } from './vaultSqliteSyncService'
 import type { RuntimeCapabilities, RuntimeImage, RuntimeSession } from '../../common/types/sandboxTypes'
+import type Database from 'better-sqlite3'
 
 export type EngineState = 'uninitialized' | 'booting' | 'operational' | 'failed' | 'shutdown'
 
 export interface SandboxRuntimeEngineConfig {
   suppressHostBoot?: boolean
   onBootProgress?: (stage: string, state: string) => void
+  // If provided, vault file index is projected into this DB on startup
+  // and vault_staging rows are flushed back to vault on shutdown.
+  db?: Database.Database
 }
 
 export const createSandboxRuntimeEngine = (config: SandboxRuntimeEngineConfig = {}) => {
@@ -22,6 +26,7 @@ export const createSandboxRuntimeEngine = (config: SandboxRuntimeEngineConfig = 
   let engineState: EngineState = 'uninitialized'
   let hostContainerId: string | null = null
   let hostSessionId: string | null = null
+  let vaultSync: VaultSqliteSync | null = null
 
   const assertOperational = (): void => {
     if (engineState !== 'operational') {
@@ -68,10 +73,22 @@ export const createSandboxRuntimeEngine = (config: SandboxRuntimeEngineConfig = 
       hostSessionId = hostSession.sessionId
       sessionManager.transitionState(hostSessionId, 'RUNNING')
 
-      // SQLite and Vault containers start with the host and share its session
+      // SQLite container starts with the host and shares its session
       const sqliteContainer = orchestrator.createContainer('sqlite', hostSessionId)
       orchestrator.transition(sqliteContainer.containerId, 'CREATED')
       orchestrator.transition(sqliteContainer.containerId, 'RUNNING')
+
+      // Vault container: project vault file index into SQLite on startup if db is provided.
+      // All runtime access to vault data goes through sqlite:read/write on vault_files / vault_staging.
+      const vaultContainer = orchestrator.createContainer('vault', hostSessionId)
+      orchestrator.transition(vaultContainer.containerId, 'CREATED')
+
+      if (config.db) {
+        vaultSync = createVaultSqliteSync(config.db)
+        await vaultSync.project()
+      }
+
+      orchestrator.transition(vaultContainer.containerId, 'RUNNING')
 
       engineState = 'operational'
     },
@@ -138,6 +155,10 @@ export const createSandboxRuntimeEngine = (config: SandboxRuntimeEngineConfig = 
     },
 
     async shutdown(): Promise<void> {
+      if (vaultSync) {
+        try { await vaultSync.flush() } catch { /* ignore flush errors on shutdown */ }
+        vaultSync = null
+      }
       supervisor.stopMonitoring()
       sessionManager.clearAll()
       engineState = 'shutdown'

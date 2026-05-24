@@ -228,7 +228,7 @@ export const createCoreRegistry = () => {
       const extension = extname(absolutePath).toLowerCase();
       const content = readFileSync(absolutePath, 'utf8').replace(/^\uFEFF/, '');
       return {
-        relativePath: normalizeRegistryRelativePath(relative(esolve(getRegistryRoot()), absolutePath)),
+        relativePath: normalizeRegistryRelativePath(relative(resolve(getRegistryRoot()), absolutePath)),
         extension,
         content,
       };

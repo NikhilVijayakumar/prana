@@ -397,6 +397,13 @@ Not applicable. PluginSandboxHost is a development bootstrap tool. Each invocati
 
 
 
+
+
+
+
+
+
+
 ## Score Summary
 
 | Category                  | Score | Grade |
@@ -407,7 +414,7 @@ Not applicable. PluginSandboxHost is a development bootstrap tool. Each invocati
 | Runtime Extensibility     | 10.0/10 | A |
 | Runtime Security          | 9.6/10 | A |
 | **Grand Total**           | **8.5/10** | **A-** |
-| **Relative Score**        | **+1.8** | **B** |
+| **Relative Score**        | **+7.1** | **A** |
 
 ---
 

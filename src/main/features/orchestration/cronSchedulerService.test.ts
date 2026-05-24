@@ -6,9 +6,9 @@ import { hookSystemService } from '../governance/hookSystemService';
 describe('cronSchedulerService', () => {
   beforeEach(async () => {
     await governanceLifecycleQueueStoreService.__resetForTesting();
-    await cronSchedulerService.__resetForTesting();
     await hookSystemService.__resetForTesting();
     await hookSystemService.clearRuntimeState();
+    await cronSchedulerService.__resetForTesting();
     await cronSchedulerService.initialize();
   });
 
@@ -38,6 +38,7 @@ describe('cronSchedulerService', () => {
     const resumed = await cronSchedulerService.resumeJob('job-test-custom');
     expect(resumed?.enabled).toBe(true);
 
+    // runNow should update lastRunStatus and runCount
     const ran = await cronSchedulerService.runNow('job-test-custom');
     expect(ran?.lastRunStatus).toBe('SUCCESS');
     expect(ran?.runCount).toBeGreaterThan(0);
@@ -54,13 +55,11 @@ describe('cronSchedulerService', () => {
       return;
     }
 
-    // Force overlap by toggling running flag via upsert/load lifecycle not exposed.
-    // Instead run once and immediately run again; the second run should still complete safely.
-    const first = await cronSchedulerService.runNow(target.id);
-    expect(first?.lastRunStatus).toBe('SUCCESS');
+    // Force overlap by setting running flag directly
+    await cronSchedulerService.__setJobStateForTesting(target.id, { running: true });
 
     const second = await cronSchedulerService.runNow(target.id);
-    expect(second?.lastRunStatus === 'SUCCESS' || second?.lastRunStatus === 'SKIPPED_OVERLAP').toBe(true);
+    expect(second?.lastRunStatus).toBe('SKIPPED_OVERLAP');
   });
 
   it('recovers persisted schedules across service restart', async () => {
@@ -88,7 +87,6 @@ describe('cronSchedulerService', () => {
 
     await cronSchedulerService.runNow(target.id);
     const executions = await hookSystemService.listExecutions(20);
-
     expect(executions.some((entry) => entry.event === 'schedule.tick')).toBe(true);
   });
 
@@ -117,5 +115,27 @@ describe('cronSchedulerService', () => {
 
     const secondTelemetry = await cronSchedulerService.getTelemetry();
     expect(secondTelemetry.recovery.missedJobsEnqueued).toBe(0);
+  });
+
+  it('rejects invalid cron expressions', async () => {
+    await expect(
+      cronSchedulerService.upsertJob({
+        id: 'job-bad',
+        name: 'Bad Job',
+        expression: 'not-a-cron',
+        enabled: true,
+      })
+    ).rejects.toThrow('Invalid cron expression');
+  });
+
+  it('provides correct telemetry after execution', async () => {
+    const telemetryBefore = await cronSchedulerService.getTelemetry();
+    expect(telemetryBefore.totalJobs).toBeGreaterThan(0);
+
+    const jobs = await cronSchedulerService.listJobs();
+    await cronSchedulerService.runNow(jobs[0].id);
+
+    const telemetry = await cronSchedulerService.getTelemetry();
+    expect(telemetry.totalRuns).toBeGreaterThanOrEqual(1);
   });
 });

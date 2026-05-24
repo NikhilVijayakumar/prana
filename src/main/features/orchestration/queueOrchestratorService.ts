@@ -158,6 +158,16 @@ export const createQueueOrchestrator = () => {
       return taskRegistryService.cancelTask(taskId, reason);
     },
 
+    async listTasks(options?: {
+      statuses?: TaskRegistryStatus[];
+      laneTypes?: QueueLaneType[];
+      limit?: number;
+      payloadRef?: string;
+    }): Promise<TaskRegistryRecord[]> {
+      await ensureInitialized();
+      return taskRegistryService.listTasks(options);
+    },
+
     async getHealth(): Promise<QueueHealthSnapshot> {
       await ensureInitialized();
       const telemetry = await taskRegistryService.getTelemetry();
@@ -191,6 +201,32 @@ export const createQueueOrchestrator = () => {
       };
     },
 
+    async expireStaleTasks(): Promise<{ expired: number; recovered: number }> {
+      await ensureInitialized();
+      const expired = await taskRegistryService.expireTimedOutTasks();
+      const recovered = await taskRegistryService.recoverLeasedTasks();
+      return { expired, recovered };
+    },
+
+    async listDlqTasks(limit = 100): Promise<TaskRegistryRecord[]> {
+      await ensureInitialized();
+      return taskRegistryService.listDlqTasks(limit);
+    },
+
+    async replayFromDlq(taskId: string): Promise<TaskRegistryRecord | null> {
+      await ensureInitialized();
+      return taskRegistryService.replayFromDlq(taskId);
+    },
+
+    async findByPayloadRef(payloadRef: string): Promise<TaskRegistryRecord | null> {
+      await ensureInitialized();
+      return taskRegistryService.findByPayloadRef(payloadRef);
+    },
+
+    async getHealthCheck(): Promise<QueueHealthSnapshot> {
+      return this.getHealth();
+    },
+
     async retryFailedTasks(): Promise<{ retried: number }> {
       await ensureInitialized();
       const failed = await taskRegistryService.listTasks({
@@ -200,7 +236,7 @@ export const createQueueOrchestrator = () => {
 
       let retried = 0;
       for (const task of failed) {
-        await taskRegistryService.retryTask(task.id);
+        await taskRegistryService.retryTask(task.taskId);
         retried++;
       }
 
