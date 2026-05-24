@@ -1,7 +1,7 @@
 import type { RuntimeSession } from '../../common/types/sandboxTypes'
 import type { RuntimeOrchestrator } from './runtimeOrchestratorService'
 import type { RuntimeSessionManager } from './runtimeSessionManagerService'
-import { vaidyarService } from '../vaidyarService'
+import { vaidyarService } from '../governance/vaidyarService'
 
 const MONITOR_INTERVAL_MS = 5_000
 const HEARTBEAT_TIMEOUT_MS = 15_000
