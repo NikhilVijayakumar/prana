@@ -76,12 +76,16 @@ export const createSandboxRuntimeEngine = (config: SandboxRuntimeEngineConfig = 
       // SQLite container starts with the host and shares its session
       const sqliteContainer = orchestrator.createContainer('sqlite', hostSessionId)
       orchestrator.transition(sqliteContainer.containerId, 'CREATED')
+      orchestrator.transition(sqliteContainer.containerId, 'PREPARING')
+      orchestrator.transition(sqliteContainer.containerId, 'STARTING')
       orchestrator.transition(sqliteContainer.containerId, 'RUNNING')
 
       // Vault container: project vault file index into SQLite on startup if db is provided.
       // All runtime access to vault data goes through sqlite:read/write on vault_files / vault_staging.
       const vaultContainer = orchestrator.createContainer('vault', hostSessionId)
       orchestrator.transition(vaultContainer.containerId, 'CREATED')
+      orchestrator.transition(vaultContainer.containerId, 'PREPARING')
+      orchestrator.transition(vaultContainer.containerId, 'STARTING')
 
       if (config.db) {
         vaultSync = createVaultSqliteSync(config.db)
