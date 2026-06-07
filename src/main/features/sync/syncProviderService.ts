@@ -411,6 +411,15 @@ export const createSyncProvider = () => {
   };
 
   const pushLatestApprovedSnapshot = async (): Promise<void> => {
+    try {
+      if (!getRuntimeBootstrapConfig().virtualDrives?.enabled) {
+        lastPushStatus = 'SKIPPED';
+        lastPushMessage = 'Virtual drives disabled — vault push skipped';
+        return;
+      }
+    } catch {
+      // config may not be seeded yet — fall through
+    }
     lastPushAt = nowIso();
     const task = await syncStoreService.claimNextPendingTask();
     if (!task) {
@@ -452,6 +461,24 @@ export const createSyncProvider = () => {
   const pullLatestFromRemoteVaultAndMerge = async (
     installMode: SplashSyncResult['installMode'],
   ): Promise<SplashSyncResult> => {
+    try {
+      if (!getRuntimeBootstrapConfig().virtualDrives?.enabled) {
+        lastPullAt = nowIso();
+        lastPullStatus = 'SKIPPED';
+        lastPullMessage = 'Virtual drives disabled — vault sync skipped';
+        return {
+          installMode,
+          pulled: false,
+          merged: false,
+          pullStatus: 'SKIPPED',
+          mergeStatus: 'SKIPPED',
+          integrityStatus: 'UNKNOWN',
+          skippedReason: 'Virtual drives disabled',
+        };
+      }
+    } catch {
+      // getRuntimeBootstrapConfig may throw before config is seeded — fall through to normal path
+    }
     try {
       return await driveControllerService.withVaultDriveSession(async () => {
         await vaultService.initializeVault();
