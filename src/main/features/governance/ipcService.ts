@@ -136,68 +136,23 @@ export const registerIpcHandlers = (options?: {
     }
   }))
 
-  ipcMain.handle('app:bootstrap-host', safe(async (event, payload: { config: PranaRuntimeConfig }) => {
-
-                     const schema = z.object({ config: z.any() });
-                     const parsed = schema.safeParse(payload);
-                     if (!parsed.success) {
-                        throw new Error(`IPC_VALIDATION_ERROR: ${parsed.error.message}`);
-                     }
-                   
+  ipcMain.handle('app:bootstrap-host', safe(async (event, _payload) => {
+    // Config is already set by the host app (Chakra) before this is called.
+    // No virtual-drive initialization — sandbox architecture uses process isolation,
+    // not encrypted filesystem mounts.
     try {
-      const validation = validatePranaRuntimeConfig(payload.config)
-      if (!validation.valid) {
-        throw new Error(`Invalid host configuration: ${validation.errors.join('; ')}`)
-      }
-
-      setPranaRuntimeConfig(payload.config)
-      if (payload.config.registryRoot) {
-        configureRegistryRuntime({ registryRoot: payload.config.registryRoot })
-      }
-      await sqliteConfigStoreService.seedFromRuntimePropsIfEmpty(payload.config)
-
-      const systemDriveStatus = await driveControllerService.initializeSystemDrive()
-      if (!systemDriveStatus.success) {
-        console.warn('[PRANA] System virtual drive mount degraded:', systemDriveStatus.message)
-        if (driveControllerService.isFailClosedEnabled()) {
-          return {
-            startedAt: new Date().toISOString(),
-            finishedAt: new Date().toISOString(),
-            overallStatus: 'BLOCKED',
-            stages: [
-              {
-                id: 'vault',
-                label: 'Storage Bootstrap',
-                status: 'FAILED',
-                message: systemDriveStatus.message,
-                startedAt: new Date().toISOString(),
-                finishedAt: new Date().toISOString()
-              }
-            ],
-            diagnostics: {
-              virtualDrives: driveControllerService.getDiagnostics()
-            }
-          }
-        }
-      }
-
-      // Create a progress callback that emits events to the renderer
       const progressCallback = (progressEvent: any) => {
         try {
           event.sender.send('app:startup-progress', progressEvent)
-        } catch (error) {
-          console.warn('[PRANA] Failed to send startup progress event:', error)
+        } catch (err) {
+          console.warn('[PRANA] Failed to send startup progress event:', err)
         }
       }
 
       const startupStatus = await startupOrchestratorService.runStartupSequence(progressCallback)
       if (startupStatus.overallStatus !== 'READY') {
-        console.warn(
-          '[PRANA] Startup orchestration completed with non-ready status:',
-          startupStatus.overallStatus
-        )
+        console.warn('[PRANA] Startup orchestration completed with non-ready status:', startupStatus.overallStatus)
       }
-
       return startupStatus
     } catch (error) {
       console.error('[PRANA_BOOTSTRAP_ERROR] Fatal error during splash bootstrap:', error)
@@ -207,11 +162,10 @@ export const registerIpcHandlers = (options?: {
         overallStatus: 'BLOCKED',
         stages: [
           {
-            id: 'integration',
+            id: 'host-dependencies',
             label: 'Fatal Bootstrap Error',
             status: 'FAILED',
-            message:
-              error instanceof Error ? error.message : 'Unknown fatal error during bootstrap.',
+            message: error instanceof Error ? error.message : 'Unknown fatal error during bootstrap.',
             startedAt: new Date().toISOString(),
             finishedAt: new Date().toISOString()
           }

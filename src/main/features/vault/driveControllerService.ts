@@ -607,7 +607,7 @@ const buildHealthChecks = (records: VirtualDriveRecord[], failClosed: boolean): 
 
 const computeDiagnostics = (): VirtualDriveDiagnosticsSnapshot => {
   const config = getNormalizedVirtualDriveConfig();
-  const records = mountRegistryService.list();
+  const records = mountRegistryService.listSync();
   const checks = buildHealthChecks(records, config.failClosed);
   const overallStatus = checks.some((check) => check.status === 'Blocked')
     ? 'Blocked'
@@ -684,7 +684,7 @@ export const driveControllerService = {
   },
 
   getStatus(): VirtualDriveRecord[] {
-    return mountRegistryService.list();
+    return mountRegistryService.listSync();
   },
 
   getDiagnostics(): VirtualDriveDiagnosticsSnapshot {

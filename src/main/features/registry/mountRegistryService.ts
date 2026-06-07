@@ -148,6 +148,18 @@ export const mountRegistryService = {
     return rows.map(mapRow);
   },
 
+  // Synchronous variant for callers that cannot await (e.g. diagnostic snapshots called from sync contexts).
+  // Returns an empty array if the in-memory db has not been initialised yet.
+  listSync(): VirtualDriveRecord[] {
+    if (!db) return [];
+    try {
+      const rows = db.prepare('SELECT * FROM mount_registry ORDER BY id ASC').all() as Record<string, unknown>[];
+      return rows.map(mapRow);
+    } catch {
+      return [];
+    }
+  },
+
   clear(id: VirtualDriveId): void {
     queueWrite(async () => {
       const database = await getDatabase();
