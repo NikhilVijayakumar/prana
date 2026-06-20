@@ -43,9 +43,9 @@ docs/
   core.md
 
   raw/
-    architecture/
-    feature/
     data/
+    features/
+    integration_guide/
 
   wiki/
     index.md
@@ -72,9 +72,15 @@ Agents must never treat wiki content as authoritative over raw documents.
 
 The `docs/raw/` folder may contain:
 
-* **architecture/** → system design, components, data flow
-* **feature/** → feature specifications and behavior
-* **data/** → example inputs, outputs, or datasets
+* **features/** → feature specifications and behavior
+* **data/** → prompts, datasets, external context
+* **integration_guide/** → integration documentation
+
+External architecture context (e.g., Astra) is in:
+
+```text
+docs/raw/external-context/astra.md
+```
 
 All of these are valid inputs for building and updating the wiki.
 
