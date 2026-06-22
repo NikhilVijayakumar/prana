@@ -16,18 +16,18 @@
 
 ## 🟢 Layer 1: Bootstrap & Foundation
 *Modules governing the "Cold-Vault" startup sequence and system integrity.*
-* [Startup Orchestrator](boot/startup-orchestrator.md) — **Critical Path: Bootstrap Sequence + Host Dependency Capability Gate**
+* [Startup Orchestrator](startup-orchestrator.md) — **Critical Path: Bootstrap Sequence + Host Dependency Capability Gate**
 * [Props Config Principle](props-config-principle.md) — **Cold-Vault Configuration Input**
 * [Prana Doctor](boot/prana-doctor.md) — **Post-Bootstrap Diagnostics & Health**
-* [Notification Centre](notification/notification-centre.md) — **System-Wide Event & Alert Routing**
+* [Notification Centre](notification-centre.md) — **System-Wide Event & Alert Routing**
 
 ---
 
 ## 🔵 Layer 2: Secure Persistence
 *The orchestration of encrypted drives, hot-cache, and durable archives.*
 * [Virtual Drive](storage/virtual-drive.md) — **Encrypted Mount Runtime + Client-Managed Policy Contract**
-* [Vault](storage/vault.md) — **AES-256-GCM Durable Archive Operations**
-* [SQLite Cache](storage/sqlite-cache.md) — **Hot Operational State (SQL.js)**
+* [Vault](vault.md) — **AES-256-GCM Durable Archive Operations**
+* [SQLite Cache](sqlite-cache.md) — **Hot Operational State (SQL.js)**
 * [Encryption Service](storage/encryption-service.md) — **Distributed Cryptography Logic**
 * [Vault Folder Structure](storage/vault-folder-structure.md) — **Staging vs. Committed Layout**
 
@@ -50,7 +50,7 @@
 * [Channel Integration](chat/channel-integration.md) — **External Adapter Routing (Telegram)**
 * [Email Subsystem](email/email-management.md) — **Orchestration, Drafts, & Heartbeat**
     * *Sub-modules:* [Orchestrator](email/email-orchestrator-service.md) | [Draft Sync](email/email-draft-sync.md) | [Cron](email/email-cron-heartbeat.md)
-* [Google Ecosystem Integration](Integration/google-ecosystem-integration.md) — **Gmail & Browser Bridge**
+* [Google Ecosystem Integration](google-ecosystem-integration.md) — **Gmail & Browser Bridge**
 
 ---
 
@@ -76,7 +76,7 @@
 ### Quick Navigation Matrix
 | I need to... | Go to... |
 | :--- | :--- |
-| **Debug a Startup Hang** | [Startup Orchestrator](boot/startup-orchestrator.md) |
+| **Debug a Startup Hang** | [Startup Orchestrator](startup-orchestrator.md) |
 | **Add a New SQLite Table** | [Storage Rules](storage/governance/rule.md) |
 | **Change AI Context Logic** | [Context Optimization](context/context-optimization.md) |
 | **Verify Security Compliance** | [Encryption Service Audit](audit/encryption-service-audit.md) |
