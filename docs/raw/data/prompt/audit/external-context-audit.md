@@ -173,6 +173,20 @@ but does not own them.
 
 ---
 
+### Consumed By Boilerplate
+
+Repository imports and uses boilerplate code at runtime.
+
+Allowed only when consuming repository has explicit runtime dependency on provider.
+
+Examples:
+
+```text
+Prana consumes at runtime — Astra IpcService, ApiService, AppStateHandler, useDataState, ServerResponse
+```
+
+---
+
 ### Referenced
 
 Repository references concept.
@@ -514,7 +528,8 @@ Prana
 Consumes:
 
 Astra Architecture Documentation
-Astra Boilerplate Patterns
+Astra Boilerplate Code (IpcService, ApiService, AppStateHandler, useDataState, ServerResponse)
+Astra Type Contracts (AppState, ITransportService, Platform, AppStateComponents)
 ```
 
 Not Allowed:
@@ -526,6 +541,7 @@ Consumes:
 
 Astra Runtime Internals
 Astra Private Imports
+Astra node_modules
 ```
 
 Finding:
@@ -672,7 +688,7 @@ Integration Contracts
 Boilerplate Code Patterns
 ```
 
-Rationale: Prana has a runtime dependency on Astra (`"astra": "github:NikhilVijayakumar/astra"`). The external context scope covers architecture patterns Prana consumes and boilerplate code Prana should follow. The context document must be documentation-derived, not source-derived except for explicitly allowed boilerplate patterns.
+Rationale: Prana has a runtime dependency on Astra (`"astra": "github:NikhilVijayakumar/astra"`). Prana imports and uses Astra's boilerplate code at runtime — `IpcService` for Electron IPC transport, `ApiService` for HTTP, `AppStateHandler` for conditional rendering, `useDataState` for MVVM state management, and `ServerResponse` for response normalization. The external context scope covers both the architecture patterns these exports implement and the boilerplate code itself so Prana's AI can generate correct consumer code. The context document must be documentation-derived for architecture, but MUST include accurate boilerplate code patterns from the explicitly allowed src paths.
 
 Forbidden:
 
@@ -706,10 +722,67 @@ Every finding must be traceable.
 
 Required Matrix:
 
-| Claim | Evidence |
-| ----- | -------- |
+| Claim | Evidence | Documentation Summary |
+| ----- | -------- | --------------------- |
 
 Nothing may be asserted without evidence.
+
+---
+
+# Validation Phase 11 — Documentation Reference Completeness
+
+## Goal
+
+Validate that every external context document includes proper documentation references with source paths and summaries.
+
+Every major section in an external context document must end with a `### Source Documentation` subsection containing:
+
+| Document | Summary |
+|----------|---------|
+| `../repo-name/path/to/doc.md` | 1-3 sentence summary of what the original document says |
+
+### Checks
+
+1. **Section Coverage** — Every major section (Architecture Patterns, Public API Surface, Architectural Invariants, Boilerplate Code, Integration Contracts, AI Guidance) has a `### Source Documentation` table.
+
+2. **Path Validity** — Every document reference in the table and in the Traceability Matrix uses a full relative path from the consuming repo's root (e.g., `../astra/docs/raw/architecture/...`). Bare filenames like `mvvm-separation.md` are invalid.
+
+3. **Summary Substance** — Every summary is 1-3 sentences describing what the original document actually says, not merely restating its title.
+
+4. **Traceability Matrix Completeness** — The Traceability Matrix has 3 columns: `Claim | Evidence | Documentation Summary`.
+
+### Validation Steps
+
+1. For each external context document at `docs/raw/external-context/*.md`:
+   - Verify every major section has a `### Source Documentation` table
+   - Verify each table entry has a valid `../repo-name/` path
+   - Verify each entry has a substantive summary
+2. For the Traceability Matrix:
+   - Verify 3-column format (Claim | Evidence | Documentation Summary)
+   - Verify all evidence paths use `../repo-name/` prefix
+   - Verify all summaries are substantive
+
+### Findings
+
+```text
+DOCUMENTATION-REFERENCE-MISSING-{nnn}
+```
+Severity: Major — section missing `### Source Documentation` table.
+
+```text
+DOCUMENTATION-PATH-INVALID-{nnn}
+```
+Severity: Major — evidence path is bare filename or repo-relative without `../repo-name/` prefix.
+
+```text
+DOCUMENTATION-SUMMARY-MISSING-{nnn}
+```
+Severity: Minor — summary is missing, empty, or tautological (e.g., "Documents MVVM separation").
+
+```text
+TRACEABILITY-MATRIX-2COLUMN-{nnn}
+```
+Severity: Major — Traceability Matrix still uses 2-column format instead of required 3 columns.
 
 ---
 
@@ -738,10 +811,11 @@ Expected Ownership:
 
 Notes:
 
-- Astra owns MVVM architecture contracts and patterns. Prana consumes these through its runtime dependency on `astra`.
+- Astra owns MVVM architecture contracts, patterns, and boilerplate code. Prana consumes all three through its runtime dependency on `astra`.
 - Prana does not own architecture patterns — it consumes them from Astra.
+- Prana does not own boilerplate code — it imports Astra's implementations (`IpcService`, `ApiService`, `AppStateHandler`, `useDataState`, `ServerResponse`) at runtime.
 - Prana owns the Electron runtime platform, orchestration, storage, security, and all application-level capabilities.
-- External context for Astra must be documentation-derived with boilerplate code patterns as explicit reference.
+- External context for Astra must cover both architecture documentation AND accurate boilerplate code patterns from allowed src paths. The boilerplate patterns are runtime imports, not just reference examples.
 
 Deviation must be reported.
 

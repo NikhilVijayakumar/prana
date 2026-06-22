@@ -73,7 +73,7 @@ Prana is a **runtime platform**. It does not own: UI components, design systems,
 
 | Level | Document Layer    | Defines |
 |-------|-------------------|---------|
-| 1     | Architecture      | How the system is structured — invariants, patterns, layer rules |
+| 1     | Architecture (`docs/raw/external-context/astra.md`) | How the system is structured — invariants, patterns, layer rules |
 | 2     | Feature           | What the system must do — behavior, responsibilities, workflows |
 | 3     | Feature Technical | How each feature fits into the architecture — module structure, state models, integration design |
 | 4     | Source Code       | How it was actually built |

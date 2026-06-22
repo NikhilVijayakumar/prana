@@ -93,7 +93,7 @@ These belong to downstream audits.
 
 | Level | Authority |
 |---------|----------|
-| 1 | Architecture |
+| 1 | Architecture (`docs/raw/external-context/astra.md`) |
 | 2 | Feature |
 | 3 | Feature Technical |
 

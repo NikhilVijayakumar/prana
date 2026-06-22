@@ -79,11 +79,12 @@ Boilerplate Exception — the generated document MAY include:
 ```text
 src/lib.ts barrel export pattern
 src/common/hooks/* hook signatures and patterns
-src/common/repo/* repository implementation
+src/common/repo/* repository implementation (ApiService, IpcService, ServerResponse, types)
 src/common/state/* state type definitions
+src/common/components/organisms/* AppStateHandler and AppStateContext patterns
 ```
 
-These are not runtime consumption — they are reference patterns for Prana's AI to understand how to structure compliant code.
+These are not runtime consumption — they are boilerplate code patterns that Prana imports at runtime from Astra. Prana has a runtime dependency on Astra (`"astra": "github:NikhilVijayakumar/astra"`) and directly uses these exports. The generated document must document them accurately so Prana's AI can generate compliant consumer code.
 
 Forbidden:
 
@@ -177,13 +178,18 @@ Required Matrix:
 |--------|----------|-----------|
 | useDataState | Hook | `useDataState<T>(initialState?): [AppState<T>, execute, setAppState]` |
 | AppStateHandler | Component | `<AppStateHandler appState SuccessComponent emptyCondition errorMessage>` |
+| AppStateHandlerProps | Type | Props interface for AppStateHandler component |
 | AppStateProvider | Component | `<AppStateProvider value={Loading, Error, Empty}>` |
 | AppStateContext | Context | `React.Context<AppStateComponents>` |
 | AppStateComponents | Type | `{ Loading?: FC; Error?: FC<{message?}>; Empty?: FC }` |
 | StateType | Enum | `INIT=0, LOADING=1, COMPLETED=2` |
+| StateCode | Enum | Exported alongside StateType from AppState module |
 | AppState | Interface | `{ state, isError, isSuccess, status, statusMessage, data }` |
 | ApiService | Class | `new ApiService(baseURL, messages)` |
-| ServerResponse | Interface | `{ isError, isSuccess, status, statusMessage, data? }` |
+| IpcService | Class | `new IpcService(options?: { onError? }): implements ITransportService` — Electron IPC transport |
+| ITransportService | Interface | `{ platform: Platform; onError?: (error: unknown) => void }` |
+| Platform | Type | `'WEB' \| 'ELECTRON'` |
+| ServerResponse | Class | `{ isError, isSuccess, status, statusMessage, data? }` — static `.success()` / `.error()` factories |
 | HttpStatusCode | Enum | `SUCCESS=200, CREATED=201, ... IDLE=1000` |
 | getApiService | Function | Singleton factory |
 | getStatusMessage | Function | `(code: HttpStatusCode) => string` |
@@ -219,10 +225,19 @@ Extract boilerplate code patterns Prana can reuse.
 
 ```typescript
 // src/lib.ts
-export { useDataState, AppStateHandler } from "./common/hooks";
-export { ApiService, ServerResponse, HttpStatusCode } from "./common/repo";
-export type { AppState } from "./common/state/AppState";
-export { StateType } from "./common/state/AppState";
+export { useDataState } from './common/hooks/useDataState';
+export type { AppState } from './common/state/AppState';
+export { StateType, StateCode } from './common/state/AppState';
+export { default as AppStateHandler } from './common/components/organisms/AppStateHandler';
+export type { AppStateHandlerProps } from './common/components/organisms/AppStateHandler';
+export { AppStateProvider, AppStateContext } from './common/components/organisms/AppStateContext';
+export type { AppStateComponents } from './common/components/organisms/AppStateContext';
+export { ApiService } from './common/repo/ApiService';
+export { getApiService } from './common/repo/apiServiceFactory';
+export { HttpStatusCode, getStatusMessage } from './common/state/HttpStatusCode';
+export { ServerResponse } from './common/repo/ServerResponse';
+export { IpcService } from './common/repo/IpcService';
+export type { ITransportService, Platform } from './common/repo/types';
 ```
 
 ### Feature Module Structure
@@ -261,13 +276,15 @@ export const repo = {
 ### Repository Pattern (Electron IPC)
 
 ```typescript
-import { ServerResponse } from 'astra';
+import { IpcService, ServerResponse } from 'astra';
+const ipc = new IpcService();
 export const repo = {
-  list: async (): Promise<ServerResponse<Data[]>> => {
-    return window.electronAPI.invoke('resource:list');
-  },
+  list: (): Promise<ServerResponse<Data[]>> => ipc.invoke('resource:list'),
+  get: (id: string): Promise<ServerResponse<Data>> => ipc.invoke('resource:get', { id }),
 };
 ```
+
+`IpcService` wraps `window.electronAPI.invoke` internally. Prana code must use `IpcService` — never call `window.electronAPI` directly in feature repositories.
 
 ### AppStateHandler Rendering
 
@@ -306,6 +323,8 @@ Validate:
 - Boilerplate patterns match source implementation
 - Invariant rules are consistent across docs
 - Integration contracts reflect actual usage
+- Every section includes a `### Source Documentation` table with original repo path + summary
+- Every evidence path uses the `../astra/` prefix (never bare filenames)
 
 If evidence is insufficient:
 
@@ -315,15 +334,52 @@ Never invent.
 
 ---
 
+## Relative Path Rule
+
+Every document reference must use a relative path from Prana's workspace root to the source file:
+
+```text
+Good:   ../astra/docs/raw/architecture/core/state-management.md
+Bad:    docs/raw/architecture/core/state-management.md
+Bad:    core/state-management.md
+Bad:    state-management.md
+```
+
+Bare filenames or repo-relative paths without the `../repo-name/` prefix will cause an LLM to search locally in Prana's repo and find nothing. Always prefix with `../astra/` for Astra references.
+
+---
+
+## Documentation Summary Rule
+
+Every evidence reference must include a 1-3 sentence summary of what the original document says. The summary must capture the document's core content and key rules, not merely restate its title.
+
+Good:
+
+```text
+| Claim | Evidence | Documentation Summary |
+|-------|----------|----------------------|
+| MVVM separation rules | ../astra/docs/raw/architecture/invariants/mvvm-separation.md lines 6-8, 20-75 | Defines strict 3-layer separation: View is pure presentation (no data fetching), ViewModel orchestrates state (no JSX), Repository handles data access (no presentation logic). Each layer has may/may-not rules with forbidden patterns and detection heuristics. |
+```
+
+Bad:
+
+```text
+| Claim | Evidence | Documentation Summary |
+|-------|----------|----------------------|
+| MVVM separation rules | mvvm-separation.md | Documents MVVM separation |
+```
+
+---
+
 ## Traceability Rule
 
-Every claim requires evidence from the source.
+Every claim requires evidence from the source with a summary of what the source says.
 
-Required Matrix:
+Required Matrix (3 columns):
 
-| Claim | Evidence Source |
-|-------|-----------------|
-| {Claim} | ../astra/docs/raw/architecture/{path} |
+| Claim | Evidence | Documentation Summary |
+|-------|----------|----------------------|
+| {Claim} | ../astra/docs/raw/architecture/{path} | {1-3 sentence summary of the source document's content} |
 
 ---
 
@@ -337,7 +393,7 @@ docs/raw/external-context/astra.md
 
 ## Required Document Structure
 
-Each section must be present.
+Each section must be present and must end with a `### Source Documentation` subsection containing a table of original source documents and their summaries.
 
 ### Overview
 
@@ -385,8 +441,8 @@ Electron-specific patterns: IPC repository, provider setup, MVVM with IPC.
 
 ### Traceability Matrix
 
-| Claim | Evidence |
-|-------|----------|
+| Claim | Evidence | Documentation Summary |
+|-------|----------|----------------------|
 
 ---
 
@@ -412,5 +468,8 @@ The generated document is successful only when:
 - Boilerplate code patterns are provided
 - Integration contracts are covered for Electron
 - AI guidance is actionable
-- Traceability is complete
+- Traceability is complete (3-column matrix with documentation summaries)
+- All evidence paths use `../astra/` prefix (no bare filenames)
+- Every major section has a `### Source Documentation` table with document paths and summaries
+- Documentation summaries are substantive (1-3 sentences), not tautological
 - Open Questions are recorded instead of assumed

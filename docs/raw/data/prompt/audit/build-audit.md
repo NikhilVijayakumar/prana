@@ -266,7 +266,7 @@ P0 / P1 / P2 / P3
 {exact config excerpt or build output inspection}
 
 ### Invariant Rule Violated
-deterministic-build.md §{Section} — {rule}
+docs/raw/external-context/astra.md §{Section} — {rule}
 
 ### Recommendation
 {actionable remediation}
@@ -485,6 +485,6 @@ Timestamp format: `YYYY-MM-DD-HHMM`
 When checking compliance:
 
 - The invariant document is the source of truth
-- For each finding, reference the specific Allowed or Forbidden pattern section from `deterministic-build.md`
+- For each finding, reference the specific Allowed or Forbidden pattern section from `docs/raw/external-context/astra.md`
 - Do NOT override invariant rules based on perceived convenience
 - Findings that also affect library governance must be flagged for cross-suite deduplication in the fix plan
