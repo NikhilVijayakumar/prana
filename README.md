@@ -198,7 +198,7 @@ The virtual drive layer manages encrypted mount points that provide at-rest prot
 
 ### Vault — Encrypted Durable Archive
 
-**Document:** [`vault.md`](docs/raw/features/storage/vault.md) · [`vault-folder-structure.md`](docs/raw/features/storage/vault-folder-structure.md) · [`vault-knowledge-repository.md`](docs/raw/features/storage/vault-knowledge-repository.md)
+**Document:** [`vault.md`](docs/raw/features/vault.md) · [`vault-folder-structure.md`](docs/raw/features/storage/vault-folder-structure.md) · [`vault-knowledge-repository.md`](docs/raw/features/storage/vault-knowledge-repository.md)
 **Service:** `vaultService.ts` · `vaultLifecycleManager.ts` · `governanceRepoService.ts` · `memoryIndexService.ts`
 
 Vault is the encrypted durable archive. It stores commit-ready knowledge and approved content that must survive across sessions.
@@ -215,7 +215,7 @@ Vault is the encrypted durable archive. It stores commit-ready knowledge and app
 
 ### SQLite Cache — Hot Operational State
 
-**Document:** [`sqlite-cache.md`](docs/raw/features/storage/sqlite-cache.md)
+**Document:** [`sqlite-cache.md`](docs/raw/features/sqlite-cache.md)
 **Services:** `runtimeDocumentStoreService.ts` · `sqliteConfigStoreService.ts` · `contextDigestStoreService.ts` · `emailKnowledgeContextStoreService.ts` · `governanceLifecycleQueueStoreService.ts` · `authStoreService.ts`
 
 SQLite is the hot operational cache for all mutable runtime state. In v1.3, these databases are **encrypted at rest** independently of the mount state.
@@ -303,7 +303,7 @@ Vaidyar acts as the authoritative health system of the runtime, providing contin
 
 ### Startup Orchestrator & Splash Initialization
 
-**Documents:** [`startup-orchestrator.md`](docs/raw/features/boot/startup-orchestrator.md) · [`splash-system-initialization.md`](docs/raw/features/splash/splash-system-initialization.md)
+**Documents:** [`startup-orchestrator.md`](docs/raw/features/startup-orchestrator.md) · [`splash-system-initialization.md`](docs/raw/features/splash/splash-system-initialization.md)
 **Service:** `startupOrchestratorService.ts`
 
 The startup sequence follows a strict **fail-fast, IPC-driven** bootstrap model:
@@ -376,7 +376,7 @@ Provides deterministic cron catch-up with duplicate prevention:
 
 ### Task Scheduler & Universal Queue System
 
-**Document:** [`queue-scheduling.md`](docs/raw/features/queue-scheduling/queue-scheduling.md)
+**Document:** [`queue-scheduling.md`](docs/raw/features/queue-scheduling.md)
 **Services:** `cronSchedulerService.ts` · `queueOrchestratorService.ts` · `taskRegistryService.ts`
 
 Provides a deterministic, persistent, multi-lane task orchestration system:
@@ -441,7 +441,7 @@ The email subsystem is a comprehensive pipeline with four distinct concerns:
 
 ### Google Ecosystem Integration
 
-**Document:** [`google-ecosystem-integration.md`](docs/raw/features/Integration/google-ecosystem-integration.md)
+**Document:** [`google-ecosystem-integration.md`](docs/raw/features/google-ecosystem-integration.md)
 **Services:** `emailOrchestratorService.ts` · `emailBrowserAgentService.ts` · `googleBridgeService.ts`
 
 Defines the integration boundary for Google-connected capabilities:
@@ -472,7 +472,7 @@ Provides a first-class in-app surface for operator-to-agent communication:
 
 ### Notification Centre
 
-**Document:** [`notification-centre.md`](docs/raw/features/notification/notification-centre.md)
+**Document:** [`notification-centre.md`](docs/raw/features/notification-centre.md)
 **Services:** `hookSystemService.ts` · `systemHealthService.ts`
 
 Surfaces system and workflow alerts:
@@ -714,7 +714,7 @@ This repository is designed to stay **generic as a runtime library** while shipp
 
 - **Prana** is the runtime library and host shell. It provides all infrastructure, persistence, and UI.
 - **Dhi** (or any host app) seeds configuration via the `app:bootstrap-host` IPC during splash, then consumes Prana's services.
-- **Astra** provides the shared UI component library (buttons, inputs, error states, etc.).
+- **Astra** provides the shared architecture and boilerplate code library. Prana imports `IpcService`, `useDataState`, `AppStateHandler`, `ServerResponse`, and `ApiService` from Astra at runtime for Electron IPC data access, MVVM state management, and UI state routing.
 - **Product-specific** adapters are allowed in runtime services, but architectural contracts remain host-agnostic and reusable.
 
 ---
