@@ -1,4 +1,4 @@
-# Feature: Agent Communication & Context Intelligence
+# 💬 Feature: Agent Communication & Context Intelligence
 
 **Version:** 1.3.0
 **Status:** Stable / Core (Communication: Alpha for Group Chat and External Adapters)

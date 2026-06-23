@@ -303,7 +303,7 @@ Vaidyar acts as the authoritative health system of the runtime, providing contin
 
 ### Startup Orchestrator & Splash Initialization
 
-**Documents:** [`startup-orchestrator.md`](docs/raw/features/startup-orchestrator.md) · [`splash-system-initialization.md`](docs/raw/features/splash/splash-system-initialization.md)
+**Documents:** [`startup-orchestrator.md`](docs/raw/features/prana-bootstrap) · [`splash-system-initialization.md`](docs/raw/features/splash/splash-system-initialization.md)
 **Service:** `startupOrchestratorService.ts`
 
 The startup sequence follows a strict **fail-fast, IPC-driven** bootstrap model:
@@ -376,7 +376,7 @@ Provides deterministic cron catch-up with duplicate prevention:
 
 ### Task Scheduler & Universal Queue System
 
-**Document:** [`queue-scheduling.md`](docs/raw/features/queue-scheduling.md)
+**Document:** [`queue-scheduling.md`](docs/raw/features/storage-scheduler)
 **Services:** `cronSchedulerService.ts` · `queueOrchestratorService.ts` · `taskRegistryService.ts`
 
 Provides a deterministic, persistent, multi-lane task orchestration system:
