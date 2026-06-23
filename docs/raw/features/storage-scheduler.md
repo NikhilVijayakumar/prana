@@ -2,7 +2,7 @@
 
 **Version:** 2.0.0
 **Status:** Stable / Core
-**Service:** `storageSchedulerService.ts`
+**Service:** `storageSchedulerService`
 **Pattern:** Storage Synchronization & Reconciliation Orchestrator
 **Capability:** Provides deterministic scheduling, queuing, execution, recovery, and reconciliation of storage operations across SQLite Runtime Store, Vault Domain, Document Domain, and Sheet Domain.
 
@@ -97,16 +97,18 @@ Manual Triggered
 
 ### 1.2 It Does Not
 
-#### Business Logic
+#### Non-Storage Execution
 
-The Storage Scheduler does not:
+The Storage Scheduler does not execute:
 
 ```text
-Execute application logic
-Execute workflows
-Execute agents
-Execute domain services
+Application logic
+Domain service logic
+Business rules
+Data transformation
 ```
+
+It dispatches to domain adapters. Adapters own domain-specific execution.
 
 ---
 
@@ -120,7 +122,17 @@ Documents
 Sheets
 ```
 
-It coordinates operations performed by domain adapters.
+It coordinates operations performed by domain adapters. Adapters own their domain state.
+
+---
+
+#### Conflict Resolution Policy
+
+The Storage Scheduler does not decide how conflicts are resolved.
+
+It detects divergence and dispatches RECONCILE jobs.
+
+Resolution strategy is defined by domain adapter or application configuration.
 
 ---
 
@@ -208,12 +220,17 @@ The Storage Scheduler coordinates synchronization across multiple storage domain
 Purpose:
 
 ```text
-System State
-Configuration
-Metadata
-Workflows
-Agents
-Plugins
+Durable system-owned state
+Runtime configuration
+Registry metadata
+Committed knowledge artifacts
+```
+
+Sync direction:
+
+```text
+PULL: Git → Vault → SQLite
+PUSH: SQLite → Vault → Git
 ```
 
 External Persistence:
@@ -229,11 +246,15 @@ Vault ↔ Git
 Purpose:
 
 ```text
-Human Authored Content
-Documentation
-Knowledge Articles
-Research
-Policies
+Human-authored content projected from external provider
+Documentation, knowledge articles, research, policies
+```
+
+Sync direction:
+
+```text
+PULL: Google Docs → SQLite projection (primary)
+PUSH: SQLite → Google Docs (future capability)
 ```
 
 External Persistence:
@@ -249,10 +270,15 @@ SQLite ↔ Google Docs
 Purpose:
 
 ```text
-Structured Business Data
-Reference Data
-Master Data
-Catalog Data
+Structured tabular data projected from external provider
+Reference data, master data, catalog data
+```
+
+Sync direction:
+
+```text
+PULL: Google Sheets → SQLite projection (primary)
+PUSH: SQLite → Google Sheets (future capability)
 ```
 
 External Persistence:
@@ -406,15 +432,13 @@ Synchronization Job
 
 ### Shutdown Trigger
 
-Example:
+On shutdown signal:
 
-```text
-Application Shutdown
-      ↓
-Pending Flush
-      ↓
-Storage Job
-```
+1. The scheduler stops accepting new jobs.
+2. CLAIMED and RUNNING jobs are allowed to reach a terminal state or are interrupted after the flush timeout.
+3. QUEUED jobs are preserved — their state is not modified and they will be picked up on next startup.
+
+The flush timeout is configurable (default: 30 seconds). If the timeout elapses, remaining RUNNING jobs are abandoned and logged. The flush is blocking — the shutdown signal is not forwarded to dependent services until the flush completes or times out.
 
 ---
 
@@ -489,6 +513,16 @@ RUNNING
 COMPLETED
 ```
 
+**State descriptions:**
+
+| State | Meaning |
+|---|---|
+| CREATED | Job registered in SQLite; not yet scheduled |
+| QUEUED | Waiting for lane capacity |
+| CLAIMED | Lock acquired; execution beginning |
+| RUNNING | Domain adapter executing synchronization |
+| COMPLETED | Sync confirmed; Mirror Constraint satisfied |
+
 ---
 
 ### Failure Path
@@ -503,16 +537,27 @@ RETRY_PENDING
 QUEUED
 ```
 
+**State descriptions:**
+
+| State | Meaning |
+|---|---|
+| FAILED | Adapter reported error; lock released |
+| RETRY_PENDING | Waiting for retry interval (bounded by maxRetries) |
+
 ---
 
 ### Terminal States
 
-```text
-COMPLETED
-FAILED
-CANCELLED
-EXPIRED
-```
+| State | Meaning |
+|---|---|
+| COMPLETED | Sync succeeded; domains consistent |
+| FAILED | Max retries exhausted; domain may be inconsistent |
+| CANCELLED | Job removed before execution; no sync occurred |
+| EXPIRED | Scheduled window elapsed without execution |
+
+**EXPIRED entry condition:** a QUEUED job transitions to EXPIRED when it has not been claimed within its execution window. The execution window is configurable per domain; the default is 24 hours from job creation time. Jobs in CLAIMED or RUNNING state do not expire.
+
+A FAILED terminal state MUST emit an event via Event Registry for observability consumers. If the Event Registry is unavailable when a FAILED terminal state event must be emitted, the scheduler MUST record the failure locally (storage log). Event emission is retried when the Event Registry becomes available. If the runtime is shutting down and the Event Registry has already torn down, the failure is recorded to storage only — no further retry is attempted.
 
 ---
 
@@ -539,6 +584,8 @@ Duplicate Execution
 Race Conditions
 Parallel Mutation
 ```
+
+**Lock collision:** when two QUEUED jobs with identical domain, operation type, and payloadRef attempt to acquire a lock simultaneously, the second job MUST be transitioned to CANCELLED with reason = `duplicate_lock_contention`. The first job proceeds. This is a terminal cancellation — the job does not retry.
 
 ---
 
@@ -578,37 +625,101 @@ Interrupted jobs must be recoverable through persisted execution state.
 
 ## 12. Mirror Constraint Integration
 
-The Storage Scheduler is responsible for enforcing synchronization workflows that maintain mirror consistency.
+The Mirror Constraint definition is authoritative in `storage-architecture.md`. This section describes Storage Scheduler enforcement responsibilities only.
 
-Examples:
+The Storage Scheduler is the enforcement layer for Mirror Constraint consistency across all synchronized domains.
 
-```text
-SQLite Workflow
-        ↕
-Vault Workflow
-
-SQLite Document
-        ↕
-Google Document
-
-SQLite Sheet
-        ↕
-Google Sheet
-```
-
-Mirror validation may generate:
+**Mirror pairs:**
 
 ```text
-VERIFY
-RECONCILE
-RECOVER
+SQLite Vault Projection
+        ↕
+Vault Record (Git)
+
+SQLite Document Projection
+        ↕
+Google Docs Source
+
+SQLite Sheet Projection
+        ↕
+Google Sheets Source
 ```
 
-jobs.
+**Validation jobs generated by divergence:**
+
+| Job Type | Trigger | Action |
+|---|---|---|
+| VERIFY | Scheduled or event-driven | Check projection matches source |
+| RECONCILE | VERIFY detects divergence | Re-sync to restore consistency |
+| RECOVER | RECONCILE fails or data missing | Restore from authoritative source |
 
 ---
 
-## 13. Observability
+## 13. Conflict Handling
+
+A conflict occurs when source and projection disagree on state and neither can be automatically reconciled.
+
+### Conflict Detection
+
+Conflicts are detected during VERIFY and RECONCILE jobs.
+
+Conditions that indicate conflict:
+
+```text
+Source modified since last projection
+Projection modified locally without corresponding source change
+Version hash mismatch with no clear resolution path
+```
+
+---
+
+### Conflict Scope
+
+The Storage Scheduler:
+
+```text
+Detects conflicts
+Classifies conflict type
+Logs conflict record to SQLite
+Emits conflict event via Event Registry
+Blocks further sync on affected record
+```
+
+The Storage Scheduler does NOT:
+
+```text
+Decide which version wins
+Merge content
+Apply business rules to resolution
+```
+
+---
+
+### Conflict Resolution Ownership
+
+| Layer | Responsibility |
+|---|---|
+| Storage Scheduler | Detect, classify, block, emit |
+| Domain Adapter | Apply configured resolution strategy |
+| Application | Define resolution strategy (PREFER_SOURCE / PREFER_PROJECTION / BLOCK) |
+
+---
+
+### Default Conflict Behavior
+
+If no resolution strategy is configured:
+
+```text
+Block sync on conflicted record
+Mark record CONFLICT in SQLite
+Continue syncing non-conflicted records in same domain
+```
+
+Conflicted records remain blocked until explicitly resolved or strategy is applied.
+
+---
+
+## 14. Observability
 
 The scheduler must expose:
 
@@ -626,15 +737,14 @@ Recovery Activity
 ### Consumers
 
 ```text
-Vaidyar
 Infrastructure UI
-Notification Centre
+Event Registry
 Audit Layer
 ```
 
 ---
 
-## 14. Security Boundaries
+## 15. Security Boundaries
 
 The scheduler must:
 
@@ -647,7 +757,7 @@ Respect Storage Permissions
 
 ---
 
-## 15. Integration Contracts
+## 16. Integration Contracts
 
 ### SQLite Runtime Store
 
@@ -697,7 +807,7 @@ Sheet Projection
 
 ---
 
-## 16. Design Invariants
+## 17. Design Invariants
 
 ### SQLite First
 
@@ -735,15 +845,13 @@ All asynchronous storage operations must pass through the Storage Scheduler.
 
 ---
 
-## 17. Future Extensions
+## 18. Future Extensions
 
 Potential future domains:
 
 ```text
-Email Domain
 Repository Domain
 File Domain
-Workspace Domain
 Knowledge Domain
 ```
 
@@ -751,24 +859,23 @@ The Storage Scheduler must support additional domains without architectural modi
 
 ---
 
-## 18. Completion Status
+## 19. Completion Status
 
 The Storage Scheduler is the authoritative orchestration layer for all asynchronous storage operations within Prana.
 
 It provides:
 
 ```text
-Scheduling
-Queuing
-Execution
-Recovery
-Reconciliation
+Synchronization Scheduling
+Job Queuing and Lane Isolation
+Execution and Locking
+Conflict Detection and Classification
+Recovery and Reconciliation
 Observability
 ```
 
-while preserving the core architectural invariant:
+Core architectural invariant:
 
-Application → SQLite → Storage Scheduler → External Storage Domains
-
-```
+```text
+Application → SQLite → Storage Scheduler → Domain Adapters → External Storage
 ```

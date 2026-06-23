@@ -1,22 +1,22 @@
-# 👁️ Feature: Markdown Viewer Screen (Enhanced)
+# 👁️ Feature: Markdown Viewer Engine
 
+**Version:** 2.0.0
 **Status:** Stable
-**Pattern:** MVVM (Container → ViewModel → View)
-**UI Stack:** `ui/viewers/` (Markdown)
-**Capability:** Provides a secure, read-only environment for inspecting Markdown runtime documents, knowledge artifacts, and system logs.
+**Service:** `markdownViewerEngine`
+**Capability:** Provides a secure, read-only pipeline for loading, validating, sanitizing, and rendering Markdown documents from runtime and vault sources.
 
 ---
 
 ## 1. Tactical Purpose
 
-The Markdown Viewer Screen is the **primary human verification interface** for narrative artifacts in the Prana runtime. It ensures system-generated or externally ingested Markdown content can be **safely reviewed, validated, and audited** before irreversible actions (for example Vault commit or external handoff).
+The Markdown Viewer Engine is the rendering pipeline for Markdown content within the Prana runtime.
 
 It operates as:
 
-* A **secure rendering boundary** (untrusted → sanitized output)
-* A **format-specific rendering layer** (Markdown → safe HTML)
-* A **context-aware inspection surface** (linked to system workflows)
-* An **audit interface** for operator decision-making
+* A **source resolution layer** — locates documents from runtime store or vault
+* A **validation layer** — enforces format, encoding, and size constraints before processing
+* A **sanitization pipeline** — strips unsafe content before any rendering occurs
+* A **deterministic rendering engine** — produces consistent HTML output from validated Markdown input
 
 ---
 
@@ -24,28 +24,28 @@ It operates as:
 
 1. **Read-Only Enforcement**
 
-   * Viewer MUST NOT mutate any document state
-   * All interactions MUST be non-destructive
+   * Engine MUST NOT mutate any document state
+   * All operations MUST be non-destructive
 
 2. **Sanitization Guarantee**
 
-   * All rendered content MUST pass through a sanitization pipeline
-   * No script execution or unsafe HTML allowed
+   * All content MUST pass through the full sanitization pipeline before rendering
+   * No script execution or unsafe HTML permitted
 
 3. **Source Integrity**
 
-   * Viewer MUST display content exactly as stored
+   * Engine MUST render content exactly as stored
    * No transformation that alters semantic meaning
 
 4. **Deterministic Rendering**
 
    * Same input MUST always produce identical output
-   * Rendering must not depend on external state
+   * Rendering MUST NOT depend on external state
 
 5. **Secure Isolation**
 
    * Renderer MUST treat all content as untrusted
-   * No direct DOM injection without sanitization
+   * No content reaches the render stage without passing sanitization
 
 ---
 
@@ -55,9 +55,8 @@ It operates as:
 | :--------------- | :------------------------ | :------------------------------------------ |
 | **Main Process** | `runtimeDocumentStore`    | Source for active (hot) documents           |
 | **Main Process** | `vaultService`            | Source for archived (cold) documents        |
-| **Renderer**     | `ViewerMarkdownViewModel` | Orchestrates loading, parsing, sanitization |
-| **Renderer**     | `MarkdownSanitizer`       | Enforces safe markdown rendering            |
-| **Feature**      | `VisualIdentityEngine`    | Provides consistent UI styling tokens       |
+| **Engine**       | ViewModel layer           | Orchestrates loading, parsing, sanitization |
+| **Engine**       | Sanitization pipeline     | Enforces safe markdown rendering            |
 
 ---
 
@@ -65,15 +64,15 @@ It operates as:
 
 ### 4.1 Loading Lifecycle
 
-```text id="q1x7mz"
-IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDER_READY → DISPLAYED
+```text
+IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDERED
 ```
 
 ---
 
 ### 4.2 Failure States
 
-```text id="b4k9fp"
+```text
 LOAD_FAILED
 VALIDATION_FAILED
 SANITIZATION_FAILED
@@ -91,8 +90,8 @@ UNSUPPORTED_FORMAT
 
 * Failures MUST:
 
-  * halt rendering
-  * display safe fallback UI
+  * halt the pipeline
+  * emit an ERROR state with a structured failure reason
 
 ---
 
@@ -100,14 +99,18 @@ UNSUPPORTED_FORMAT
 
 ### 5.1 Source Resolution
 
+**Precondition:** the engine requires both `source` and `path` to initiate resolution. A request with `source` but no `path` MUST fail immediately with `LOAD_FAILED`. A `path` alone (without `source`) is valid only when resolving from `runtimeDocumentStore` — the engine will not fall back to `vaultService` without an explicit `source: 'vault'` declaration.
+
 * Input:
 
-  * document path OR runtime ID
+  * document path OR runtime document ID
 
 * Resolution order:
 
   1. `runtimeDocumentStore` (hot cache)
   2. `vaultService` (cold archive)
+
+* If both sources fail to resolve the document, the engine MUST emit `LOAD_FAILED` with the failure reason from each source.
 
 ---
 
@@ -116,46 +119,89 @@ UNSUPPORTED_FORMAT
 * Fetch raw buffer
 * Validate:
 
-  * file type
-  * encoding
-  * markdown size limits
+  * file type is `text/markdown` or `.md` extension
+  * encoding is UTF-8 — non-UTF-8 content MUST fail with `VALIDATION_FAILED`
+  * content size does not exceed the configured maximum (default: 10MB)
+
+**Size limit:** the 10MB limit is exclusive — content of exactly 10MB is rejected. Content that was within size limits at load time is not re-validated if the source is updated externally during the loading phase.
 
 ---
 
-### 5.3 Parsing
+### 5.3 Validation
 
-* Parse Markdown deterministically
+* Confirm content is parseable Markdown
+* Reject binary content, null bytes, or malformed encoding
+* Failure transitions to `VALIDATION_FAILED`
+
+---
+
+### 5.4 Parsing
+
+* Parse Markdown deterministically using GFM (GitHub Flavored Markdown)
 * Normalize heading and list structure
 * Preserve semantic meaning
+* Raw HTML blocks in Markdown source MUST be flagged for sanitization in §5.5 — they are not passed through directly
 
 ---
 
-### 5.4 Sanitization
+### 5.5 Sanitization
 
-* Markdown:
+* Strip all content not on the allowlist before rendering
 
-  * strip unsafe HTML
-  * normalize links
-  * block inline script URLs
-* HTML (if present):
+**Tag allowlist:**
 
-  * strict whitelist-based sanitization
+```text
+p, h1, h2, h3, h4, h5, h6
+ul, ol, li, blockquote
+code, pre
+a, strong, em, del
+table, thead, tbody, tr, td, th
+img
+```
+
+**Attribute allowlist:**
+
+```text
+href — http:// and https:// only. javascript:, data:, and all other protocols MUST be stripped.
+src  — https:// only. data: URIs MUST be stripped.
+alt, title
+```
+
+**Additional rules:**
+
+```text
+All event handler attributes (onclick, onerror, onload, etc.) MUST be stripped
+All <style> tags and style= attributes MUST be stripped
+All data-* attributes MUST be stripped
+Inline script URLs in any attribute MUST be stripped
+```
+
+Sanitization failure MUST transition to `SANITIZATION_FAILED`. The engine MUST NOT partially render unsanitized content.
 
 ---
 
-### 5.5 Rendering
+### 5.6 Rendering
 
-* Markdown → HTML (GFM-compliant)
+* Sanitized AST → HTML
+* GFM-compliant rendering
 
----
+**Enabled GFM extensions:**
 
-### 5.6 Presentation
+```text
+Tables
+Task lists (checkboxes rendered as static — not interactive)
+Strikethrough
+Autolinks
+Fenced code blocks with syntax class passthrough
+```
 
-* Apply:
+**Disabled:**
 
-  * typography
-  * spacing
-  * theming (via `VisualIdentityEngine`)
+```text
+Raw HTML passthrough — all raw HTML has already been stripped at §5.5
+```
+
+Rendering MUST be synchronous and produce a complete HTML string before the engine emits `RENDERED` state.
 
 ---
 
@@ -169,9 +215,9 @@ UNSUPPORTED_FORMAT
 
 ## 7. Data Contracts
 
-### 7.1 Viewer Input
+### 7.1 Engine Input
 
-```ts id="r3k8vz"
+```ts
 {
   source: 'runtime' | 'vault',
   path: string,
@@ -182,52 +228,43 @@ UNSUPPORTED_FORMAT
 
 ---
 
-### 7.2 Viewer State
+### 7.2 Engine State
 
-```ts id="m8v2lp"
+```ts
 {
-  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'PARSING' | 'SANITIZING' | 'READY' | 'ERROR',
+  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'PARSING' | 'SANITIZING' | 'RENDERED' | 'ERROR',
   content?: string,
   error?: string
 }
 ```
 
+`content` is populated only when `status` is `'RENDERED'`. It contains the sanitized HTML string.
+
+`error` is populated only when `status` is `'ERROR'`. It contains a structured failure reason.
+
 ---
 
 ## 8. Context-Aware Rendering (Owner Binding)
 
-### 8.1 Owner Types (Extended Contract)
+### 8.1 Owner Types
 
-```text id="s6j3qw"
-EMAIL_DRAFT
+```text
 VAULT_DOCUMENT
 SYSTEM_LOG
 AUDIT_REPORT
 GOOGLE_DOC
 ```
 
----
+`ownerType` informs the engine's trust level for the source content. It does not alter sanitization rules — all content passes the full sanitization pipeline regardless of owner type.
 
-### 8.2 Contextual Action Bar
-
-* Based on `ownerType`, viewer MAY render:
-
-| Owner Type     | Actions                |
-| :------------- | :--------------------- |
-| EMAIL_DRAFT    | Open in Gmail, Approve |
-| VAULT_DOCUMENT | View Metadata          |
-| SYSTEM_LOG     | Export                 |
-| AUDIT_REPORT   | Archive                |
-| GOOGLE_DOC     | Open in Drive          |
+The doc-owner binding contract (`ownerType` → trust level mapping) is currently advisory only. The `ownerType` field is validated against known types, and unknown types are treated as lowest trust, but no per-document permission filtering is enforced. Access control enforcement is a known functional gap (see §14).
 
 ---
 
-### 8.3 Constraints
+### 8.2 Constraints
 
-* Actions MUST:
-
-  * be non-mutating OR explicitly routed to owning module
-  * not bypass feature-level ViewModels
+* `ownerType` MUST be validated against known types before use
+* Unknown `ownerType` values MUST be treated as the lowest trust level
 
 ---
 
@@ -235,139 +272,113 @@ GOOGLE_DOC
 
 ### 9.1 Sanitization Pipeline
 
-* MUST:
+The engine MUST enforce the following before any render output is produced:
 
-  * remove scripts
-  * block inline JS
-  * sanitize links
-  * enforce safe markdown link protocols
+```text
+Strip all <script> tags and inline script content
+Block javascript: and data: protocols in href and src attributes
+Strip all CSS — <style> tags and style= attributes
+Strip all event handler attributes (on*)
+Enforce href/src protocol allowlist (http:, https: only)
+Strip data-* attributes
+Strip raw HTML blocks not on the tag allowlist
+```
+
+Sanitization failure at any rule MUST block rendering entirely.
 
 ---
 
 ### 9.2 Sandbox Isolation
 
-* Rendering SHOULD:
-
-  * use isolated container or iframe (if required)
-  * prevent DOM escape
+* Rendering MUST use an isolated rendering container
+* Rendered HTML MUST NOT be injected into the DOM without sandboxing
+* The rendered output boundary MUST prevent DOM escape
 
 ---
 
 ### 9.3 Content Trust Levels
 
-| Source                  | Trust Level |
-| :---------------------- | :---------- |
-| Runtime Store           | Medium      |
-| Vault                   | High        |
-| External (Email/Google) | Low         |
+| Source            | Trust Level |
+| :---------------- | :---------- |
+| Runtime Store     | Medium      |
+| Vault             | High        |
+| External (Google) | Low         |
+
+Trust level affects validation strictness and observability tagging. It does not bypass the sanitization pipeline.
 
 ---
 
 ## 10. Integration Points
 
-### 10.1 With Email Intelligence
+### 10.1 With Vault System
 
-* Displays:
-
-  * draft proposals
-* Enables:
-
-  * human review before send
+* Renders committed documents from vault storage
+* MUST preserve exact content integrity
 
 ---
 
-### 10.2 With Vault System
+### 10.2 With Storage Governance
 
-* Displays:
-
-  * committed knowledge artifacts
-* Must:
-
-  * preserve exact content integrity
+* Renders audit logs
+* MUST support long-form document rendering
 
 ---
 
-### 10.3 With Vaidyar
+### 10.3 With Google Ecosystem Integration
 
-* Displays:
-
-  * diagnostic reports
-* Must:
-
-  * handle large logs efficiently
-
----
-
-### 10.4 With Storage Governance
-
-* Displays:
-
-  * audit logs
-* Must:
-
-  * support long-form inspection
-
----
-
-### 10.5 With Google Ecosystem Integration
-
-* Displays:
-
-  * Google Docs content projected into markdown form
-* Must:
-
-  * preserve extracted semantics from Drive sync output
+* Renders Google Docs content projected into Markdown form
+* MUST treat all externally sourced content as low-trust
 
 ---
 
 ## 11. Failure Modes & Handling
 
-| Scenario             | Behavior          |
-| :------------------- | :---------------- |
-| File not found       | Show error state  |
-| Unsupported format   | Show fallback UI  |
-| Corrupted content    | Block rendering   |
-| Sanitization failure | Fail closed       |
-| Parse failure        | Block rendering   |
+| Scenario             | Behavior                              |
+| :------------------- | :------------------------------------ |
+| File not found       | Emit LOAD_FAILED                      |
+| Unsupported format   | Emit VALIDATION_FAILED                |
+| Corrupted content    | Block rendering, emit VALIDATION_FAILED |
+| Sanitization failure | Emit SANITIZATION_FAILED, fail closed |
+| Parse failure        | Block rendering, emit VALIDATION_FAILED |
 
 ---
 
 ## 12. Observability
 
-System SHOULD track:
+Engine MUST track:
 
-* document load time
-* render latency
-* failure rates by format
-* large document performance
-* user interaction (scroll depth, time spent)
-* parser and sanitizer rejection counts
+```text
+Document load latency (ms)
+Render latency (ms)
+Sanitizer rejection count (per session)
+Parser failure rate
+Load failure rate by source (runtime vs vault)
+```
 
 ---
 
 ## 13. Deterministic Guarantees
 
 * Rendering is strictly read-only
-* Content is always sanitized before display
-* No mutation occurs within viewer layer
+* Content is always sanitized before rendering
+* No mutation occurs within the engine
 * Output is consistent for identical input
-* Viewer does not depend on external systems
+* Engine does not depend on external systems at render time
 
 ---
 
-## 14. Known Architectural Gaps (Expanded Roadmap)
+## 14. Known Architectural Gaps
 
 | Area                | Gap                                         | Impact |
 | :------------------ | :------------------------------------------ | :----- |
 | Doc-Owner Coupling  | No standardized owner binding contract      | High   |
-| Export/Print        | No native export or print support           | Medium |
-| Search/Highlight    | No in-document search capability            | Medium |
-| Large File Handling | No pagination/virtualization for large docs | High   |
+| Large File Handling | No pagination or virtualization for large documents | High   |
+| Export              | No native export support                    | Medium |
 | Access Control      | No per-document permission filtering        | Medium |
 
 ---
 
-## 15. Cross-Module Contracts (Explicit)
+## 15. Cross-Module Contracts
 
 * **RuntimeDocumentStore**
 
@@ -377,17 +388,9 @@ System SHOULD track:
 
   * MUST return decrypted, validated content
 
-* **Email Module**
-
-  * MUST provide owner context for drafts
-
 * **Google Bridge**
 
-  * SHOULD provide markdown projection metadata for provenance
-
-* **Vaidyar**
-
-  * SHOULD provide structured logs compatible with viewer
+  * MUST provide Markdown projection with source provenance metadata
 
 ---
 
@@ -396,34 +399,40 @@ System SHOULD track:
 * **Rendering Boundary:**
 
   ```
-  SANITIZED_CONTENT → DISPLAYED_OUTPUT
+  SANITIZED_CONTENT → RENDERED_OUTPUT
   ```
 
-  No unsafe content crosses this boundary
+  No unsanitized content crosses this boundary.
 
 * **Mutation Boundary:**
 
-  * Viewer MUST NEVER modify source
+  * Engine MUST NEVER modify source documents
 
 * **Context Boundary:**
 
-  * Viewer MAY trigger actions but MUST NOT execute them directly
+  * Engine MAY surface context metadata but MUST NOT execute actions
 
 ---
 
-This module is now fully aligned with:
+## 17. Completion Status
 
-* Zero-trust rendering
-* Human-in-the-loop enforcement
-* Vault auditability
-* Cross-module inspection consistency
+The Markdown Viewer Engine is the secure document rendering pipeline for Markdown content in the Prana runtime.
 
----
+It provides:
 
-### Completion Note
+```text
+Source Resolution
+Content Loading and Validation
+Sanitization
+Deterministic Rendering
+Engine State Management
+```
 
-This Markdown viewer contract is complete for Integration-folder documentation and aligned with zero-trust rendering and cross-module inspection needs.
+while explicitly excluding:
 
----
-
-
+```text
+Presentation and Styling
+UI Action Handling
+Document Mutation
+External System Dependencies at Render Time
+```

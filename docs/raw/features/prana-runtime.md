@@ -55,20 +55,18 @@ Applications are independently installable products.
 
 ### 2.2 Shared Runtime Services
 
-Applications consume shared runtime infrastructure.
-
-Examples:
+Applications consume shared runtime infrastructure. Runtime owns these services — applications resolve and consume them, never reimplement them.
 
 ```text
-Storage Services
-Document Services
-Sheet Services
-Identity Services
-Notification Services
-Update Services
+Storage Services     — SQLite, Storage Scheduler, domain adapters
+Document Services    — Document domain sync and projection
+Sheet Services       — Sheet domain sync and projection
+Identity Services    — Authentication, accounts, session management
+Event Services       — Event Registry for runtime-wide event coordination
+Update Services      — Version discovery, package download, upgrade
 ```
 
-Applications should not duplicate common infrastructure.
+Applications must not duplicate any of the above.
 
 ---
 
@@ -109,9 +107,29 @@ Installed Applications
 
 ---
 
-## 3. Runtime Architecture
+## 3. What the Runtime Does Not Own
 
-### 3.1 High-Level Topology
+Prana Runtime is an infrastructure layer. It explicitly does not own:
+
+```text
+Application business logic
+Application domain models
+Application feature behavior
+Application startup sequence
+Application authentication flows
+Application-specific schemas and migrations
+Network request logic for application features
+```
+
+These responsibilities belong to applications. Applications build on top of runtime infrastructure — they do not inherit runtime ownership.
+
+Applications access the runtime through the `IPranaRuntime` context defined in `prana-bootstrap.md`.
+
+---
+
+## 4. Runtime Architecture
+
+### 4.1 High-Level Topology
 
 ```text
 Prana Runtime
@@ -123,9 +141,8 @@ Prana Runtime
 ├── Application Launcher
 ├── Storage Services
 ├── Storage Scheduler
-├── Notification Services
-├── Shared Configuration
-└── Runtime UI
+├── Event Service (Event Registry)
+└── Shared Configuration
         │
         ▼
 Applications
@@ -133,35 +150,34 @@ Applications
 
 ---
 
-## 4. Runtime Components
+## 5. Runtime Components
 
-### 4.1 Identity Service
+### 5.1 Identity Service
 
-Responsible for:
+**Owner:** Runtime
 
-```text
-Authentication
-User Profiles
-Account Linking
-Session Management
-```
+**Responsibilities:**
+- Authentication and credential verification
+- User profile and account management
+- Account linking across providers
+- Session lifecycle management
 
----
-
-### 4.2 Application Registry
-
-Maintains:
-
-```text
-Installed Applications
-Application Metadata
-Application Versions
-Application Status
-```
+**Boundary:** Applications resolve identity through this service. Applications do not manage credentials or sessions directly.
 
 ---
 
-#### Example Registry Record
+### 5.2 Application Registry
+
+**Owner:** Runtime
+
+**Responsibilities:**
+- Authoritative record of installed applications
+- Application metadata and version tracking
+- Installation status per application
+
+**Boundary:** Only the Installer and Updater may mutate registry records. Applications read their own registry entry; they do not write to it.
+
+**Record contract:**
 
 ```json
 {
@@ -174,64 +190,82 @@ Application Status
 
 ---
 
-### 4.3 Application Installer
+### 5.3 Application Installer
 
-Responsible for:
+**Owner:** Runtime
 
-```text
-Package Download
-Package Verification
-Package Extraction
-Installation
-Upgrade Preparation
-```
+**Responsibilities:**
+- Package download from distribution provider
+- Package integrity verification (hash check)
+- Extraction and placement
+- Registry record creation on successful install
 
----
+**Boundary:** Installer is the only service that creates Application Registry records. Applications do not self-register. The distribution provider contract is defined in `prana-build-system.md`.
 
-### 4.4 Application Updater
-
-Responsible for:
-
-```text
-Version Discovery
-Update Detection
-Package Download
-Application Upgrade
-Rollback
-```
+**Hash verification failure:** If package hash verification fails during installation, the download MUST be discarded. The application transitions to FAILED with reason = `hash_mismatch`. No retry is attempted automatically — restarting the installation operation is required.
 
 ---
 
-### 4.5 Application Launcher
+### 5.4 Application Updater
 
-Responsible for:
+**Owner:** Runtime
 
-```text
-Application Startup
-Application Shutdown
-Application Monitoring
-Application Restart
-```
+**Responsibilities:**
+- Version discovery from distribution provider
+- Delta detection (installed vs available)
+- Package download and upgrade execution
+- Rollback on upgrade failure
 
----
+**Boundary:** Updater mutates registry records. Applications are notified of updates; they do not initiate them.
 
-### 4.6 Shared Configuration Service
-
-Provides:
-
-```text
-Runtime Configuration
-Global Preferences
-Shared Credentials
-Storage Settings
-Workspace Settings
-```
+**Rollback behavior:** Rollback is triggered automatically when an upgrade fails after extraction begins. On rollback: the previous version's files are restored from the pre-upgrade snapshot retained in the update staging area. The application returns to INSTALLED state at the previous version. If rollback fails (staging area lost or corrupted), the application transitions to FAILED. Rollback is not available if the upgrade fails before extraction begins (download or verify failure) — in those cases, the installed version is unaffected.
 
 ---
 
-## 5. Application Distribution
+### 5.5 Application Launcher
 
-### 5.1 Build Model
+**Owner:** Runtime
+
+**Responsibilities:**
+- Application process startup and shutdown
+- Health monitoring during execution
+- Restart on crash within policy limits
+
+**Boundary:** Launcher owns the application process lifecycle. Applications expose a defined entry point; they do not control their own launch.
+
+**Crash recovery policy:** The runtime default is 3 crashes within 60 seconds. When this threshold is exceeded, the application transitions to FAILED and is not relaunched. The policy window and threshold are configurable by the application in its manifest via `crashRecovery: { maxCrashes: N, windowSeconds: T }`. When policy limits are exhausted, an `application:crashed` event is emitted with `policy_exceeded: true`.
+
+---
+
+### 5.6 Shared Configuration Service
+
+**Owner:** Runtime
+
+**Responsibilities:**
+- Authoritative store for runtime-wide configuration
+- Provides read access to applications via service interface
+- Manages storage settings, workspace settings, identity settings
+
+**Boundary:** Applications read configuration through the service API. Applications must not access configuration storage directly or cache configuration independently of this service.
+
+---
+
+### 5.7 Event Service (Event Registry)
+
+**Owner:** Runtime
+
+**Responsibilities:**
+- Runtime-wide event emission and subscription
+- Decouples runtime services from direct dependencies
+- Coordinates lifecycle events across services
+
+**Boundary:** All inter-service communication that does not require a direct return value MUST go through the Event Service. Services must not call each other directly for side-effect notifications.
+
+---
+
+## 6. Application Distribution
+
+### 6.1 Build Model
 
 Applications are distributed as build artifacts.
 
@@ -248,12 +282,14 @@ Build Pipeline
        ↓
 ZIP Package
        ↓
-Google Drive
+Distribution Provider
 ```
 
 ---
 
-### 5.2 Runtime Installation Flow
+### 6.2 Runtime Installation Flow
+
+**Happy path:**
 
 ```text
 Discover Build
@@ -269,9 +305,18 @@ Register Application
 Ready To Launch
 ```
 
+**Failure branches:**
+
+| Step | Failure | Behavior |
+| :--- | :--- | :--- |
+| Download Package | Network failure | Retry up to 3 times with exponential backoff; all retries fail → FAILED (reason: `download_failed`) |
+| Verify Package | Hash mismatch | Discard download → FAILED (reason: `hash_mismatch`); no retry |
+| Extract Package | I/O failure mid-extraction | Cleanup partial extraction → FAILED (reason: `extraction_failed`) |
+| Register Application | Write failure after extraction | Cleanup extracted files → FAILED (reason: `registration_failed`) |
+
 ---
 
-## 6. Application Metadata
+## 7. Application Metadata
 
 Every application must publish metadata.
 
@@ -293,7 +338,7 @@ Every application must publish metadata.
 
 ---
 
-## 7. Storage Integration
+## 8. Storage Integration
 
 Prana Runtime owns storage infrastructure.
 
@@ -317,14 +362,27 @@ Storage Domains
 
 ### Supported Domains
 
+#### Local Domain
+
+```text
+Window Layouts
+Theme Settings
+Session State
+Cache Artifacts
+Temporary Files
+```
+
+Device-scoped. Not synchronized.
+
+---
+
 #### Vault Domain
 
 ```text
-Configuration
-Metadata
-Workflows
-Agents
-Plugins
+Runtime configuration
+Registry metadata
+Committed knowledge artifacts
+System-owned durable state
 ```
 
 Backed by:
@@ -332,6 +390,8 @@ Backed by:
 ```text
 Git
 ```
+
+Write policy: Sync Engine only. Runtime components read via SQLite projection.
 
 ---
 
@@ -368,49 +428,59 @@ Google Sheets
 
 ---
 
-## 8. Runtime UI
+## 9. Runtime Service Boundaries
 
-### Home Screen
-
-Provides:
+### What Runtime Owns
 
 ```text
-Installed Applications
-Available Updates
-Runtime Status
-Storage Status
-Notifications
+Identity — authentication, accounts, sessions
+Application Registry — installed state, versions, status
+Installation — package download, verification, extraction
+Updates — version discovery, upgrade, rollback
+Launch — process startup, shutdown, monitoring
+Storage Infrastructure — SQLite, Storage Scheduler, domain adapters
+Configuration — runtime-wide shared settings
+Event Coordination — Event Registry
 ```
 
 ---
 
-### Application Catalog
-
-Provides:
+### What Applications Own
 
 ```text
-Available Applications
-Application Details
-Install Actions
-Uninstall Actions
+Business logic
+Domain models
+Feature behavior
+Application-specific schemas and migrations
+Application startup sequence
 ```
 
 ---
 
-### Settings
+### Service Resolution Contract
 
-Provides:
+Applications access runtime services through the service registry — never through direct instantiation or file access.
 
 ```text
-Identity Settings
-Storage Settings
-Workspace Settings
-Runtime Settings
+Application
+      ↓
+Service Registry (resolve)
+      ↓
+Runtime Service
+```
+
+Applications must not:
+
+```text
+Instantiate runtime services directly
+Read runtime configuration files
+Access storage paths outside their domain
+Manage their own identity or sessions
 ```
 
 ---
 
-## 9. Lifecycle Management
+## 10. Lifecycle Management
 
 ### Application States
 
@@ -428,18 +498,56 @@ STOPPED
 
 ---
 
-#### Failure States
+#### Transition States
 
 ```text
-FAILED
-CORRUPTED
-UPDATING
-UNINSTALLING
+UPDATING       — upgrade in progress; application not launchable
+UNINSTALLING   — removal in progress; registry record pending deletion
 ```
 
 ---
 
-## 10. Runtime Storage
+#### Failure States
+
+```text
+FAILED         — installation or launch failed; requires operator action
+CORRUPTED      — package integrity check failed; reinstall required
+```
+
+---
+
+### State Definitions
+
+| State | Entry Condition | Exit Condition | Launchable |
+| :--- | :--- | :--- | :--- |
+| NOT_INSTALLED | appId registered with no installation record | Installation triggered by user or update action | No |
+| INSTALLING | Installation operation started | All files extracted + registry record written | No |
+| INSTALLED | Extraction complete + registry entry verified | Launch or update triggered | Yes |
+| RUNNING | Process started successfully | Process exits cleanly or crash limit exceeded | — |
+| STOPPED | Clean process exit | Re-launch triggered | Yes |
+| UPDATING | Update job dispatched by Updater | New version installed + registry record updated | No |
+| UNINSTALLING | Uninstall operation triggered | Files removed + registry record deleted | No |
+| FAILED | Unrecoverable error during INSTALLING, UPDATING, or RUNNING | Operator re-triggers install or reinstall (resets to NOT_INSTALLED) | No |
+| CORRUPTED | Package integrity check failure on installed files (hash mismatch) | Operator-triggered reinstall resets to NOT_INSTALLED | No |
+
+**CORRUPTED recovery:** automatic reinstall is NOT triggered. The application remains in CORRUPTED state until the operator explicitly initiates a reinstall. The application is not launchable while CORRUPTED.
+
+---
+
+### Invalid Transitions
+
+The following state transitions are not permitted:
+
+| From | To | Reason |
+| :--- | :--- | :--- |
+| RUNNING | INSTALLING | Application must stop before a new installation |
+| INSTALLED | UPDATING | Update must be triggered via the Updater; direct transition not allowed |
+| CORRUPTED | UPDATING | Must reinstall to INSTALLED before an update can be applied |
+| FAILED | RUNNING | Must recover through NOT_INSTALLED → INSTALLING before relaunching |
+
+---
+
+## 11. Runtime Storage
 
 Prana Runtime maintains its own runtime database.
 
@@ -460,7 +568,7 @@ Update Metadata
 
 ---
 
-## 11. Security Model
+## 12. Security Model
 
 ### Runtime Responsibilities
 
@@ -487,7 +595,7 @@ Application Features
 
 ---
 
-## 12. Observability
+## 13. Observability
 
 The runtime tracks:
 
@@ -501,7 +609,7 @@ Runtime Health
 
 ---
 
-## 13. Architectural Invariants
+## 14. Architectural Invariants
 
 #### Applications Are Independent
 
@@ -547,7 +655,7 @@ Uninstalling
 
 ---
 
-## 14. Future Extensions
+## 15. Future Extensions
 
 Potential future runtime services:
 
@@ -557,14 +665,13 @@ Licensing
 Telemetry
 Cross-App Communication
 Shared Search
-Shared AI Services
 ```
 
 without changing application architecture.
 
 ---
 
-## 15. Completion Status
+## 16. Completion Status
 
 Prana Runtime is the foundational execution platform for the Prana ecosystem.
 

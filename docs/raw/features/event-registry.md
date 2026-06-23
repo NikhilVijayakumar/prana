@@ -1,8 +1,8 @@
-# 🔔 Feature: Event Registry (Notification Centre)
+﻿# 🔔 Feature: Event Registry
 
 **Version:** 2.0.0
 **Status:** Core / Foundational
-**Service:** `eventRegistryService.ts`
+**Service:** `eventRegistryService`
 **Pattern:** In-Memory Publish–Subscribe Event Bus
 **Capability:** Provides deterministic event emission, routing, subscription, and delivery across Prana Runtime services.
 
@@ -151,7 +151,17 @@ Subscribers
 
 ---
 
-## 3. Core Principle
+## 3. Runtime Availability
+
+The Event Registry becomes available at `SERVICES_READY` bootstrap state — registered second, after Configuration Service, before all other runtime services.
+
+Callers MUST NOT emit events before `SERVICES_READY`. Events emitted before the registry is initialized have undefined behavior.
+
+The Event Registry MUST remain available for the full duration of `OPERATIONAL` state. It is torn down during `STOPPING` after all other services, as the last service to be deregistered.
+
+---
+
+## 4. Core Principle
 
 ### Runtime Decoupling
 
@@ -195,7 +205,7 @@ Restarting the runtime clears all events.
 
 ---
 
-## 4. Event Contract
+## 5. Event Contract
 
 ### Base Event
 
@@ -212,6 +222,16 @@ interface RuntimeEvent {
     payload?: unknown;
 }
 ```
+
+### Field Contracts
+
+**`eventId`** — assigned by the registry at emission. Emitters MUST NOT set this field. Format: UUID v4.
+
+**`timestamp`** — assigned by the registry at emission as a Unix millisecond timestamp. Emitters MUST NOT set this field.
+
+**`source`** — the service-registry key of the emitting service (e.g., `"storageScheduler"`, `"identity"`, `"appRegistry"`). MUST match the key used to register the service in the runtime service registry. Free-form strings are not permitted.
+
+**`payload`** — optional. MUST be a serializable plain object when present. Functions, class instances, and circular references are not permitted. The registry MUST NOT mutate payload contents.
 
 ---
 
@@ -244,7 +264,7 @@ runtime:shutdown
 
 ---
 
-## 5. Event Channels
+## 6. Event Channels
 
 Channels provide logical separation.
 
@@ -331,15 +351,24 @@ application:updated
 
 ---
 
-## 6. Event Lifecycle
+## 7. Event Lifecycle
 
 ```text
 EMITTED
     ↓
 ROUTED
     ↓
-DELIVERED
+DISPATCHED
+    ↓
+FAILED (per subscriber, isolated)
 ```
+
+**State definitions:**
+
+- `EMITTED` — registry receives the event from the emitter. `eventId` and `timestamp` are assigned. Event is validated. Invalid events are rejected here and never proceed.
+- `ROUTED` — registry resolves the set of active subscribers whose patterns match the event type. If no subscribers match, the event is silently dropped — this is not a failure.
+- `DISPATCHED` — handler invoked for each matched subscriber in registration order. Dispatch to all subscribers completes regardless of individual subscriber failures.
+- `FAILED` — a subscriber handler threw during dispatch. The failure is isolated: remaining subscribers continue to receive the event. The failure MUST be counted in observability metrics as a delivery failure. Registry-internal errors during dispatch (e.g., iteration error) MUST be isolated to that dispatch cycle. The registry MUST NOT propagate internal errors to the emitter. Internal errors MUST be recorded in observability metrics as delivery failures.
 
 ---
 
@@ -348,23 +377,54 @@ DELIVERED
 Events must:
 
 ```text
-Receive timestamp at emission
-Receive unique identifier
-Be immutable after emission
+Have eventId assigned by the registry at EMITTED
+Have timestamp assigned by the registry at EMITTED
+Be validated before ROUTED — invalid events rejected, not dropped silently
+Be immutable after EMITTED
 ```
 
 ---
 
-## 7. Subscription Model
+## 8. Subscription Model
+
+### Handler Type
+
+```typescript
+type EventHandler = (event: RuntimeEvent) => void;
+```
+
+Handlers MUST be synchronous or fire-and-forget. A handler that returns a Promise the registry awaits would break delivery isolation — the registry does not await handler results.
+
+---
+
+### Pattern Syntax
+
+Patterns follow the event naming convention `<domain>:<action>[:<state>]`.
+
+Wildcard rules:
+
+```text
+*        — matches exactly one segment
+storage:*         — matches storage:sync, storage:pull (not storage:sync:completed)
+storage:sync:*    — matches storage:sync:started, storage:sync:completed
+storage:*:*       — matches any two-segment event under storage:
+storage:sync:completed — exact match only
+```
+
+Multi-segment wildcards (`**`) are not supported. Each `*` matches exactly one colon-delimited segment.
+
+**Segment count mismatch:** if a pattern has more segments than the event type (e.g., pattern `storage:sync:*` applied to event `storage:sync` with 2 segments), the pattern does NOT match. Each `*` requires exactly one segment to exist in the event type.
+
+---
 
 ### Registration
 
-Subscribers register interest in specific events.
+Subscribers register interest in specific events. Registration returns a `SubscriptionId` required for unsubscription.
 
 Example:
 
 ```typescript
-eventRegistry.subscribe(
+const subId = eventRegistry.subscribe(
     "storage:*",
     handler
 );
@@ -374,19 +434,17 @@ eventRegistry.subscribe(
 
 ### Unregistration
 
-Subscribers may unsubscribe at any time.
+Subscribers may unsubscribe at any time using the `SubscriptionId` returned at registration.
 
 Example:
 
 ```typescript
-eventRegistry.unsubscribe(
-    subscriptionId
-);
+eventRegistry.unsubscribe(subId);
 ```
 
 ---
 
-## 8. Delivery Guarantees
+## 9. Delivery Guarantees
 
 ### Deterministic Ordering
 
@@ -396,11 +454,13 @@ Ordering is guaranteed within a channel.
 
 ---
 
-### At-Least-Once Delivery
+### Delivery to All Active Subscribers
 
-Events must be delivered to all active subscribers.
+Each active subscriber receives each emitted event exactly once per emission.
 
-Consumers must tolerate duplicate handling if necessary.
+The Event Registry is in-memory only. There is no re-delivery after process restart. Subscribers MUST NOT assume delivery across restarts. Persistence-backed delivery guarantees are out of scope.
+
+**Intra-tick ordering:** within a single process tick, if multiple calls to `emit()` are made synchronously, events are delivered in the order they were emitted. This guarantee is per-emission, not per-subscriber — a subscriber that receives event A then event B from the same tick will receive them in that order.
 
 ---
 
@@ -416,38 +476,36 @@ Impact other subscribers
 
 ---
 
-## 9. Service API
-
-### Emit Event
+## 10. Service API
 
 ```typescript
-eventRegistry.emit(event);
+interface IEventRegistry {
+
+    emit(
+        event: Omit<RuntimeEvent, 'eventId' | 'timestamp'>
+    ): void;
+
+    subscribe(
+        pattern: string,
+        handler: EventHandler
+    ): SubscriptionId;
+
+    unsubscribe(
+        subscriptionId: SubscriptionId
+    ): void;
+
+}
 ```
+
+`emit` accepts the event without `eventId` or `timestamp` — the registry assigns both. Emitters provide `eventType`, `source`, and optional `payload`.
+
+`subscribe` returns a `SubscriptionId`. This token is required for unsubscription and MUST be retained by the caller.
+
+`unsubscribe` silently succeeds if the `SubscriptionId` is no longer active.
 
 ---
 
-### Subscribe
-
-```typescript
-eventRegistry.subscribe(
-    pattern,
-    handler
-);
-```
-
----
-
-### Unsubscribe
-
-```typescript
-eventRegistry.unsubscribe(
-    subscriptionId
-);
-```
-
----
-
-## 10. Integration Contracts
+## 11. Integration Contracts
 
 ### Storage Scheduler
 
@@ -510,17 +568,23 @@ identity:account:linked
 
 ---
 
-## 11. Security Model
+## 12. Security Model
 
 ### Event Validation
 
-Events must:
+The registry MUST validate events at emission before routing begins. Invalid events MUST be rejected — not silently dropped, not partially forwarded.
+
+An event is invalid if any of the following are true:
 
 ```text
-Contain valid event type
-Contain valid source
-Contain timestamp
+eventType is absent or empty
+eventType does not match <domain>:<action>[:<state>] format
+source is absent or empty
+source does not match a recognized service-registry key format
+payload contains non-serializable values (functions, class instances)
 ```
+
+Rejection MUST be counted in observability metrics as a rejected event.
 
 ---
 
@@ -540,22 +604,25 @@ Events are immutable after emission.
 
 ---
 
-## 12. Observability
+## 13. Observability
 
-The Event Registry should expose:
+The Event Registry MUST expose:
 
 ```text
-Events Emitted
-Events Delivered
-Active Subscribers
-Delivery Failures
+Events Emitted            — total and per channel
+Events Delivered          — total and per channel
+Active Subscriber Count   — total and per pattern
+Delivery Failures         — subscriber threw during dispatch (per channel)
+Rejected Events           — failed validation at emit
 ```
 
 for runtime diagnostics.
 
+Per-channel metrics are required. Aggregated totals alone are insufficient for diagnosing which channel is generating failures or saturation.
+
 ---
 
-## 13. Design Invariants
+## 14. Design Invariants
 
 ### Event Immutability
 
@@ -595,7 +662,7 @@ Subscriber failures must not affect event delivery.
 
 ---
 
-## 14. Completion Status
+## 15. Completion Status
 
 The Prana Event Registry is the runtime-wide event coordination service responsible for:
 

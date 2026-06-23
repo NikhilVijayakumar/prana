@@ -1,15 +1,16 @@
-# 👁️ Feature: PDF Viewer Screen (Final Hardened)
+# 👁️ Feature: PDF Viewer Engine
 
+**Version:** 2.0.0
 **Status:** Stable
-**Pattern:** MVVM (Container → ViewModel → View)
-**UI Stack:** `ui/viewers/` (PDF)
-**Capability:** Provides a secure, read-only PDF inspection surface for runtime documents, audit reports, and external artifacts.
+**Capability:** Provides a secure, read-only PDF rendering pipeline for runtime documents, audit reports, and external artifacts.
 
 ---
 
 ## 1. Tactical Purpose
 
-The PDF Viewer Screen is the **final human verification boundary** for PDF-class artifacts within the Prana runtime.
+The PDF Viewer Engine is a human verification boundary within the current access model for PDF-class artifacts within the Prana runtime.
+
+**Note:** Per-document access control (ACL enforcement) is a known functional gap (see §14). The engine enforces read-only behavior and sandboxed rendering but does not restrict which users may view which documents.
 
 It guarantees that all content—whether generated internally or ingested externally—is:
 
@@ -43,7 +44,7 @@ It functions as:
 
    * Every rendered document MUST be traceable to:
 
-     * source system (Email / Vault / Google / Logs)
+     * source system (Vault / Google / Logs)
      * document ID or path
 
 4. **Deterministic Rendering**
@@ -68,10 +69,9 @@ It functions as:
 | :----------------- | :------------------------ | :--------------------------- |
 | **Main Process**   | `runtimeDocumentStore`    | Source for hot documents     |
 | **Main Process**   | `vaultService`            | Source for encrypted archive |
-| **Renderer**       | `ViewerPdfViewModel`      | PDF lifecycle manager        |
-| **Renderer**       | `PdfRenderAdapter`        | Sandbox rendering adapter    |
-| **Feature**        | `VisualIdentityEngine`    | Styling and theming          |
-| **Security Layer** | Sanitization Engine       | Mandatory content filter     |
+| **Renderer**       | ViewModel layer           | PDF lifecycle orchestration  |
+| **Renderer**       | Sandbox rendering adapter | Isolated render execution    |
+| **Security Layer** | Sanitization pipeline     | Mandatory content filter     |
 
 ---
 
@@ -80,7 +80,7 @@ It functions as:
 ### 4.1 Loading Lifecycle
 
 ```text
-IDLE → LOADING → VALIDATING → PDFJS_INIT → SANDBOX_RENDER → DISPLAYED
+IDLE → LOADING → VALIDATING → ENGINE_INIT → SANDBOX_RENDER → RENDERED
 ```
 
 ---
@@ -147,8 +147,11 @@ Failure → `VALIDATION_FAILED`
 * PDF:
 
   * disable embedded JS
-  * disable launch actions and remote links when policy requires
-  * sanitize metadata fields before display
+  * disable launch actions and remote links unconditionally
+  * strip embedded file attachments
+  * disable form fields and interactive elements
+  * disable PDF JavaScript actions (OpenAction, AA dictionary)
+  * sanitize metadata fields (Author, Creator, Producer, Keywords) before display
 
 ### 5.4 Rendering
 
@@ -194,7 +197,7 @@ Failure → `VALIDATION_FAILED`
 
 ```ts
 {
-  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'PDFJS_INIT' | 'SANDBOX_RENDER' | 'READY' | 'ERROR',
+  status: 'IDLE' | 'LOADING' | 'VALIDATING' | 'ENGINE_INIT' | 'SANDBOX_RENDER' | 'RENDERED' | 'ERROR',
   content?: string,
   error?: string
 }
@@ -207,7 +210,7 @@ Failure → `VALIDATION_FAILED`
 ```ts
 {
   document_id: string,
-  source: 'email' | 'vault' | 'google' | 'system',
+  source: 'vault' | 'google' | 'system',
   origin_path: string,
   created_at: timestamp,
   last_modified: timestamp
@@ -221,7 +224,6 @@ Failure → `VALIDATION_FAILED`
 ### 8.1 Owner Types
 
 ```text
-EMAIL_DRAFT
 VAULT_DOCUMENT
 SYSTEM_LOG
 AUDIT_REPORT
@@ -233,14 +235,13 @@ PDF_ATTACHMENT
 
 ### 8.2 Contextual Action Bar
 
-| Owner Type     | Actions                |
-| :------------- | :--------------------- |
-| EMAIL_DRAFT    | Open in Gmail, Approve |
-| VAULT_DOCUMENT | View Metadata          |
-| SYSTEM_LOG     | Export                 |
-| AUDIT_REPORT   | Archive                |
-| GOOGLE_DOC     | Open in Drive          |
-| PDF_ATTACHMENT | Open Source Metadata   |
+| Owner Type     | Actions              |
+| :------------- | :------------------- |
+| VAULT_DOCUMENT | View Metadata        |
+| SYSTEM_LOG     | Export               |
+| AUDIT_REPORT   | Archive              |
+| GOOGLE_DOC     | Open in Drive        |
+| PDF_ATTACHMENT | Open Source Metadata |
 
 ---
 
@@ -268,24 +269,25 @@ PDF_ATTACHMENT
 
 ### 9.2 Sandbox Strategy
 
-* Prefer:
+* MUST use:
 
   * isolated iframe OR shadow DOM
-* Prevent:
+* MUST prevent:
 
   * DOM escape
   * script execution
+  * external network requests
   * external resource loading
 
 ---
 
 ### 9.3 Content Trust Levels
 
-| Source         | Trust  |
-| :------------- | :----- |
-| Vault          | High   |
-| Runtime        | Medium |
-| Email / Google | Low    |
+| Source  | Trust  |
+| :------ | :----- |
+| Vault   | High   |
+| Runtime | Medium |
+| Google  | Low    |
 
 ---
 
@@ -293,17 +295,16 @@ PDF_ATTACHMENT
 
 ### 10.1 Constraints
 
-* Documents > threshold MUST:
+The large document threshold is 50 pages or 10MB, whichever is reached first. The threshold values are configurable.
 
-  * use virtualization
-  * lazy load sections
+* Documents exceeding the threshold MUST use on-demand page rendering.
+* Documents below the threshold MAY be rendered in full.
 
 ---
 
 ### 10.2 Strategies
 
-* Page-by-page rendering
-* Scroll-based loading
+* On-demand page rendering
 * Canvas reuse for memory control
 
 ---
@@ -312,8 +313,7 @@ PDF_ATTACHMENT
 
 * If rendering exceeds limits:
 
-  * fallback to partial preview
-  * allow export instead
+  * fallback to partial preview (first N pages)
 
 ---
 
@@ -347,7 +347,7 @@ System MUST track:
 ## 13. Deterministic Guarantees
 
 * Rendering is strictly read-only
-* No unsafe content reaches UI
+* No unsafe content reaches render output
 * Output is consistent across runs
 * No external dependencies affect rendering
 * All failures are explicit and traceable
@@ -377,17 +377,9 @@ System MUST track:
 
   * MUST return decrypted, validated content
 
-* **Email Pipeline**
-
-  * MUST attach owner + provenance metadata
-
 * **Google Bridge**
 
   * MUST provide document linkage
-
-* **Vaidyar**
-
-  * MUST provide structured logs
 
 ---
 
@@ -396,7 +388,7 @@ System MUST track:
 ### Rendering Boundary
 
 ```
-SANITIZED_CONTENT → DISPLAYED_OUTPUT
+SANITIZED_CONTENT → RENDERED_OUTPUT
 ```
 
 ---
@@ -429,29 +421,29 @@ UNTRUSTED_INPUT → VALIDATION → SANITIZATION → SAFE_RENDER
 
 ---
 
-## 17. System Role (Final Positioning)
+## 17. Completion Status
 
-This module is now:
+The PDF Viewer Engine is the secure document rendering pipeline for PDF content in the Prana runtime.
 
-* The **trusted PDF inspection surface**
-* The **final gate before irreversible actions**
-* The **audit visualization layer across all subsystems**
+It provides:
 
----
+```text
+Source Resolution
+Content Validation
+Multi-Layer Sanitization
+Sandboxed Rendering
+Engine State Management
+Provenance Tracking
+```
 
-## 18. Strategic Integration Role
+while explicitly excluding:
 
-It directly binds:
-
-* **Email Pipeline** → draft verification
-* **Vault System** → knowledge audit
-* **Google Bridge** → external ingestion validation
-* **Vaidyar** → system diagnostics
-
----
-
-## 19. Completion Status
-
-This PDF viewer contract is complete for the current architecture phase and ready for implementation parity checks.
+```text
+Presentation and Styling
+UI Action Handling
+Document Mutation
+Per-Document Access Control (known gap — see §14)
+Export Pipeline
+```
 
 

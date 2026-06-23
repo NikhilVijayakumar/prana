@@ -5,32 +5,30 @@
 **Capability:** Provides unified storage architecture and synchronization principles across Local, Vault, Document, and Sheet domains.
 
 ```text
-                     ┌──────────────────────┐
-                     │  Runtime Services    │
-                     │  Applications        │
-                     │  Agents              │
-                     └──────────┬───────────┘
-                                │
-                                ▼
+                        ┌──────────────────────┐
+                        │  Runtime Services    │
+                        │  Applications        │
+                        └──────────┬───────────┘
+                                   │
+                                   ▼
 
-                   ┌─────────────────────────┐
-                   │ SQLite Runtime Store    │
-                   │ (Single Access Surface) │
-                   └──────────┬──────────────┘
-                              │
-             ┌────────────────┼────────────────┐
-             │                │                │
-             ▼                ▼                ▼
+                      ┌─────────────────────────┐
+                      │ SQLite Runtime Store    │
+                      │ (Single Access Surface) │
+                      └──────────┬──────────────┘
+                                 │
+          ┌──────────────────────┼──────────────────────┐
+          │              │               │               │
+          ▼              ▼               ▼               ▼
 
-      Local Domain     Vault Domain    Workspace Domain
+   Local Domain    Vault Domain   Document Domain   Sheet Domain
 
-             │                │                │
+          │              │               │               │
 
-             ▼                ▼                ▼
+          ▼              ▼               ▼               ▼
 
-      Local Machine       Git Repository   Google Workspace
-         Storage                           Docs / Sheets
-                                            Slides / Drive
+   Local Machine    Git Repository   Google Docs    Google Sheets
+      Storage
 ```
 
 ---
@@ -41,88 +39,111 @@ Prana persistence is divided into four logical domains.
 
 ### Local Domain
 
-Machine-specific runtime state.
+Device-scoped, non-durable runtime state. Exists only in SQLite. Never synchronized to any external system.
 
-Examples:
+**Storage behavior:**
 
-* Window layouts
-* Theme settings
-* Session state
-* Cache artifacts
-* Temporary files
-* Downloaded assets
+* Any runtime service may write
+* Readable only within the local process
+* No synchronization occurs — ever
+* Deletion does not affect system or data integrity
+* Lifecycle is tied to the local installation
 
-Characteristics:
+**Data characteristics:**
 
-* Device scoped
-* Not synchronized
-* Not shared
-* May be deleted without affecting system integrity
+* Ephemeral by design
+* Machine-specific
+* Not version-controlled
+* Not recoverable from external source
+
+**Typical content:**
+
+* UI state (window layout, navigation position)
+* User preferences and theme settings
+* Temporary cache entries
+* Downloaded assets pending processing
 
 ---
 
 ### Vault Domain
 
-Durable system state.
+Durable, system-owned state. Exists in SQLite (as projection) and in the Vault file store (as authoritative record). Synchronized to Git for versioning and recovery.
 
-Examples:
+**Storage behavior:**
 
-* Agent definitions
-* Workflow definitions
-* Plugin configuration
-* Registry metadata
-* Application configuration
-* Knowledge structures
+* Only the Sync Engine may write to Vault
+* Runtime components read via SQLite projection only — never direct Vault access
+* All writes are persisted in Git as version-controlled commits
+* Writes are atomic: SQLite projection and Vault record must remain consistent
+* Lifecycle is permanent — survives application reinstallation and system restarts
 
-Characteristics:
+**Data characteristics:**
 
-* System owned
-* Version controlled
-* Git synchronized
-* Internal only
-* Not externally editable
+* System-owned, not user-editable
+* Version-controlled via Git
+* Internally consistent — not exposed to external systems
+* Recoverable from Git history
+
+**Typical content:**
+
+* System registry state
+* Runtime configuration
+* Application-level metadata
+* Committed knowledge artifacts
 
 ---
 
 ### Document Domain
 
-Human-authored knowledge.
+Human-authored content synchronized from an external document provider. The external provider is the source of truth. SQLite holds a read projection used by the runtime.
 
-Examples:
+**Storage behavior:**
 
-* Policies
-* Documentation
-* Research
-* Meeting notes
+* External provider (e.g. Google Docs) is the authoritative source
+* SQLite projection is inbound-only — runtime does not write back to the provider without explicit configuration
+* Projection is refreshed via Storage Scheduler on a configured schedule
+* Sync direction: PULL (provider → SQLite); PUSH is future capability
+* Lifecycle follows the external document — deletion in provider marks projection stale
+
+**Data characteristics:**
+
+* Externally editable and collaborative
+* Projected locally as Markdown or structured text
+* Content may change between sync cycles
+* Not version-controlled internally (provider handles versioning)
+
+**Typical content:**
+
+* Policies and documentation
+* Research and reference material
 * Knowledge articles
-
-Characteristics:
-
-* Editable externally
-* Collaborative
-* Projected locally
-* Searchable by agents
 
 ---
 
 ### Sheet Domain
 
-Structured business data.
+Structured tabular data synchronized from an external sheet provider. The external provider is the source of truth. SQLite holds a structured projection queryable by the runtime.
 
-Examples:
+**Storage behavior:**
 
-* Master data
-* Reference tables
-* Catalogs
-* Product definitions
-* KPI tracking
+* External provider (e.g. Google Sheets) is the authoritative source
+* SQLite projection is inbound-only — runtime does not write back without explicit configuration
+* Projection is refreshed via Storage Scheduler on a configured schedule
+* Sync direction: PULL (provider → SQLite); PUSH is future capability
+* Lifecycle follows the external sheet — deletion in provider marks projection stale
 
-Characteristics:
+**Data characteristics:**
 
-* Editable externally
-* Structured
-* Queryable
-* Synchronizable
+* Externally editable as structured rows and columns
+* Projected locally as relational tables in SQLite
+* Schema is derived from provider structure at sync time
+* Not version-controlled internally
+
+**Typical content:**
+
+* Master data and reference tables
+* Catalog and lookup data
+* Structured business datasets
 
 ---
 
@@ -133,11 +154,7 @@ Characteristics:
 All runtime components interact exclusively with SQLite.
 
 ```text
-Agent
-   │
 Application
-   │
-Plugin
    │
 Service
    ▼
@@ -221,10 +238,10 @@ LOCAL
 #### Vault Projection Data
 
 ```text
-Workflow Definitions
-Agent Definitions
-Plugin Registry
-System Configuration
+System Registry State
+Runtime Configuration
+Application Metadata
+Committed Knowledge Artifacts
 ```
 
 Persistence Mode:
@@ -271,9 +288,9 @@ SHEET
 
 ### Purpose
 
-Vault provides durable storage for system-owned state.
+Vault provides durable, version-controlled storage for system-owned state. It is the authoritative record for all data classified under the Vault domain.
 
-Vault is not intended to store user-authored collaborative content.
+Vault is not for user-authored collaborative content — that belongs to the Document or Sheet domains.
 
 Vault acts as:
 
@@ -281,8 +298,16 @@ Vault acts as:
 System Archive
 Configuration Store
 Registry Store
-Knowledge Structure Store
+Knowledge Artifact Store
 ```
+
+---
+
+### Write Rules
+
+* Only the Sync Engine may write to Vault
+* Writes must be atomic — SQLite projection and Vault file must update together
+* No runtime component reads Vault directly — all reads go through SQLite projection
 
 ---
 
@@ -290,18 +315,17 @@ Knowledge Structure Store
 
 ```text
 Vault
-   ↓
+   ↕
 Git
 ```
 
 Git provides:
 
 * Version history
-* Backup
-* Replication
-* Recovery
+* Point-in-time recovery
+* Replication and backup
 
-Git is not accessed directly by runtime modules.
+Git is not accessed directly by runtime modules. The Sync Engine owns all Git operations.
 
 ---
 
@@ -311,20 +335,17 @@ Git is not accessed directly by runtime modules.
 vault/
 ├── registry/
 ├── configuration/
-├── workflows/
-├── plugins/
-├── agents/
 ├── metadata/
 └── snapshots/
 ```
 
 ---
 
-## 5. Workspace Domain
+## 5. External Workspace Integration
 
 ### Purpose
 
-Workspace Domain provides integration with collaborative external systems.
+Google Workspace is the external system backing the Document and Sheet domains. It is not itself a storage domain — it is the remote provider that domain adapters synchronize against.
 
 Workspace is considered:
 
@@ -351,6 +372,8 @@ Structured business data.
 #### Google Slides
 
 Presentation content.
+
+**Scope note:** Google Slides is supported for discovery and metadata tracking only. No storage domain exists for Slides content. Slides are not subject to the Mirror Constraint. Full Slides synchronization (storage domain + sync pipeline) is out of scope for the current version.
 
 #### Google Drive
 
@@ -388,6 +411,8 @@ Sync Engine
    ↕
 Domain Adapters
 ```
+
+The Sync Engine's full behavioral contract — including the domain adapter interface, execution model, failure modes, and post-write validation — is specified in `sync-engine.md`.
 
 ---
 
@@ -431,7 +456,7 @@ Google Sheets
 
 ## 7. Mirror Constraint
 
-For synchronized domains:
+For every synchronized domain, the source artifact and its SQLite projection must remain logically equivalent at all times.
 
 ```text
 Source Artifact
@@ -439,23 +464,29 @@ Source Artifact
 SQLite Projection
 ```
 
-must remain logically equivalent.
-
-Examples:
+**Per domain:**
 
 ```text
-Vault Workflow
+Vault Record
        ↕
-Workflow Table
+SQLite Vault Projection
 
 Google Doc
        ↕
-Markdown Projection
+SQLite Document Projection (Markdown)
 
 Google Sheet
        ↕
-Structured Table Projection
+SQLite Sheet Projection (Structured Table)
 ```
+
+**Enforcement rules:**
+
+* A domain record MUST NOT be considered synchronized unless both sides are consistent
+* Projection MUST be updated before the sync state transitions to a terminal state
+* Divergence between source and projection MUST trigger a RECONCILE job via Storage Scheduler
+
+Mirror Constraint enforcement responsibilities during sync operations — including VERIFY, RECONCILE, and post-write validation — are specified in `storage-scheduler.md` and `sync-engine.md`.
 
 ---
 
@@ -521,7 +552,6 @@ Optional archival projection may exist locally.
 SQLite
 Vault
 Sync Engine
-Context Engine
 ```
 
 ---
@@ -562,8 +592,8 @@ The architecture should support additional domains without modifying runtime ser
 Examples:
 
 ```text
-Workspace Domain
-   ├── Google Workspace
+Extended Document Providers
+   ├── Google Workspace (current)
    ├── Microsoft 365
    ├── Notion
    └── Confluence
@@ -574,7 +604,6 @@ Repository Domain
    └── Bitbucket
 
 Communication Domain
-   ├── Email
    ├── Slack
    └── Teams
 ```
@@ -586,5 +615,3 @@ SQLite Runtime Store
 ```
 
 which remains the single operational access surface for the entire Prana runtime.
-
-This structure is much closer to the architecture you've described than the original "SQLite Cache + Vault" document because it explicitly models **Local, Vault, Document, and Sheet domains**, while keeping SQLite as the unified runtime substrate and Google Workspace as an external knowledge surface rather than a persistence backend.

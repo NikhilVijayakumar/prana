@@ -1,22 +1,23 @@
-# 🌐 Feature: Google Ecosystem Integration — Workspace Bridge (Enhanced)
+﻿# 🌐 Feature: Google Ecosystem Integration — Workspace Bridge
 
+**Version:** 2.0.0
 **Status:** Stable / Production
 **Service:** `googleBridgeService.ts` (REST Flow) · `googleBridgeService.runOAuthHandshake`
 **Storage Domain:** `google_workspace_meta` (SQLite) / `vault/google/` (Vault)
-**Capability:** Provides a native, zero-dependency REST bridge (Port 3111 OAuth) to Google Workspace for automated knowledge extraction.
+**Capability:** Provides a native, zero-dependency REST bridge (Port 3111 OAuth) to Google Workspace for document, sheet, and metadata synchronization.
 
 ---
 
 ## 1. Tactical Purpose
 
-The Workspace Bridge enables Prana to treat Google Workspace as a **remote knowledge surface**, while enforcing a **local-first mirror architecture**.
+The Workspace Bridge enables Prana to synchronize content from Google Workspace into the local SQLite runtime store, enforcing a local-first mirror architecture.
 
 It operates as:
 
-* A **remote discovery engine** (Drive traversal)
-* A **content projection system** (Docs/Sheets → structured local form)
-* A **controlled staging layer** (agent → Google Docs handoff)
-* A **metadata synchronization layer** (state tracking + change detection)
+* A **remote discovery layer** — Drive folder traversal, file enumeration by MIME type
+* A **document synchronization layer** — Google Docs extracted to Markdown, projected into SQLite Document domain
+* A **sheet synchronization layer** — Google Sheets extracted to structured rows, projected into SQLite Sheet domain
+* A **metadata synchronization layer** — state tracking, version timestamps, change detection
 
 ---
 
@@ -24,10 +25,8 @@ It operates as:
 
 1. **Mirror Constraint Enforcement**
 
-   * Any Google document used by agents MUST exist:
-
-     * as structured data in SQLite
-     * as durable representation in Vault
+   * Any ingested Google document MUST exist as a projection in SQLite (Document domain)
+   * Artifacts explicitly committed for long-term retention MUST additionally exist in Vault
 
 2. **Read-First Safety**
 
@@ -64,13 +63,10 @@ It operates as:
 | Component           | Role                             | Relationship                             |
 | :------------------ | :------------------------------- | :--------------------------------------- |
 | **Main Process**    | `googleBridgeService`            | Core orchestration layer                 |
-| **Main Process**    | `emailBrowserAgentService`       | Session reuse / browser automation       |
-| **Scheduler**       | `cronSchedulerService`           | Drives ingestion cycles                  |
 | **Storage**         | SQLite (`google_workspace_meta`) | Metadata + sync tracking                 |
-| **Storage**         | Vault (`vault/google/`)          | Persistent knowledge projection          |
-| **Cognitive Layer** | Context Engine / RAG             | Consumes ingested content                |
+| **Storage**         | Vault (`vault/google/`)          | Durable committed artifact storage       |
+| **Storage Layer**   | `storageSchedulerService`        | Drives ingestion cycles                  |
 | **Viewer Layer**    | Markdown / PDF Viewer Screens    | Human inspection of extracted artifacts  |
-| **Startup Layer**   | `startupOrchestrator`            | Must not block on Workspace availability |
 
 ---
 
@@ -78,20 +74,22 @@ It operates as:
 
 ### 4.1 Document Sync States
 
-```text id="7y0l3x"
-DISCOVERED → METADATA_SYNCED → EXTRACTED → STORED → INDEXED
+```text
+DISCOVERED → METADATA_SYNCED → EXTRACTED → STORED → PROJECTED
 ```
 
 ---
 
 ### 4.2 Extended States
 
-```text id="h2x9qa"
+```text
 STALE
 FAILED
 RETRY_PENDING
 SKIPPED
 ```
+
+**SKIPPED entry condition:** a document transitions to SKIPPED during Discovery when it does not match the configured MIME type inclusion rules or folder scope. SKIPPED documents are excluded from the pipeline entirely. SKIPPED is not a failure state — it is a deliberate exclusion.
 
 ---
 
@@ -106,6 +104,14 @@ SKIPPED
 
   * be driven by timestamp comparison (`last_modified`)
   * avoid duplicate ingestion
+
+* STALE transition rule:
+
+  * A record in `STORED` or `PROJECTED` state MUST transition to `STALE` when `last_modified` on the source is newer than `last_synced_at` in the metadata record
+  * Detection occurs during VERIFY jobs triggered by the Storage Scheduler
+  * A `STALE` record MUST be re-queued for the full pipeline from `METADATA_SYNCED`
+  * A STALE record successfully returns to `PROJECTED` when its re-processing completes the full pipeline from `METADATA_SYNCED` through `STORED`/`PROJECTED`
+  * If the source document no longer exists at re-processing time (e.g., deleted from Drive), the record transitions to `FAILED` with reason = `source_deleted`
 
 ---
 
@@ -141,6 +147,8 @@ SKIPPED
 
 * MUST update existing records instead of duplicating
 
+**Document re-creation (file_id change):** if a document is deleted and re-uploaded on Google Drive, it receives a new `file_id`. The old record remains in its last known state (STORED or PROJECTED). The new `file_id` creates a DISCOVERED record and proceeds through the pipeline independently. Deduplication by logical document identity (title, folder path) is not performed — `file_id` is the authoritative identity key.
+
 ---
 
 ### 5.3 Extraction
@@ -165,55 +173,67 @@ Per type:
     * slide text
     * speaker notes
 
+  * **Scope note:** Slides extraction is supported for discovery and metadata tracking only. No SQLite storage domain is defined for Slides content. Slides are NOT subject to Mirror Constraint enforcement. Full Slides synchronization requires a defined storage domain and is out of scope for this version.
+
 **Constraint:**
 
 * Extraction MUST be deterministic and repeatable
 
 ---
 
-### 5.4 Local Projection (Cache + Vault)
+### 5.4 Local Projection (SQLite)
 
-* SQLite:
+* SQLite Document domain:
 
-  * store parsed representation (indexed)
+  * store extracted Markdown content (Docs)
 
-* Vault:
+* SQLite Sheet domain:
 
-  * store durable document under:
+  * store extracted row data as structured tables (Sheets)
 
-    ```
-    /vault/google/<doc_id>.md
-    ```
+* SQLite `google_workspace_meta`:
+
+  * update sync_status to STORED
 
 **Constraint:**
 
 * MUST satisfy Mirror Constraint before marking as STORED
+* SQLite projection MUST be written before any Vault write occurs
 
 ---
 
-### 5.5 Indexing (Cognitive Integration)
+### 5.5 Vault Persistence (Explicit Commit Only)
 
-* Send extracted content to:
+Vault write is out-of-band — it is NOT part of the standard synchronization pipeline.
 
-  * Vector store
-  * Context engine
+Vault write occurs only when an artifact is explicitly committed for long-term retention. A document does not need to be Vault-committed to reach `PROJECTED` state.
 
-**Outcome:**
+When Vault write occurs:
 
-* Document becomes queryable by agents
+* store durable content under:
 
----
+  ```
+  /vault/google/<doc_id>.md
+  ```
 
-### 5.6 Agent Staging (Outbound Flow)
-
-* Agents generate content
-* System stages:
-
-  * draft Google Doc / Slide (future write-back)
+* SQLite MUST track the Vault document ID
+* content_hash MUST be recorded
 
 **Constraint:**
 
-* Must require explicit operator action (policy-gated)
+* Vault write MUST correspond to an existing SQLite projection record
+
+---
+
+### 5.6 Projection Registration
+
+Content is registered as a complete projection in the SQLite Document or Sheet domain.
+
+The projection is queryable through the SQLite runtime store by any runtime service with domain access.
+
+**Outcome:**
+
+* sync_status transitions to PROJECTED — projection complete and queryable
 
 ---
 
@@ -221,14 +241,14 @@ Per type:
 
 ### 6.1 Workspace Metadata (SQLite: `google_workspace_meta`)
 
-```ts id="w0v92e"
+```ts
 {
   file_id: string,
   name: string,
   type: 'doc' | 'sheet' | 'slide',
   last_modified: timestamp,
   permissions: string[],
-  sync_status: 'DISCOVERED' | 'SYNCED' | 'FAILED',
+  sync_status: 'DISCOVERED' | 'METADATA_SYNCED' | 'EXTRACTED' | 'STORED' | 'PROJECTED' | 'FAILED' | 'STALE' | 'RETRY_PENDING' | 'SKIPPED',
   last_synced_at: timestamp
 }
 ```
@@ -237,12 +257,12 @@ Per type:
 
 ### 6.2 Extracted Document (Cache)
 
-```ts id="gn1x3p"
+```ts
 {
   file_id: string,
   content: string,        // markdown or structured JSON
   extracted_at: timestamp,
-  version_hash: string
+  content_hash: string
 }
 ```
 
@@ -250,7 +270,7 @@ Per type:
 
 ### 6.3 Vault Representation
 
-```ts id="r6g3bf"
+```ts
 {
   doc_id: string,
   vault_path: string,
@@ -264,15 +284,7 @@ Per type:
 
 ## 7. Scheduler Integration Contract
 
-### 7.1 Template Job
-
-```ts id="u2x9mz"
-registerExecutor('GOOGLE_DRIVE_SYNC', googleBridgeService.runSync)
-```
-
----
-
-### 7.2 Execution Constraints
+### 7.1 Execution Constraints
 
 * MUST:
 
@@ -286,80 +298,77 @@ registerExecutor('GOOGLE_DRIVE_SYNC', googleBridgeService.runSync)
 
 ---
 
-## 8. Browser Agent Integration
+## 8. Storage Governance Compliance
 
-### 8.1 Responsibilities
+### 8.1 SQLite — Local Domain (Active State)
 
-* Handle:
-
-  * session reuse
-  * interactive authentication
-  * complex UI-driven flows
-
----
-
-### 8.2 Constraints
-
-* MUST:
-
-  * run in sandbox
-  * isolate session per account
-
-* MUST NOT:
-
-  * leak session tokens to other modules
-  * bypass explicit user consent
-
----
-
-## 9. Storage Governance Compliance
-
-### 9.1 SQLite (Active State)
+`google_workspace_meta` is operational state — classified as **Local domain**.
 
 Stores:
 
-* metadata registry
+* metadata registry (`google_workspace_meta`)
 * sync status
-* extracted cache
+* extracted content cache
 
 ---
 
-### 9.2 Vault (Durable Knowledge)
+### 8.2 SQLite — Document Domain (Content Projection)
 
-Stores:
-
-* document projections
-* versioned content
+Extracted document content projected into SQLite under the **Document domain**, consistent with `storage-architecture.md` §4.
 
 ---
 
-### 9.3 Mirror Constraint Enforcement
+### 8.3 Vault — Durable Committed Artifacts (Explicit Commit Only)
 
-* Vault write MUST:
+Stores only artifacts explicitly committed for long-term retention:
 
-  * correspond to SQLite record
-  * include version hash
+* curated document content
+* versioned content requiring durable persistence
 
-* SQLite MUST:
-
-  * track Vault linkage
+Vault write is NOT required for every ingested document — only for explicitly committed artifacts.
 
 ---
 
-## 10. Failure Modes & Handling
+### 8.4 Mirror Constraint Enforcement
+
+The Mirror Constraint requires that the SQLite projection and the external source remain logically equivalent at all times.
+
+**Per domain:**
+
+```text
+Google Doc
+       ↕
+SQLite Document Projection (Markdown)
+
+Google Sheet
+       ↕
+SQLite Sheet Projection (Structured Table)
+```
+
+**Enforcement rules:**
+
+* Document MUST NOT be marked STORED until SQLite projection is written
+* SQLite projection MUST be refreshed when `last_modified` changes on the source
+* Divergence detected during VERIFY MUST trigger a RECONCILE job via Storage Scheduler
+* Vault write MUST correspond to an existing SQLite projection record and include content_hash
+* SQLite MUST track the Vault document ID when a Vault write occurs
+
+---
+
+## 9. Failure Modes & Handling
 
 | Scenario            | Behavior                  |
 | :------------------ | :------------------------ |
 | API failure         | Retry with backoff        |
 | Extraction failure  | Mark FAILED, retry        |
 | Metadata mismatch   | Re-sync metadata          |
-| Vault write failure | Block STORED state        |
+| Vault write failure | Block explicit commit. STORED state unaffected for non-committed documents. Partial writes to Vault MUST be rolled back before failure is reported. A `vault:write:failed` event is emitted via Event Registry. The `content_hash` is NOT recorded. The SQLite projection record retains its current state. |
 | Rate limiting       | Throttle execution        |
-| Session expiration  | Re-auth via browser agent |
+| Session expiration  | Re-authenticate and retry |
 
 ---
 
-## 11. Observability
+## 10. Observability
 
 System MUST track:
 
@@ -372,7 +381,7 @@ System MUST track:
 
 ---
 
-## 12. Deterministic Guarantees
+## 11. Deterministic Guarantees
 
 * Each document is processed based on `last_modified` timestamp
 * No duplicate ingestion occurs
@@ -382,7 +391,7 @@ System MUST track:
 
 ---
 
-## 13. Security Boundaries (Critical)
+## 12. Security Boundaries (Critical)
 
 * Google Workspace is treated as:
 
@@ -396,7 +405,9 @@ System MUST track:
 
 ---
 
-## 14. Known Architectural Gaps (Expanded Roadmap)
+## 13. Current Limitations (Out of Scope for This Version)
+
+The following capabilities are explicitly NOT provided in the current version. Behavior for these scenarios is undefined or not guaranteed. These are known functional boundaries, not implementation backlog items — downstream consumers MUST NOT rely on these capabilities.
 
 | Area                   | Gap                                  | Impact |
 | :--------------------- | :----------------------------------- | :----- |
@@ -410,7 +421,7 @@ System MUST track:
 
 ---
 
-## 15. Cross-Module Contracts (Explicit)
+## 14. Cross-Module Contracts (Explicit)
 
 * **Scheduler**
 
@@ -421,22 +432,9 @@ System MUST track:
 
   * MUST enforce mirror constraint during writes
 
-* **Cognitive Engine**
-
-  * Consumes indexed content
-  * MUST not mutate source documents
-
-* **Vaidyar**
-
-  * SHOULD receive:
-
-    * sync failures
-    * API errors
-    * extraction anomalies
-
 ---
 
-## 16. Deterministic Boundaries
+## 15. Deterministic Boundaries
 
 * **Ingestion Boundary:**
 
@@ -452,71 +450,54 @@ System MUST track:
 
 * **Write Boundary (Future):**
 
-  * Agent → Google Docs must be explicitly approved
+  * Write-back to Google Docs requires explicit operator approval
 
 ---
 
-## 17. Viewer Integration Contract
+## 16. Viewer Integration Contract
 
-### 17.1 Markdown Viewer Path
+### 16.1 Markdown Viewer Path
 
 * Docs extraction output SHOULD be projected as Markdown when possible
 * Viewer MUST preserve semantic headings, links, and list structure
 
 ---
 
-### 17.2 PDF Viewer Path
+### 16.2 PDF Viewer Path
 
 * Non-convertible artifacts MAY remain in PDF form for inspection
 * Viewer MUST enforce sandbox rendering and fail-closed behavior
 
 ---
 
-### 17.3 Human Verification Rule
+### 16.3 Human Verification Rule
 
 * Before high-impact downstream usage, operators SHOULD be able to preview artifacts via viewer screens
 
 ---
 
-## 18. Completion Status
+## 17. Completion Status
 
-This Google Ecosystem Integration contract is complete for the current documentation phase with deterministic ingestion flow, storage governance alignment, and inspection-surface integration.
+This Google Ecosystem Integration contract is complete for the current documentation phase with deterministic ingestion flow, storage governance alignment, and viewer integration.
 
----
-
-This module is now aligned with:
+This module is aligned with:
 
 * Zero-trust external integration
 * Mirror constraint enforcement
-* Scheduler-driven determinism
-* Cognitive pipeline integration
+* Storage Scheduler-driven determinism
 
----
+### Strategic Note
 
-### Strategic Note (Important)
-
-This is your **first true external system bridge**, which means:
-
-* The **Sync Engine** becomes mandatory next
-* You’ll need **conflict resolution rules** across:
-
+* **Sync Engine** is the mandatory next component
+* **Conflict resolution rules** needed across:
   * Vault ↔ SQLite
   * SQLite ↔ Google
-* And eventually:
 
-  * Email ↔ Google Docs (cross-domain knowledge linking)
-
----
-
-
-
----
-
-## Security Enforcement (v1.2)
+## 18. Security Enforcement
 
 | Enforcement | Mechanism | Status |
 |---|---|---|
-| **wrappedFetch** | OAuth and API operations use `wrappedFetch` with timeout enforcement | Enforced |
+| **Timeout-enforced HTTP client** | OAuth and API operations use a timeout-enforced HTTP client | Enforced |
 | **Mirror Constraint** | Google data is read-only mirror; no write-back to external systems | Enforced |
 | **IPC Validation** | Google integration IPC handlers accept typed payloads | Enforced |
 

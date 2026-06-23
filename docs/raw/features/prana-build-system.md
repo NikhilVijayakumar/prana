@@ -2,7 +2,7 @@
 
 **Version:** 2.0.0
 **Status:** Core / Tooling
-**Pattern:** Runtime-Aware Packaging Pipeline
+**Pattern:** Manifest-Driven Packaging Pipeline
 **Capability:** Provides standardized packaging, validation, manifest generation, artifact creation, and publication workflows for applications targeting the Prana Runtime.
 
 ---
@@ -23,7 +23,7 @@ The Build System operates after application compilation.
 
 It does not replace:
 
-```text id="w0fy8n"
+```text
 npm build
 vite build
 webpack build
@@ -48,7 +48,7 @@ Prana Build System packages applications.
 
 The Build System must not depend on:
 
-```text id="hyefh5"
+```text
 Google Drive
 S3
 MinIO
@@ -60,13 +60,13 @@ Storage providers are adapters.
 
 ---
 
-### Runtime-Aware Packaging
+### Manifest-Driven Packaging
 
 Applications are packaged with:
 
-```text id="5fxdzt"
+```text
 Manifest
-Runtime Requirements
+Declared Service Requirements
 Compatibility Metadata
 Integrity Hashes
 ```
@@ -77,7 +77,7 @@ allowing runtime validation before installation.
 
 ## 3. Architectural Position
 
-```text id="pdr0df"
+```text
 Application Source
        ↓
 
@@ -106,31 +106,41 @@ Storage Platform
 
 ### Validation
 
-Validate application artifacts before packaging.
+Verify that build output and manifest satisfy all requirements before packaging proceeds.
+
+Validation MUST block packaging on any failure. An invalid artifact MUST NOT be packaged or published.
 
 ---
 
 ### Manifest Generation
 
-Generate runtime-compatible metadata.
+Generate a versioned, runtime-compatible manifest from declared application metadata.
+
+The manifest is the contract between the build artifact and the runtime installer. It declares compatibility requirements — it does not contain runtime configuration or environment-specific values.
 
 ---
 
 ### Package Creation
 
-Create distributable artifacts.
+Assemble validated build output, manifest, and integrity metadata into a distributable archive.
+
+The package MUST be self-contained. It MUST NOT reference external paths, machine-specific values, or provider credentials.
 
 ---
 
-### Integrity Validation
+### Hash Generation
 
-Generate verification hashes.
+Produce a cryptographic integrity hash covering the complete package contents.
+
+The hash is the verification anchor used by the runtime installer to confirm the package has not been modified in transit.
 
 ---
 
 ### Publication
 
-Publish artifacts through configured distribution providers.
+Transmit the package and its metadata to a configured distribution provider via the provider adapter contract.
+
+The Build System does not choose the provider — the provider is injected via configuration.
 
 ---
 
@@ -138,62 +148,86 @@ Publish artifacts through configured distribution providers.
 
 ### Stage 1: Build
 
-Application build executes.
+Application build executes using the application's own build tooling.
 
-Example:
+Input: Application source
 
-```text id="p0s3v3"
-npm run build
-```
+Output: Build output directory (e.g. `dist/`)
 
-Output:
-
-```text id="vtmrfi"
-dist/
-```
+The Build System does not execute or control this stage. It consumes its output.
 
 ---
 
 ### Stage 2: Validation
 
-Prana validates:
+The Build System validates the build output and manifest before any packaging occurs.
 
-```text id="wlx2d7"
-Manifest
-Version
-Runtime Requirements
-Artifact Structure
+Input: Build output directory + manifest file
+
+Validates:
+
+```text
+Manifest presence and structure
+Required manifest fields
+Runtime version compatibility
+Declared service dependencies
+Artifact entry point exists
 ```
+
+Failure behavior: Packaging MUST NOT proceed. The process exits with a validation error. No artifact is created.
 
 ---
 
 ### Stage 3: Package
 
-Build output is packaged.
+Validated build output is assembled into a distributable archive.
 
-Example:
+Input: Validated build output + manifest
 
-```text id="e9t53u"
-app.zip
+Output: Self-contained archive (e.g. `app.zip`)
+
+The package MUST NOT contain:
+
+```text
+Runtime configuration
+Credential files
+Provider-specific settings
+Machine-specific paths
 ```
 
 ---
 
 ### Stage 4: Hash Generation
 
-Generate artifact integrity hash.
+A cryptographic integrity hash is computed over the complete package contents.
 
-Example:
+Input: Package archive
 
-```text id="rw9xkt"
-SHA256
-```
+Algorithm: SHA-256
+
+Output: Hash digest file (e.g. `app.zip.sha256`) and hash value embedded in artifact metadata as `buildHash`.
+
+These are the same value — the hash file is the standalone verification artifact; `buildHash` in artifact metadata is the same digest for programmatic use by the runtime installer.
+
+The hash MUST cover the entire package. It is the verification anchor used by the runtime installer.
+
+**Hash generation failure:** if hash computation fails (e.g., I/O error reading the package archive), the build process MUST halt immediately. The package archive is retained on disk for diagnostic purposes but MUST NOT be published or used without a valid hash. The process exits with a hash generation error.
 
 ---
 
 ### Stage 5: Publication
 
-Artifact is published through configured provider.
+The package and its metadata are transmitted to the configured distribution provider.
+
+Input: Package archive + hash + artifact metadata
+
+Output: Published artifact accessible via provider
+
+Failure behavior: Publication failure MUST be reported. No partial publication state is acceptable — the artifact is either fully published or not published.
+
+Publication executes as a two-step sequence: `publishArtifact` followed by `publishManifest`. If `publishManifest` fails after `publishArtifact` succeeds, the build system MUST attempt rollback via `unpublishArtifact`. If rollback fails, the failure MUST be reported with both operations' status. A partially published artifact without corresponding manifest MUST NOT be considered published.
+
+**Double-failure rollback:** if `unpublishArtifact` also fails after `publishManifest` failure, the artifact is in an orphaned state: published to the provider with no corresponding manifest. This state MUST be reported with the status of both failed operations. The version is treated as unpublished from the system's perspective — it is not registered as available. Operator remediation is required to remove the orphaned artifact from the provider.
 
 ---
 
@@ -224,43 +258,55 @@ Every Prana application must provide a manifest.
 
 ## 7. Manifest Validation
 
-The Build System validates:
+Validation runs before packaging. Any failure MUST block the build process entirely.
 
 ### Required Fields
 
-```text id="4pjf1f"
+The following fields MUST be present and non-empty:
+
+```text
 appId
 version
 runtimeVersion
 entryPoint
 ```
 
+Missing or empty required fields MUST produce a validation error.
+
+Fields that are present and non-empty but semantically invalid MUST also produce a validation error. Semantic validation rules: `version` and `runtimeVersion` MUST be valid semver strings. `appId` MUST match the pattern `[a-z0-9][a-z0-9-]*`. A field that passes the presence check but fails semantic validation MUST block packaging.
+
 ---
 
 ### Runtime Compatibility
 
-Verify:
+`runtimeVersion` MUST match a supported runtime version.
 
-```text id="ucow3t"
-runtimeVersion
-```
+Unsupported runtime versions MUST produce a validation error. The Build System does not infer or default a runtime version.
 
-exists and is supported.
+---
+
+### Entry Point
+
+`entryPoint` MUST reference a file that exists in the build output.
+
+A missing or unresolvable entry point MUST produce a validation error.
 
 ---
 
 ### Service Requirements
 
-Verify declared runtime dependencies.
+Declared services in `requiredServices` MUST be recognized runtime service identifiers as defined by the runtime service registry contract.
 
-Example:
+Example valid values:
 
-```text id="zg8fbg"
+```text
 storage
 documents
 identity
 events
 ```
+
+Unrecognized service identifiers MUST produce a validation error.
 
 ---
 
@@ -278,25 +324,50 @@ app.zip
 
 ---
 
-### Package Rules
+### Package Invariants
 
-Packages must:
+A valid package MUST:
 
-```text id="5dgf33"
-Contain Manifest
-Contain Build Output
-Contain Integrity Metadata
+```text
+Contain manifest.json at root
+Contain all build output files
+Be self-contained — no external path references
+Contain no runtime configuration
+Contain no credential files
+Contain no provider-specific settings
+Contain no machine-specific values
 ```
+
+A package that violates any invariant MUST NOT be published.
+
+---
+
+### Package Integrity
+
+After creation, the package hash MUST be computed before publication.
+
+The hash and the package travel together as an inseparable pair. A package without a corresponding hash MUST NOT be published.
 
 ---
 
 ## 9. Artifact Metadata
 
-Generated during packaging.
+Generated during packaging. Published alongside the package.
+
+The artifact metadata is the publication contract between the Build System and the distribution provider. It declares what was built, when, and what runtime version it targets.
+
+The runtime installer uses artifact metadata to:
+
+```text
+Discover available versions
+Verify runtime compatibility before download
+Identify the correct package to download
+Resolve the download URL for the package
+```
 
 ---
 
-### Example
+### Contract
 
 ```json
 {
@@ -304,15 +375,31 @@ Generated during packaging.
   "version": "1.0.0",
   "buildHash": "abc123",
   "runtimeVersion": "2.0.0",
+  "downloadUrl": "https://...",
   "generatedAt": "2026-06-23T12:00:00Z"
 }
+```
+
+`buildHash` is the SHA-256 digest of the package archive. This is the same value as the standalone `.sha256` hash file produced in Stage 4.
+
+`downloadUrl` is the resolvable URL for the package archive, populated by the provider after `publishArtifact` completes.
+
+`generatedAt` is the UTC timestamp of package creation.
+
+Artifact metadata MUST NOT contain:
+
+```text
+Runtime configuration values
+Credential references
+Provider-specific settings
+Environment-specific paths
 ```
 
 ---
 
 ## 10. Distribution Provider Model
 
-The Build System publishes through adapters.
+The Build System publishes through provider adapters. The Build System does not select the provider — the provider is injected via configuration.
 
 ---
 
@@ -325,6 +412,11 @@ interface IDistributionProvider {
         artifact: BuildArtifact
     ): Promise<void>;
 
+    unpublishArtifact(
+        appId: string,
+        version: string
+    ): Promise<void>;
+
     publishManifest(
         manifest: BuildManifest
     ): Promise<void>;
@@ -333,8 +425,39 @@ interface IDistributionProvider {
         appId: string
     ): Promise<string>;
 
+    getArtifactMetadata(
+        appId: string,
+        version: string
+    ): Promise<ArtifactMetadata>;
+
 }
 ```
+
+`publishArtifact` transmits the package archive and its hash.
+
+`unpublishArtifact` removes a previously published artifact. Used for rollback when `publishManifest` fails.
+
+`publishManifest` transmits the artifact metadata.
+
+`getLatestVersion` enables version discovery by the runtime installer.
+
+`getArtifactMetadata` returns the full artifact metadata for a specific version, including `downloadUrl` and `buildHash`. Used by the runtime installer to resolve the download URL and verify integrity before fetch.
+
+All operations are required. A provider that does not implement all of them MUST NOT be used for publication.
+
+---
+
+### Provider Isolation
+
+The Build System:
+
+```text
+Does not read provider credentials
+Does not manage provider authentication
+Does not depend on any specific provider implementation
+```
+
+Credentials and authentication are provider-internal concerns.
 
 ---
 
@@ -346,7 +469,7 @@ Initial implementation.
 
 Purpose:
 
-```text id="mly2li"
+```text
 Publish
 Download
 Version Discovery
@@ -356,7 +479,7 @@ Version Discovery
 
 ### Future Providers
 
-```text id="vrjs4m"
+```text
 S3
 MinIO
 Azure Blob
@@ -366,13 +489,13 @@ Local Storage
 
 ---
 
-## 12. Runtime Integration
+## 12. Build/Runtime Boundary
 
 The Build System must not inject runtime configuration.
 
 The Build System must not package:
 
-```text id="iuyk31"
+```text
 Database Paths
 Credential Files
 Google Secrets
@@ -385,7 +508,7 @@ Provider Settings
 
 Runtime resolves:
 
-```text id="80ncfz"
+```text
 Storage Providers
 Document Providers
 Identity Providers
@@ -400,7 +523,7 @@ at application startup.
 
 Build defines only:
 
-```text id="n7lmrm"
+```text
 Requirements
 Compatibility
 Metadata
@@ -432,7 +555,7 @@ prana-build release
 
 Executes:
 
-```text id="4i2br9"
+```text
 Validate
 Package
 Hash
@@ -446,6 +569,20 @@ Publish
 The Build System must support external configuration.
 
 ---
+
+### Build System Configuration Contract
+
+The Build System requires a configuration file (default: `prana-build.json` in the project root, overridable via `--config` flag).
+
+**Required fields:**
+
+```text
+provider   — the distribution provider identifier (e.g. "google-drive")
+```
+
+**Optional fields:** none defined in the core Build System.
+
+If the configuration file is absent or `provider` is missing, the Build System MUST halt with a configuration error before any build stage begins.
 
 ### Example
 
@@ -469,7 +606,7 @@ Not by the Build System.
 
 The Build System must:
 
-```text id="jhqg07"
+```text
 Validate Artifacts
 Generate Integrity Hashes
 Verify Manifest Structure
@@ -480,7 +617,7 @@ Prevent Invalid Packaging
 
 The Build System must not:
 
-```text id="7js15e"
+```text
 Store Credentials
 Store Runtime Secrets
 Modify Runtime Configuration
@@ -520,7 +657,7 @@ Runtime compatibility is declared through manifests.
 
 Packages must remain portable across:
 
-```text id="z5j1nd"
+```text
 Windows
 Linux
 macOS
@@ -528,11 +665,17 @@ macOS
 
 ---
 
+### Publication Atomicity
+
+A published artifact without a corresponding manifest is a partial state. The build system MUST ensure both are present or neither is present.
+
+---
+
 ## 17. Ecosystem Position
 
 Prana defines:
 
-```text id="5a67cc"
+```text
 Manifest Specification
 Package Specification
 Runtime Compatibility Rules
@@ -543,7 +686,7 @@ Distribution Provider Contract
 
 External tooling may implement:
 
-```text id="yxgbif"
+```text
 Google Drive Publisher
 S3 Publisher
 MinIO Publisher
@@ -561,7 +704,7 @@ The Prana Build System is the standardized packaging and distribution framework 
 
 It provides:
 
-```text id="5t7jsl"
+```text
 Validation
 Manifest Generation
 Packaging
@@ -571,7 +714,7 @@ Publication
 
 while remaining independent of:
 
-```text id="8xruqf"
+```text
 Application Build Tools
 Runtime Configuration
 Distribution Providers
