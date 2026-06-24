@@ -1,4 +1,4 @@
-# README Audit & Validation System — Prompt Engine v1.1
+# README Audit & Validation System — Prompt Engine v1.2
 
 ## CORE PRINCIPLE
 
@@ -12,15 +12,75 @@ Your job is to determine whether the README accurately represents the product, a
 
 ## Understanding Prana
 
-Prana is an **Electron runtime library & host application shell** for intelligent agent applications.
+Prana is an **Electron runtime library & host application shell**.
+
+It consists of two process contexts:
+
+- **Main Process (Node.js)** — IPC handlers, SQLite persistence, Service Registry, Storage Scheduler, domain adapters, Sync Engine, Identity Service, Application Registry, Google Bridge Service, Bootstrap orchestration
+- **Renderer Process (React)** — Astra MVVM pattern, IpcService-based repositories, useDataState ViewModel hooks, AppStateHandler conditional rendering
+
+Prana consumes **Astra** (`github:NikhilVijayakumar/astra`) as a runtime dependency providing:
+
+- `IpcService` — Electron IPC transport; all Renderer→Main IPC goes through this; never `window.electronAPI` directly
+- `useDataState<T>()` — ViewModel state hook: `[appState, execute, setAppState]`
+- `AppStateHandler` — conditional rendering with fixed priority: LOADING → isError → emptyCondition → children/SuccessComponent → Empty
+- `AppStateProvider` — wired once at renderer root
+- `ServerResponse<T>` — IPC response shape; Main process handlers return this; always use factory methods
+- `AppState<T>` — `{ state: StateType, isError, isSuccess, status, statusMessage, data }`
+- `StateType` — INIT=0, LOADING=1, COMPLETED=2; ERROR = COMPLETED+isError (no separate ERROR state)
+
+Feature module structure (canonical per Astra):
+```
+model/       — TypeScript types and DTOs
+repo/        — IpcService-based data access
+hooks/       — ViewModel (useDataState wrappers)
+view/components/  — Presentational leaf components
+view/pages/  — Stateful page containers
+```
 
 The README must accurately reflect:
 
-* What Prana provides: orchestration, persistence, context management, security, UI infrastructure for intelligent agent applications — through a layered architecture of runtime services in `src/main/common/`, `src/main/features/`, and renderer infrastructure.
-* What Prana does NOT provide: UI component libraries (those come from Astra), design system assets, localization, theming.
-* Prana consumes Astra for MVVM patterns (`useDataState`, `AppStateHandler`, `ApiService`) but is itself a host shell, not a pattern library.
+- What Prana provides: Electron runtime orchestration, SQLite persistence, storage sync pipeline, identity management, application lifecycle, Google Workspace integration, document and PDF viewing — through Astra's MVVM boilerplate
+- What Prana does NOT provide: Astra patterns (consumed, not owned), UI component libraries, design system assets, localization
+- Prana does NOT re-implement Astra's boilerplate — it consumes `IpcService`, `useDataState`, `AppStateHandler`, `AppStateProvider`, `ServerResponse`
 
-Flag README sections that describe capabilities Prana does not own (UI component libraries, design systems) as Prana-owned — this is architectural drift.
+Flag README sections that:
+- Describe capabilities Prana does not own (Astra patterns, UI frameworks, design systems) as Prana-owned — this is architectural drift
+- Omit Electron process boundary distinction (Main vs Renderer)
+- Use outdated service names or patterns (e.g., `ApiService` for IPC — Prana uses `IpcService`)
+
+### Core Services (per Bootstrap registration order)
+
+| # | Service | Registry Key |
+|---|---------|-------------|
+| 1 | Configuration Service | `configuration` |
+| 2 | Event Registry | `events` |
+| 3 | Storage Service (SQLite) | `storage` |
+| 4 | Storage Scheduler | `storageScheduler` |
+| 5 | Vault Adapter | `vaultAdapter` |
+| 6 | Document Adapter | `documentAdapter` |
+| 7 | Sheet Adapter | `sheetAdapter` |
+| 8 | Sync Engine | `syncEngine` |
+| 9 | Identity Service | `identity` |
+| 10 | Application Registry | `appRegistry` |
+| 11 | Google Bridge Service | `googleBridge` |
+| 12 | Document Service (optional) | `documents` |
+| 13 | Sheet Service (optional) | `sheets` |
+
+### Feature Set
+
+| Feature | Document |
+|---------|----------|
+| Prana Runtime | docs/raw/features/prana-runtime.md |
+| Prana Bootstrap | docs/raw/features/prana-bootstrap.md |
+| Event Registry | docs/raw/features/event-registry.md |
+| Storage Architecture | docs/raw/features/storage-architecture.md |
+| Storage Scheduler | docs/raw/features/storage-scheduler.md |
+| Sync Engine | docs/raw/features/sync-engine.md |
+| Google Ecosystem Integration | docs/raw/features/google-ecosystem-integration.md |
+| Prana Build System | docs/raw/features/prana-build-system.md |
+| Viewer — Markdown Screen | docs/raw/features/viewer-markdown-screen.md |
+| Viewer — PDF Screen | docs/raw/features/viewer-pdf-screen.md |
 
 ---
 
@@ -59,8 +119,8 @@ Do NOT fill gaps yourself.
 Every finding must reference:
 
 - README location
-- Feature document
-- Architecture definition
+- Feature document or Feature Technical document
+- Architecture definition (astra.md or feature-technical/)
 - Supporting evidence
 
 All claims must be traceable.
@@ -69,14 +129,15 @@ All claims must be traceable.
 
 ## 3. Source Priority
 
-Validate using:
+Validate using (highest to lowest authority):
 
-1. docs/raw/features/
-2. docs/raw/external-context/astra.md
-3. README.md
-4. User clarification
+1. `docs/raw/external-context/astra.md` (architecture authority — Astra patterns)
+2. `docs/raw/feature-technical/` (technical realization bridge — HOW)
+3. `docs/raw/features/` (feature specs — WHAT)
+4. `README.md` (document being audited)
+5. User clarification
 
-Feature specifications are authoritative.
+Feature Technical documents realize Feature specs against Astra architecture. They are authoritative for how each feature is technically implemented.
 
 README is the document being audited.
 
@@ -95,6 +156,7 @@ Examples:
 - Feature does not exist
 - Incorrect architecture
 - Wrong workflow
+- Describes Prana as owning Astra patterns
 
 ---
 
@@ -105,6 +167,8 @@ Important information missing or unclear.
 Examples:
 
 - Missing core feature
+- Missing process boundary explanation (Main vs Renderer)
+- Missing Astra dependency description
 - Missing workflow explanation
 - Missing constraints
 
@@ -116,9 +180,10 @@ Documentation quality issues.
 
 Examples:
 
-- Naming inconsistencies
+- Naming inconsistencies (wrong service names, wrong registry keys)
 - Weak explanations
 - Redundant sections
+- Missing cross-references to feature-technical docs
 
 ---
 
@@ -131,6 +196,7 @@ Examples:
 - Better organization
 - Better examples
 - Better onboarding
+- Developer quickstart
 
 ---
 
@@ -142,6 +208,8 @@ Audit the following:
 README.md
 
 docs/raw/features/
+
+docs/raw/feature-technical/
 
 docs/raw/external-context/astra.md
 ```
@@ -169,6 +237,7 @@ Questions:
 - Does README clearly explain what the product is?
 - Does README clearly explain what the product is not?
 - Is positioning consistent with feature set?
+- Is the Electron runtime nature of Prana clearly explained?
 
 ---
 
@@ -189,6 +258,7 @@ Questions:
 - Is the user problem clearly explained?
 - Is the solution clearly explained?
 - Is value proposition understandable?
+- Is the developer audience clearly addressed?
 
 ---
 
@@ -220,7 +290,7 @@ Determine whether README covers all implemented features.
 Located in:
 
 ```
-docs/raw/feature/
+docs/raw/features/
 ```
 
 Validate:
@@ -229,6 +299,7 @@ Validate:
 - Feature accurately described?
 - Responsibilities represented?
 - Major workflows represented?
+- Correct process boundary (Main vs Renderer) stated?
 
 ---
 
@@ -249,6 +320,12 @@ README describes behavior not found in features.
 ### Incomplete Features
 
 Feature mentioned but poorly described.
+
+---
+
+### Stale Features
+
+README describes features that have been superseded or deprecated per feature-technical docs.
 
 ---
 
@@ -274,7 +351,7 @@ Notes
 
 ## Goal
 
-Validate architecture consistency.
+Validate architecture consistency with Astra patterns and Prana's Electron design.
 
 ---
 
@@ -284,11 +361,32 @@ README architecture
 
 vs
 
-Feature architecture
+Feature architecture (docs/raw/features/) + Feature Technical realization (docs/raw/feature-technical/) + Astra authority (docs/raw/external-context/astra.md)
 
 ---
 
 ## Validate
+
+### Process Boundary Accuracy
+
+Questions:
+
+- Is the Main Process vs Renderer Process distinction clearly described?
+- Are Main Process responsibilities (IPC handlers, SQLite, Service Registry, domain adapters, Sync Engine) correctly attributed?
+- Are Renderer responsibilities (Astra MVVM, IpcService repos, ViewModel hooks, AppStateHandler) correctly attributed?
+
+---
+
+### Astra Dependency Accuracy
+
+Questions:
+
+- Is Astra described as a consumed dependency, not a Prana-owned pattern?
+- Are Astra components (`IpcService`, `useDataState`, `AppStateHandler`, `AppStateProvider`, `ServerResponse`) correctly attributed to Astra?
+- Does README avoid claiming Prana re-implements Astra patterns?
+- Is the `IpcService`-based IPC transport correctly described (not `ApiService`, not direct `window.electronAPI`)?
+
+---
 
 ### System Boundaries
 
@@ -297,6 +395,7 @@ Questions:
 - Are subsystem responsibilities correct?
 - Are ownership boundaries clear?
 - Are dependencies correctly represented?
+- Is the Service Registry architecture reflected?
 
 ---
 
@@ -307,6 +406,7 @@ Questions:
 - Does workflow match actual system?
 - Are stages correct?
 - Are interactions correct?
+- Does README describe storage sync pipeline (Storage Scheduler → Sync Engine → domain adapters) correctly?
 
 ---
 
@@ -314,9 +414,10 @@ Questions:
 
 Detect:
 
-- Old concepts still present
+- Old concepts still present (e.g., `ApiService` for IPC, old service names)
 - Deprecated workflows
 - Removed systems still documented
+- Feature-technical changes not reflected (e.g., new service registry keys, updated startup sequences)
 
 ---
 
@@ -350,6 +451,8 @@ Can a new engineer understand:
 - what the product does
 - how it works
 - major systems
+- the Main/Renderer process split
+- how Astra is consumed
 
 ---
 
@@ -358,11 +461,12 @@ Can a new engineer understand:
 Does README contain:
 
 - purpose
-- architecture
+- architecture (Electron dual-process)
+- Astra dependency and patterns consumed
 - workflows
 - features
 - constraints
-- integrations
+- integrations (Google Ecosystem, Storage, Vault)
 
 ---
 
@@ -370,11 +474,15 @@ Does README contain:
 
 Do sections contradict each other?
 
+Do README service names match authoritative names from feature-technical docs?
+
 ---
 
 ### Maintainability
 
 Will README remain accurate as system evolves?
+
+Are cross-references to feature specs and feature-technical docs present?
 
 ---
 
@@ -416,9 +524,12 @@ Understands:
 
 Understands:
 
-- architecture
-- responsibilities
-- implementation direction
+- Electron Main/Renderer architecture
+- Astra boilerplate patterns consumed
+- Service Registry and service keys
+- Feature module structure
+- IPC contract (ServerResponse<T>)
+- Implementation direction from feature-technical docs
 
 ---
 
@@ -429,6 +540,7 @@ Understands:
 - system boundaries
 - terminology
 - feature structure
+- where to find the HOW (feature-technical/) vs WHAT (features/)
 
 ---
 
@@ -456,6 +568,7 @@ Questions:
 
 - What is this product?
 - Why does it exist?
+- Is Electron nature clear?
 
 Score:
 
@@ -470,6 +583,7 @@ Score:
 Questions:
 
 - Are all core features represented?
+- Is the feature-technical bridge layer referenced?
 
 Score:
 
@@ -483,7 +597,9 @@ Score:
 
 Questions:
 
-- Does README accurately reflect architecture?
+- Does README accurately reflect Electron dual-process architecture?
+- Is Astra dependency correctly described?
+- Are service boundaries correct?
 
 Score:
 
@@ -498,6 +614,7 @@ Score:
 Questions:
 
 - Any contradictions?
+- Do service names match feature-technical docs?
 
 Score:
 
@@ -512,6 +629,7 @@ Score:
 Questions:
 
 - Can a new developer understand system structure?
+- Can they find the feature-technical docs for implementation guidance?
 
 Score:
 
@@ -526,6 +644,7 @@ Score:
 Questions:
 
 - Can README evolve with system?
+- Are cross-references in place?
 
 Score:
 
@@ -712,6 +831,6 @@ Not Aligned With Product
 
 The README is successful only if:
 
-> A new contributor can understand what the product is, why it exists, how it works, what features it contains, and where its architectural boundaries begin and end.
+> A new contributor can understand what the product is, why it exists, how it works as an Electron application, what Astra patterns it consumes vs owns, what features it contains, and where its architectural boundaries begin and end — including the Main/Renderer process split and the feature-technical layer that bridges feature specs to architecture.
 
 If any of those questions cannot be answered from the README alone, the audit must identify and report the gap.
