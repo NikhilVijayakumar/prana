@@ -65,10 +65,10 @@ Maintains configurable execution lanes. Each lane is identified by domain (vault
 Handles all six trigger types: event-triggered (dirty flag on SQLite write), time-triggered (interval from external configuration), startup-triggered (recovery and initial sync jobs on application start), shutdown-triggered (pending flush before application exit), recovery-triggered (Mirror Constraint violation detected), and manual-triggered (user-initiated sync via IPC).
 
 **Job Dispatcher**
-Routes executing jobs to the appropriate domain adapter (Vault Adapter, Document Adapter, Sheet Adapter). The dispatcher does not implement domain logic — adapters own their synchronization execution.
+Routes executing jobs to the Sync Engine, which delegates to the appropriate domain adapter. The dispatcher resolves the Sync Engine from the Service Registry at Scheduler initialization time (`resolve('syncEngine')`); the resolved reference is held for the Scheduler's lifetime. If `syncEngine` is not registered at Scheduler startup, the Scheduler fails with a `MissingServiceError`. The dispatcher does not implement domain logic — the Sync Engine and its domain adapters own all synchronization execution. Cross-reference: the Sync Engine's service resolution contract is defined in `sync-engine.md §11.1`.
 
 **Mirror Constraint Enforcer**
-Evaluates projection-source consistency across all three mirror pairs. Generates VERIFY jobs on schedule or event trigger, RECONCILE jobs when VERIFY detects divergence, and RECOVER jobs when RECONCILE fails or source data is missing.
+Evaluates projection-source consistency across all three mirror pairs. Dispatches VERIFY jobs on schedule or event trigger. When a VERIFY job completes with divergence (`requiresReconcile: true`), the **Job Dispatcher** — not the Mirror Constraint Enforcer directly — creates the RECONCILE job based on the result returned by the Sync Engine. The Mirror Constraint Enforcer monitors RECONCILE job outcomes and generates RECOVER jobs when RECONCILE fails or source data is missing. Cross-reference: the VERIFY → RECONCILE handoff mechanism is defined in `sync-engine.md §6.3`.
 
 **Conflict Handler**
 Detects conflicts during VERIFY and RECONCILE jobs. Classifies conflict type. Writes a conflict record to SQLite. Emits a conflict event via the Event Registry. Blocks further sync on the affected record. Does not apply resolution strategy — that is owned by the domain adapter or application configuration.
@@ -242,11 +242,11 @@ On application start, the Recovery Manager loads all non-terminal jobs from SQLi
 
 **Shutdown Flush Workflow**
 
-On shutdown signal, the Trigger Manager creates flush Storage Jobs for domains with pending dirty records. New job intake is suspended. The Lane Manager drains active queues up to a configurable timeout. Remaining in-flight jobs are persisted for crash recovery on next start.
+On shutdown signal, the Trigger Manager creates flush Storage Jobs for domains with pending dirty records. New job intake is suspended. The Lane Manager drains active queues up to a configurable timeout. The default flush timeout is 30 seconds. The shutdown is blocking — the shutdown signal is not forwarded to dependent services until the flush completes or the timeout elapses. QUEUED jobs are preserved as-is during shutdown — their state is NOT modified; they will be picked up on the next startup. RUNNING jobs that have not completed when the timeout elapses are abandoned; each abandoned job ID MUST be logged.
 
 **Mirror Constraint Verification Workflow**
 
-The Mirror Constraint Enforcer creates VERIFY jobs on schedule or event trigger. The VERIFY job is dispatched to the domain adapter, which compares projection state against source state. If consistent, the job completes. If divergence is detected, a RECONCILE job is generated. If RECONCILE succeeds, consistency is restored. If RECONCILE fails or source data is missing, a RECOVER job is generated to restore from the authoritative source.
+The Mirror Constraint Enforcer creates VERIFY jobs on schedule or event trigger. The VERIFY job is dispatched to the Sync Engine, which delegates to the domain adapter to compare projection state against source state. If consistent, the job completes. If divergence is detected, the Sync Engine returns `requiresReconcile: true` to the Job Dispatcher, which creates a RECONCILE job. If RECONCILE succeeds, consistency is restored. If RECONCILE fails or source data is missing, the Mirror Constraint Enforcer generates a RECOVER job to restore from the authoritative source.
 
 **Conflict Detection and Blocking Workflow**
 
@@ -274,16 +274,16 @@ A Renderer consumer invokes `storage-scheduler:trigger-sync` with the target dom
 | FAILED | Adapter reported error or timeout; lock released; status FAILED |
 | RETRY_PENDING | Waiting for retry interval; `retry_count` incremented; status RETRY_PENDING |
 | CANCELLED | Removed before execution; status CANCELLED |
-| EXPIRED | Scheduled window elapsed; status EXPIRED |
+| EXPIRED | Scheduled window elapsed; status EXPIRED. Entry condition: a QUEUED job transitions to EXPIRED when it has not been claimed within its configured execution window. The default execution window is 24 hours from job creation time, configurable per domain via scheduling policy. Jobs in CLAIMED or RUNNING state do not expire. Detection mechanism: the Scheduler Service runs a periodic TTL check (interval configurable via scheduling policy) that queries for QUEUED jobs where the time elapsed since `createdAt` exceeds the execution window; those jobs transition to EXPIRED. |
 
 **Scheduler Service States**
 
-| State | Meaning |
-|---|---|
-| INITIALIZING | Bootstrap in progress; queues not yet active |
-| RUNNING | Active; accepting and processing jobs |
-| DRAINING | Shutdown initiated; no new jobs accepted; queues flushing |
-| STOPPED | All lanes idle; service deregistered |
+| State | Meaning | Entry Condition | Exit Condition |
+|---|---|---|---|
+| INITIALIZING | Bootstrap in progress; queues not yet active | Bootstrap dispatches service initialization | All lane workers initialized, job queue loaded from SQLite; the scheduler does not accept new jobs in this state |
+| RUNNING | Active; accepting and processing jobs | Initialization complete | Shutdown signal received or fatal error; new jobs accepted, lanes execute jobs |
+| DRAINING | Shutdown initiated; no new jobs accepted; queues flushing | Shutdown signal received | All RUNNING jobs reach terminal state OR flush timeout elapses; no new jobs accepted; QUEUED jobs preserved |
+| STOPPED | All lanes idle; service deregistered | Drain complete (all RUNNING jobs terminal or timeout elapsed) | N/A (terminal service state until process restart); no jobs execute |
 
 ### 8.2 Renderer AppState Mapping
 
@@ -324,7 +324,7 @@ The Main Process scheduler service is a pure Node.js service. Astra boilerplate 
 |---|---|
 | Validate job inputs | IPC handler validates domain, operation, and payload_ref before creating a job. Invalid inputs return `ServerResponse.error()` with status 400. |
 | Enforce lane isolation | Lane Manager processes each domain lane independently. A failure or saturation in one lane does not block others. |
-| Prevent duplicate execution | Before a job transitions to CLAIMED, the Scheduler Core checks for an existing active lock on the same payload_ref and operation in the same domain. Duplicate detected → job remains QUEUED. |
+| Prevent duplicate execution | Before a job transitions to CLAIMED, the Scheduler Core checks for an existing active lock on the same payload_ref and operation in the same domain. Duplicate detected → the second job transitions to CANCELLED with reason = `duplicate_lock_contention`; no new lock is acquired; the first job proceeds normally. This is a terminal cancellation — the second job does not retry. |
 | Respect storage permissions | Before dispatching to a domain adapter, the Scheduler Core verifies that the operation is permitted for the domain based on current runtime configuration and storage permission state. |
 
 ---
@@ -336,7 +336,8 @@ The Main Process scheduler service is a pure Node.js service. Astra boilerplate 
 | Job input: domain value | IPC handler (`storage-scheduler:trigger-sync`, `storage-scheduler:trigger-reconcile`) | Return `ServerResponse.error()` with status 400; job not created |
 | Job input: operation type | IPC handler | Return `ServerResponse.error()` with status 400; job not created |
 | Job input: payload_ref | IPC handler | Return `ServerResponse.error()` with status 400 if payload_ref does not resolve |
-| Duplicate execution lock | Scheduler Core pre-claim check | Job remains QUEUED; no new lock acquired |
+| Job payload schema (per domain) | IPC handler pre-enqueue | Each domain defines required payload fields; missing required fields return `ServerResponse.error()` with status 400 and the missing field name; job not created. Vault domain payloads must include `vaultPath`. Document domain payloads must include `fileId`. Sheet domain payloads must include `fileId` and `sheetId`. Fields beyond the required set are passed through as-is to the adapter. |
+| Duplicate execution lock | Scheduler Core pre-claim check | The second job transitions to CANCELLED with reason = `duplicate_lock_contention`; no new lock is acquired; the first job proceeds normally. This is a terminal cancellation — the second job does not retry. |
 | Mirror constraint divergence | Mirror Constraint Enforcer during VERIFY job | RECONCILE job generated; conflict record written if unresolvable |
 | Conflict classification | Conflict Handler during RECONCILE job | Conflict record written; `blocked = 1`; sync blocked on affected record |
 | Retry budget exhaustion | Scheduler Core on FAILED transition | Job transitions to FAILED terminal; `storage-scheduler:terminal-failure` emitted |
@@ -360,6 +361,7 @@ The Main Process scheduler service is a pure Node.js service. Astra boilerplate 
 | `window.electronAPI` unavailable | `IpcService` returns `ServerResponse.error()` with status 500 | Renderer ViewModel sets `appState.isError = true` |
 | Invalid job input via IPC | Handler returns `ServerResponse.error()` with status 400 | Renderer receives error response; no job created |
 | Scheduler configuration invalid at startup | Scheduler Core logs error; startup fails | Prana Main Process bootstrap reports initialization failure |
+| Event Registry unavailable during FAILED terminal event emission | Scheduler records the failure to a local storage log (persisted in SQLite's operational metadata); event emission is retried when the Event Registry becomes available | If the runtime is shutting down and the Event Registry has already torn down before the FAILED event can be emitted, the failure is recorded to storage only — no further retry is attempted |
 
 ---
 
@@ -471,11 +473,17 @@ The Storage Scheduler dispatches jobs to adapters. Adapters own all external com
 | §5 Storage Job Model | StorageJob contract fields | Section 4.3 `storage_jobs` schema columns |
 | §5 Job Ownership | Metadata vs domain vs business vs external | Section 14.1 Responsibility Ownership |
 | §6 Execution Lanes | Configurable lane isolation | Section 4.1 Lane Manager; Section 4.3 `scheduler_config` |
-| §7 Trigger Model (all six) | Event, Time, Startup, Shutdown, Recovery, Manual | Section 4.1 Trigger Manager; Section 7 workflows |
+| §7 Trigger Model — Event Trigger | L2 §7.1: dirty flag on SQLite write | Section 4.1 Trigger Manager; §7 Event-Triggered Sync Workflow |
+| §7 Trigger Model — Time Trigger | L2 §7.2: interval-based scheduling | Section 4.1 Trigger Manager; §7 Time-Triggered Sync Workflow |
+| §7 Trigger Model — Startup Trigger | L2 §7.3: recovery and initial sync on application start | Section 4.1 Trigger Manager; §7 Startup Recovery Workflow |
+| §7 Trigger Model — Shutdown Trigger | L2 §7.4: pending flush before exit | Section 4.1 Trigger Manager; §7 Shutdown Flush Workflow |
+| §7 Trigger Model — Recovery Trigger | L2 §7.5: Mirror Constraint violation detected | Section 4.1 Mirror Constraint Enforcer; §7 Mirror Constraint Verification Workflow |
+| §7 Trigger Model — Manual Trigger | L2 §7.6: user-initiated sync via IPC | Section 4.2 `storage-scheduler:trigger-sync`; §7 Manual Sync Workflow |
 | §8 Scheduling Policy | Configuration driven; no hardcoded values | Section 4.1 Scheduler Core; Section 4.3 `scheduler_config`; Section 11 validation |
 | §9 Execution Lifecycle | CREATED→QUEUED→CLAIMED→RUNNING→COMPLETED | Section 8.1 Job Lifecycle States |
 | §9 Failure Path | RUNNING→FAILED→RETRY_PENDING→QUEUED | Section 8.1; Section 12 error realization |
 | §9 Terminal States | COMPLETED / FAILED / CANCELLED / EXPIRED; FAILED emits event | Section 8.1; Section 4.2 `storage-scheduler:terminal-failure` channel |
+| §9 EXPIRED entry condition | 24-hour default execution window, configurable per domain; periodic TTL check for QUEUED jobs | Section 8.1 EXPIRED state entry (24-hour default, configurable window, TTL detection mechanism) |
 | §10 Concurrency Control | Global limits, lane limits, execution locks | Section 4.1 Scheduler Core; Section 10 Permission Realization |
 | §11 Retry Rules | Bounded, persistent, recoverable, config-driven | Section 4.3 `retry_count`/`max_retries` columns; Section 12 |
 | §11 Startup Recovery | Load non-terminal, rebuild queues, resume | Section 4.4 Startup Sequence; Section 7 Startup Recovery Workflow |
@@ -484,6 +492,7 @@ The Storage Scheduler dispatches jobs to adapters. Adapters own all external com
 | §13 Conflict Detection | Detect during VERIFY / RECONCILE | Section 4.1 Conflict Handler; Section 7 Conflict Detection Workflow |
 | §13 Conflict Classification | Classify type, log record, emit event, block | Section 4.3 `storage_conflict_records`; Section 4.2 `storage-scheduler:conflict-detected` |
 | §13 Conflict Default Behavior | Block sync on record; continue non-conflicted | Section 7 Conflict Detection and Blocking Workflow |
+| §13 Conflict Handling — SQLite record marking | Mark record CONFLICT in SQLite | Section 4.3 `storage_conflict_records` (`blocked = 1` column + `sync_status = 'CONFLICT'` in job metadata). Note: The L2 specifies 'mark record CONFLICT in SQLite.' The L3 realizes this as `blocked = 1` in the `storage_conflict_records` table, combined with the `sync_status = 'CONFLICT'` field in the job metadata. These are equivalent — `blocked=1` is the physical enforcement mechanism for the CONFLICT semantic. |
 | §13 Conflict Resolution Ownership | Scheduler detects; adapter/app resolves | Section 14.1 Responsibility Ownership |
 | §14 Observability | Queue depth, saturation, latency, retry, failure, recovery | Section 4.2 `storage-scheduler:metrics`; Section 4.1 Observability Emitter |
 | §14 Observability Consumers | Infrastructure UI, Event Registry, Audit Layer | Section 13.1 Event Registry; Section 5 Renderer Design note |

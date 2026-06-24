@@ -53,6 +53,8 @@ Prana owns: all IPC handler implementations, SQLite schema and migrations, servi
 
 The Main Process hosts all runtime services. Each service is a discrete unit with a defined responsibility boundary. Services communicate with each other through the Event Service (Event Registry) for side-effect notifications; direct inter-service calls are only used when a synchronous return value is required.
 
+The event-driven communication model (via Event Registry) is the primary inter-service communication pattern. Direct synchronous calls between Main Process services are permitted only when: (a) a synchronous return value is required that cannot be deferred to an event callback, and (b) the call is on the service resolution path (e.g., `resolve()` / `resolveOptional()` calls to the Service Registry). All state change notifications MUST go through Event Registry. Direct calls MUST NOT be used as a substitute for event emission.
+
 **Identity Service**
 Manages authentication, credential storage, user profile, account linking across providers, and session lifecycle. Applications resolve their identity context through this service via IPC; they do not manage credentials or sessions directly.
 
@@ -75,7 +77,7 @@ Maintains the authoritative store of runtime-wide configuration: identity settin
 Provides runtime-wide event emission and subscription. Decouples runtime services from direct dependencies. All inter-service communication that does not require a return value must go through the Event Service. Push notifications to the Renderer (for long-running operations such as installation or update progress) are delivered via IpcService's receive() channel pattern.
 
 **Storage Infrastructure**
-Manages the SQLite Runtime Database, Storage Scheduler, and domain adapters (Local, Vault, Document, Sheet). Applications interact with data through the SQLite Runtime Store; they do not directly access Vault, Git, Google Docs, or Google Sheets. All synchronization occurs through runtime services.
+Manages the SQLite Runtime Database, Storage Scheduler, and domain adapters (Local, Vault, Document, Sheet). Applications interact with data through the SQLite Runtime Store; they do not directly access Vault, Git, Google Docs, or Google Sheets. All synchronization occurs through runtime services. The technical ownership of storage infrastructure components (SQLite Runtime Service, Storage Scheduler, Sync Engine, domain adapters) is defined in `storage-architecture.md` and `storage-scheduler.md`. The Prana Runtime Service depends on these components but does not own their technical specification.
 
 ---
 
@@ -127,6 +129,8 @@ All invoke channels return `ServerResponse<T>`. Channel format: `{feature}:{acti
 |---|---|---|---|
 | `runtime:config-get` | invoke | `{ key? }` | Configuration record or full config map |
 | `runtime:config-set` | invoke | `{ key, value }` | Updated configuration confirmation |
+
+The `runtime:config-set` handler enforces the OPERATIONAL read-only rule: it routes the write through the explicit runtime configuration API (not direct mutation). The enforcement mechanism is a proxy object installed on the configuration at the OPERATIONAL transition — any direct property assignment on the configuration object throws `ConfigurationMutationError`. The IPC handler calls an explicit `updateConfiguration(key, value)` method on the Configuration Service, which is the only path that bypasses the proxy for authorized writes. On a valid write, the handler emits `runtime:configuration:changed` via Event Registry with the key and new value. If the configuration is not writable at the current lifecycle state, the handler returns `ServerResponse.error(403, 'Configuration is read-only at current lifecycle state')` and takes no secondary action — no additional event is emitted and no special log entry is written for this rejection; the caller is responsible for handling the 403 response. No direct mutation of the configuration object occurs outside the authorized path.
 
 All invoke channels return `ServerResponse<T>` with the Astra-defined shape. Prana's IPC handler implementations must use `ServerResponse.success()` and `ServerResponse.error()` factory methods — never construct raw response objects.
 
@@ -185,14 +189,22 @@ All schema migrations are Prana-owned. Astra provides no migration tooling.
 
 #### Runtime Startup Sequence
 
-1. SQLite Runtime Database initialized and migrations applied.
-2. Shared Configuration Service reads runtime configuration from database.
-3. Identity Service initializes; existing session validated.
-4. Event Service (Event Registry) starts; internal subscriptions registered.
-5. Application Registry Service loads installed application records.
-6. Storage Scheduler starts; domain adapters initialized.
-7. IPC handlers registered on ipcMain for all runtime channels.
-8. Renderer process launched; preload contextBridge exposes window.electronAPI.
+The following order is authoritative per `prana-bootstrap.md §4.1`. This document reflects that authority — `prana-bootstrap.md` is the source of truth for service registration ordering.
+
+1. Configuration Service initializes; runtime configuration loaded and validated.
+2. Event Registry starts; internal subscriptions registered.
+3. Storage Service (SQLite) initialized; migrations applied.
+4. Storage Scheduler starts.
+5. Vault Adapter initialized and registered.
+6. Document Adapter initialized and registered.
+7. Sheet Adapter initialized and registered.
+8. Sync Engine initialized and registered.
+9. Identity Service initializes; existing session validated.
+10. Application Registry Service loads installed application records.
+11. Google Bridge Service initialized and registered (`googleBridge`).
+12. Document Service and Sheet Service initialized (optional services; skipped on failure with warning).
+13. IPC handlers registered on ipcMain for all runtime channels.
+14. Renderer process launched; preload contextBridge exposes window.electronAPI.
 
 #### Runtime Teardown Sequence
 
@@ -290,6 +302,7 @@ Every L2 responsibility is mapped to its technical realization below.
 | Application lifecycle management | Main Process: Application Registry + Launcher + State model | SQLite application_registry status column; IPC push events for state transitions |
 | Application Registry (read/write) | Main Process: Application Registry Service + SQLite | Installer and Updater write; applications and Renderer read via IPC |
 | Event coordination | Main Process: Event Service (Event Registry) | Internal pub/sub; decouples services; push events to Renderer via receive() channels |
+| Inter-service communication policy | Main Process: Event Registry (primary); Service Registry (resolution path only) | Event Registry is the primary communication channel; direct synchronous calls permitted only for synchronous return value requirements and service resolution calls. All state change notifications use Event Registry. |
 | Package integrity verification | Main Process: Application Installer Service | Build hash comparison before extraction |
 | Rollback on upgrade failure | Main Process: Application Updater Service | Failure path restores prior registry record and package state |
 | Service resolution contract | Main Process: Service Registry | Applications resolve runtime services through registry; no direct instantiation |

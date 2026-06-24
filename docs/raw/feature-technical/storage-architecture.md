@@ -73,6 +73,8 @@ Manages PULL synchronization from external sheet providers (Google Sheets) into 
 **Workspace Bridge**
 The integration surface between Prana and Google Workspace APIs. It provides discovery, metadata sync, extraction, projection, change detection, and synchronization primitives consumed by the Document and Sheet adapters. It treats Google Workspace as an external, untrusted, optional provider — the runtime must remain operational without Workspace connectivity.
 
+> **Naming note:** The Workspace Bridge is the architectural boundary name for the Google Workspace integration surface. It is implemented by `googleBridgeService` (defined in the Google Ecosystem Integration technical document). These names refer to the same component — "Workspace Bridge" is used in architectural context; `googleBridgeService` is the implementation identifier.
+
 **Storage Scheduler Integration**
 The Document and Sheet adapters are triggered on a configured schedule by the Storage Scheduler feature. Divergence detected by the Sync Engine also triggers a RECONCILE job via Storage Scheduler.
 
@@ -185,7 +187,7 @@ A runtime service writes UI state or preferences to the Local domain. It calls t
 
 ### Workflow: Vault Write
 
-The Sync Engine receives a write request for Vault data. The Vault Adapter executes an atomic operation: it writes the record to the Vault file store and updates the SQLite Vault projection in the same logical transaction. On success, the Vault Adapter initiates a Git commit to record the change. If either side of the atomic write fails, both sides are rolled back and the Sync Engine records a failure in synchronization metadata.
+The Sync Engine receives a write request for Vault data. The Vault Adapter executes an atomic operation: it writes the record to the Vault file store and updates the SQLite Vault projection in the same logical transaction. On success, the Vault Adapter initiates a Git commit to record the change. If the Vault file write fails before the Git commit begins, both the Vault file write and the SQLite projection update are rolled back (atomic failure). If the Vault file write succeeds and the SQLite projection update succeeds, but the subsequent Git commit fails: the data remains in Vault and SQLite (no rollback); the Git commit failure is recorded and retried per retry policy. Git commit is a durable persistence step, not an atomic gate — its failure does not undo the already-successful write.
 
 ### Workflow: Document PULL Sync
 
@@ -318,7 +320,7 @@ Astra's boilerplate-ownership invariant applies: Prana must never re-implement `
 |--------------------|-------------------|--------|
 | Storage Scheduler | Triggers Document and Sheet PULL sync jobs on schedule; receives RECONCILE job requests from Sync Engine | Scheduling dependency |
 | Event Registry | Reads registry state from Vault projection via SQLite; exposes data to renderer via its own IPC channels | Consumer of Vault domain |
-| Google Ecosystem Integration | Provides authentication and API session management consumed by Workspace Bridge | Credential provider for Document/Sheet adapters |
+| Google Ecosystem Integration | Provides authentication and API session management consumed by Workspace Bridge. The authentication hand-off contract: Google Ecosystem Integration (`googleBridgeService`) holds the OAuth session. The Workspace Bridge (implemented by `googleBridgeService`) provides an authenticated HTTP client to the Document and Sheet Adapters when they need to make API calls. The adapters do not hold tokens directly — they call through the Workspace Bridge per-operation. The Workspace Bridge is responsible for session refresh and retry on 401. | Credential provider for Document/Sheet adapters |
 | All renderer features | Read domain-specific data from SQLite via feature-owned IPC channels; use Astra MVVM to display results | Consumer pattern |
 | Prana Bootstrap | Initializes SQLite Runtime Service as part of application startup sequence | Startup dependency |
 
@@ -440,5 +442,5 @@ All external systems are accessed exclusively through their designated adapter; 
 | OQ-3 | The L2 does not specify how staleness metadata (stale projections, last-sync timestamps, divergence state) is exposed to the renderer. It is unclear whether storage-adjacent IPC channels (e.g., `storage:status`) are defined here or delegated entirely to consumer features. | L2 §1 Document/Sheet domains; §6 Sync Engine |
 | OQ-4 | The L2 lists Google Slides as a supported Workspace provider but does not assign it to a domain or define a domain adapter for it. It is unclear whether Google Slides maps to the Document domain or requires a new domain type. | L2 §5 Supported Providers |
 | OQ-5 | The L2 does not specify whether the Vault Adapter's Git operations use an embedded Git library, a subprocess invocation, or an external Git service. The implementation mechanism affects error handling, startup dependencies, and permission requirements. | L2 §4 Vault Domain External Synchronization |
-| OQ-6 | The L2 does not define a domain adapter interface or registration contract. The extensibility claim (§10 Future Domain Model) assumes adapters can be registered without modifying runtime services, but no interface specification is provided. | L2 §10 Future Domain Model |
+| OQ-6 | RESOLVED. The domain adapter extensibility contract: additional storage domains are added by registering a new domain adapter that implements the five-operation behavioral contract (PULL, PUSH, VERIFY, RECONCILE, RECOVER) as defined in `sync-engine.md`. The Storage Scheduler's lane configuration must include a lane for the new domain. The new adapter is registered during Bootstrap SERVICES_READY alongside existing adapters. No core Scheduler or Sync Engine modification is required — the adapter is discovered via the service registry. | L2 §10 Future Domain Model |
 | OQ-7 | The L2 does not specify how the SQLite Runtime Service handles concurrent access from multiple main-process services writing to Local domain tables simultaneously. WAL mode is mentioned but no concurrency policy (e.g., write serialization, connection pooling strategy) is defined. | L2 §3 SQLite Runtime Store |

@@ -414,9 +414,9 @@ The following capabilities are explicitly NOT provided in the current version. B
 | ~~Unified API Client~~ | ~~No centralized token + scope manager~~ | ✅ v1.3 |
 | Real-time Sync         | No webhook / push-based updates      | Medium |
 | Write-Back Pipeline    | No structured outbound sync          | Medium |
-| Conflict Resolution    | No version conflict handling         | High   |
+| Conflict Resolution    | No version conflict handling. Interim behavior: when a sync conflict is detected, the affected record is blocked (CONFLICT state in SQLite), no automatic resolution is applied, and a conflict event is emitted via Event Registry. The record remains blocked until operator action resolves it. | High   |
 | Rate Limiting Strategy | No adaptive throttling               | Medium |
-| Large File Strategy    | No handling for large/complex docs   | Medium |
+| Large File Strategy    | No handling for large/complex docs. Interim behavior: documents that exceed extraction limits (size or complexity threshold determined by the extraction adapter) transition to FAILED with reason = `extraction_size_exceeded`. The document is excluded from the sync pipeline and must be handled manually by the operator. | Medium |
 | Permission Modeling    | Limited handling of shared access    | Medium |
 
 ---

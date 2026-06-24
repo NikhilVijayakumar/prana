@@ -10,7 +10,7 @@
 
 The PDF Viewer Engine is a human verification boundary within the current access model for PDF-class artifacts within the Prana runtime.
 
-**Note:** Per-document access control (ACL enforcement) is a known functional gap (see §14). The engine enforces read-only behavior and sandboxed rendering but does not restrict which users may view which documents.
+**Note:** Per-document access control (ACL enforcement) is a known functional gap (see §14). The engine enforces read-only behavior and sandboxed rendering but does not restrict which users may view which documents. In the absence of per-document ACL enforcement, the interim behavior is: any session with access to the viewer may render any document reachable through the configured source. Access restriction is the responsibility of the calling context — the viewer does not add or remove permissions.
 
 It guarantees that all content—whether generated internally or ingested externally—is:
 

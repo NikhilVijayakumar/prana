@@ -167,13 +167,15 @@ All L2 workflows are realized as follows.
 1. An emitting service calls `emit({ eventType, source, payload? })`.
 2. Registry assigns `eventId` (UUID v4) and `timestamp` (Unix milliseconds).
 3. Registry validates the event against L2 Section 12 rules (eventType format, source presence, payload serializability).
-4. If invalid: rejection is counted in observability metrics; event is not routed; emitter may receive a thrown error or a void rejection — see Open Questions (OQ-1).
+4. If invalid: rejection is counted in observability metrics; event is not routed; `emit()` throws a synchronous `EventValidationError` when called with an invalid event type, malformed schema, or event emitted before SERVICES_READY. The error is also counted in observability rejection metrics. Call sites MUST wrap `emit()` in a try/catch or validate before calling. The registry MUST NOT swallow the error — the emitter must receive it.
 5. If valid: event transitions to `EMITTED`, then immediately to `ROUTED`.
 6. Registry resolves all active subscribers whose patterns match `eventType`.
 7. If no match: event is silently dropped (not a failure).
 8. If matched: event transitions to `DISPATCHED`; each handler is invoked in registration order.
 9. Per-handler: if handler throws, failure is isolated, counted as a delivery failure metric, and remaining handlers continue.
 10. Dispatch completes. Event is not persisted.
+
+**Intra-tick ordering guarantee:** if multiple `emit()` calls are made synchronously within the same process tick, events are delivered to subscribers in the order they were emitted. This guarantee is per-emission sequence, not per-subscriber.
 
 ### Workflow: Event Subscription
 
@@ -217,7 +219,7 @@ The Event Registry manages its own internal lifecycle state independent of Astra
 |-------|-----------|----------|
 | UNINITIALIZED | Before `SERVICES_READY` bootstrap state | Registry not available; callers MUST NOT emit |
 | OPERATIONAL | From `SERVICES_READY` through `STOPPING` | Registry accepts `emit`, `subscribe`, `unsubscribe` |
-| STOPPING | During `STOPPING` after all other services deregistered | Registry stops accepting new events; teardown proceeds |
+| STOPPING | During `STOPPING` after all other services deregistered | Registry stops accepting new events; teardown proceeds. The Event Registry remains in OPERATIONAL (accepting) state until all other services have completed their teardown. The transition from OPERATIONAL to STOPPING occurs only after all other registered services have deregistered or completed their shutdown sequence. Events emitted by services during their own teardown (before they deregister) are still accepted and routed normally — the registry does not begin STOPPING until it is the last service running. |
 | TERMINATED | After teardown completes | Registry instance released; state cleared |
 
 Per-event lifecycle states (L2 Section 7):
@@ -276,8 +278,8 @@ Validation is enforced at `EMITTED` before routing. Events that fail validation 
 | `eventType` | MUST be present and non-empty; MUST match `<domain>:<action>[:<state>]` format | Rejected; counted as rejected event metric |
 | `source` | MUST be present and non-empty; MUST match a recognized service-registry key format | Rejected; counted as rejected event metric |
 | `payload` | If present, MUST be a serializable plain object; functions, class instances, and circular references are forbidden | Rejected; counted as rejected event metric |
-| `eventId` | MUST NOT be set by emitter (registry-assigned) | Behavior on caller-supplied `eventId` is an Open Question (OQ-3) |
-| `timestamp` | MUST NOT be set by emitter (registry-assigned) | Behavior on caller-supplied `timestamp` is an Open Question (OQ-3) |
+| `eventId` | MUST NOT be set by emitter (registry-assigned) | Per L2 §5 Field Contracts: if emitter supplies `eventId`, the field is silently stripped; the registry assigns its own value. This is NOT treated as a validation error; rejection is NOT counted. The event is processed normally. |
+| `timestamp` | MUST NOT be set by emitter (registry-assigned) | Per L2 §5 Field Contracts: if emitter supplies `timestamp`, the field is silently stripped; the registry assigns its own value. This is NOT treated as a validation error; rejection is NOT counted. The event is processed normally. |
 
 Pattern validation at subscription:
 
@@ -299,7 +301,7 @@ All L2 failure scenarios are realized as follows.
 | Invalid event emitted (non-serializable payload) | Rejected at validation before `ROUTED` | Rejected Events counter incremented |
 | No subscribers match event | Event silently dropped; not a failure; no metric impact beyond Events Emitted | No failure metric |
 | Subscriber handler throws during dispatch | Failure isolated to that subscriber; error caught; remaining subscribers continue | Delivery Failures counter incremented (per channel) |
-| Registry called before `SERVICES_READY` | Undefined behavior per L2; callers MUST NOT emit before `SERVICES_READY` — enforcement mechanism is an Open Question (OQ-1) |
+| Registry called before `SERVICES_READY` | Synchronous `EventValidationError` thrown; call site receives the error; registry does not swallow. Callers MUST NOT emit before `SERVICES_READY`. |
 | Registry called after teardown | Behavior after `TERMINATED` state is an Open Question (OQ-4) |
 | `unsubscribe` called with inactive `SubscriptionId` | Silently succeeds; no error thrown | No metric impact |
 
@@ -320,6 +322,20 @@ All integration contracts are Main Process service-to-service via the `IEventReg
 | Identity Service | `identity:login`, `identity:logout`, `identity:account:linked` |
 
 Services that subscribe to events are not enumerated in L2. Subscription intent is defined by each consuming service's own feature spec.
+
+**Known Subscription Mappings**
+
+The following subscription relationships are documented for traceability. This list is advisory — additional subscriptions may exist in other features that are not enumerated here. The table uses L3 implementation-level names (service keys and event channel strings) consistent with this document's technical scope; these names may differ from the L2 feature-spec terminology used in other documents.
+
+There is no enforcement mechanism that prevents a subscriber from registering for an event key not listed in this table. The advisory status is intentional: the Event Registry is a general-purpose pub/sub bus; the mapping table is a documentation aid, not a runtime constraint. New event keys introduced in other features should update this table for cross-document consistency.
+
+| Subscriber | Event Pattern | Purpose |
+|---|---|---|
+| Storage Scheduler | `storage:sync:*` | Detect sync completion/failure for job lifecycle updates |
+| Storage Architecture | `storage:conflict:*` | Detect conflict records for Mirror Constraint monitoring |
+| Prana Bootstrap | `service:*` | Detect service registration/deregistration during lifecycle |
+| Prana Runtime | `application:*` | Detect application lifecycle events (install, launch, crash) |
+| Storage Scheduler | `storage:scheduler:terminal-failure` | Self-monitoring for terminal job failures |
 
 ### 13.2 IPC Surface
 
@@ -397,7 +413,7 @@ The Event Registry has no external system integrations. It is a purely internal,
 | Section 6 — Event Channels | Logical channel separation via naming convention | Section 7, Section 11, Section 13.1 |
 | Section 7 — Event Lifecycle | EMITTED → ROUTED → DISPATCHED → FAILED states | Section 8.1 Main Process States, Section 7 |
 | Section 8 — Subscription Model | `EventHandler` type, pattern syntax, registration, unregistration | Section 4.1, Section 7 |
-| Section 9 — Delivery Guarantees | Deterministic ordering, at-most-once, subscriber isolation | Section 6, Section 7, Section 12 |
+| Section 9 — Delivery Guarantees | Deterministic ordering, at-most-once, subscriber isolation, intra-tick emission ordering | Section 6, Section 7 (Workflow: Event Emission — intra-tick ordering note), Section 12 |
 | Section 10 — Service API | `IEventRegistry` interface contract | Section 4.1 |
 | Section 11 — Integration Contracts | Emitting services and their event types | Section 13.1 |
 | Section 12 — Security Model | Validation rules, payload safety, immutability | Section 11 Validation Realization, Section 12 Error Realization |
@@ -410,9 +426,9 @@ The Event Registry has no external system integrations. It is a purely internal,
 
 | ID | Question | L2 Reference | Impact |
 |----|----------|--------------|--------|
-| OQ-1 | What is the caller-observable behavior when `emit()` is called on an invalid event — does the registry throw synchronously, log silently, or return an error value? L2 states rejection is counted in metrics but does not define the emitter-facing error contract. | L2 Section 12 — Event Validation | Error Realization, Workflow: Event Emission |
+| OQ-1 | **RESOLVED.** `emit()` throws a synchronous `EventValidationError` when called with an invalid event type, malformed schema, or event emitted before SERVICES_READY. The error is also counted in observability rejection metrics. Call sites MUST wrap `emit()` in a try/catch or validate before calling. The registry MUST NOT swallow the error — the emitter must receive it. | L2 Section 12 — Event Validation | Error Realization, Workflow: Event Emission |
 | OQ-2 | Does the registry validate that the `source` field matches an active entry in the service registry at emission time, or only that it is non-empty and matches a recognized format? If runtime-validated against active services, the registry would need a reference to the service registry — introducing a dependency. | L2 Section 5 — `source` field contract, Section 12 | Validation Realization, Architecture (dependency direction) |
-| OQ-3 | If an emitter supplies `eventId` or `timestamp` in the emit call (despite the MUST NOT constraint), should the registry override them silently, throw, or reject the event? L2 states emitters MUST NOT set these fields but does not define rejection behavior for violations. | L2 Section 5 — Field Contracts | Validation Realization, Section 11 |
+| OQ-3 | **RESOLVED.** Per L2 §5 Field Contracts, emitters MUST NOT supply `eventId` or `timestamp`. If an emitter supplies either field, the field is silently stripped by the registry — the user-supplied value is discarded and the registry assigns its own. This is NOT treated as a validation error; rejection is NOT counted. The event is processed normally. | L2 Section 5 — Field Contracts | Validation Realization, Section 11 |
 | OQ-4 | What is the observable behavior if `emit`, `subscribe`, or `unsubscribe` is called after the registry has been torn down (`TERMINATED` state)? L2 does not define post-teardown behavior. | L2 Section 3 — Runtime Availability | Error Realization, Section 8.1 |
 | OQ-5 | Are subscriptions retained across service restarts within the same process lifetime, or does each service re-subscribe on restart? L2 states restart clears all events but does not specify whether subscriber registrations survive a service-level restart (as opposed to full process restart). | L2 Section 9 — Delivery Guarantees | Section 8.1, Section 7 Teardown |
 | OQ-6 | Does the registry enforce a maximum subscriber count per pattern or a maximum total subscription count to prevent unbounded memory growth? L2 defines no such limit. | L2 Section 8 — Subscription Model | Section 4.1 Service Architecture |

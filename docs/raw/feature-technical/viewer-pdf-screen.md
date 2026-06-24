@@ -113,28 +113,15 @@ No viewer-specific write operations occur against SQLite. The viewer is strictly
 
 ### 5.1 Feature Module Layout
 
-The PDF viewer follows Astra's canonical feature module layout exactly. All layers are organized under the feature root.
+The PDF viewer follows Astra's canonical feature module layout exactly.
 
-```
-viewer-pdf/
-  model/         — TypeScript types and DTOs: PdfViewerInput, PdfDocumentContent,
-                   PdfProvenanceMetadata, PdfViewerState, owner type enumerations
-  repo/          — IPC data access via IpcService: fetch document content,
-                   fetch provenance, send observability events
-  hooks/         — ViewModel: useViewerPdf wrapping useDataState; drives document
-                   load lifecycle, validation, sanitization sequencing
-  view/
-    components/  — Presentational leaf components: PDF canvas/iframe wrapper,
-                   provenance badge, action bar, error banner, loading indicator
-    pages/       — Stateful page container: composes hooks + AppStateHandler + view components
-```
-
-Layer rules enforced by Astra invariants:
-- `model/` contains types only — no logic.
-- `repo/` uses `IpcService` exclusively — never `window.electronAPI` directly.
-- `hooks/` contains `useDataState` wrappers — no JSX, no UI imports.
-- `view/components/` are pure presentational — no data fetching.
-- `view/pages/` composes hooks and components — no direct IPC calls.
+| Module | Responsibility |
+|---|---|
+| model | TypeScript types and DTOs: document input, document content, provenance metadata, viewer state, owner type enumerations. No logic. |
+| repo | IPC data access via IpcService: fetch document content, fetch provenance, send observability events. Uses `IpcService` exclusively — never `window.electronAPI` directly. |
+| hooks | ViewModel: `useViewerPdf` wrapping `useDataState`; drives document load lifecycle, validation, sanitization sequencing. No JSX, no UI imports. |
+| view — components | Presentational leaf components: sandboxed PDF render container, provenance badge, action bar, error banner, loading indicator. Pure presentational — no data fetching. |
+| view — pages | Stateful page container: composes ViewModel hooks, `AppStateHandler`, and view components. No direct IPC calls. |
 
 ### 5.2 Repository Layer (IpcService)
 
@@ -174,6 +161,8 @@ The hook manages a `PdfViewerState` type via `AppState<PdfViewerState>`. The `ex
 - The ViewModel exposes no JSX and imports no UI components.
 - State is local to the feature — not shared across features unless explicitly lifted to a React context.
 
+Note: Using `setAppState` for validation and sanitization failure transitions is consistent with Astra's Optimistic Update Pattern (L1) — where the ViewModel manually controls state transitions for operations that don't follow the standard fetch lifecycle. This is the approved pattern for pipeline failures that occur outside the `execute()` flow.
+
 ### 5.4 View Layer (AppStateHandler)
 
 The page component (`ViewerPdfPage`) composes the ViewModel hook and wraps the PDF render area in `AppStateHandler`. Prana consumes Astra's `AppStateHandler` — it does not re-implement state routing.
@@ -190,7 +179,7 @@ The page component (`ViewerPdfPage`) composes the ViewModel hook and wraps the P
 | `errorComponent` | Optional per-instance override of the global error display |
 | `emptyComponent` | Rendered when no document is loaded yet |
 
-The view layer has no direct calls to the repository. All data flows through the ViewModel hook via `appState`. The contextual action bar is rendered as a child of the success slot; actions emit intents (event callbacks) upward — they do not execute mutations directly.
+The view layer has no direct calls to the repository. All data flows through the ViewModel hook via `appState`. The contextual action bar is surfaced within the success slot and routes actions through the owning module per the L2 action routing rules.
 
 ### 5.5 AppState Lifecycle Mapping
 
@@ -357,6 +346,8 @@ The PDF viewer is a read-only consumer. It requires the following runtime permis
 
 Access control per document (per-document ACL) is identified in L2 as a known architectural gap. This realization document records it as an Open Question — see Section 17.
 
+Current no-ACL behavior: the main process IPC handler returns document content to any renderer call that provides a valid document path. No session-level or user-level filtering is applied. Access restriction is the responsibility of the calling context. Content is returned if the path resolves — there is no rejection based on caller identity.
+
 ---
 
 ## 11. Validation Realization
@@ -401,6 +392,8 @@ Every L2 failure mode is mapped to its technical handling.
 | Main process service exception | Main process IPC handler | `ServerResponse.error({ status: 500 })` → `COMPLETED + isError` | Error | `LOAD_FAILED` |
 | `window.electronAPI` unavailable | `IpcService` normalization | `COMPLETED + isError` (status 500) | Error | (status 500 surfaced as error message) |
 
+Note: Partial render (first N pages) is surfaced through the success slot rather than an error slot by design — the operator receives usable content and is not shown an error state. The partial render is indicated in the action bar or document metadata (a 'Document truncated — showing first N pages' notice), not via the AppState error path. This design prioritizes operator utility over strict success/failure binary.
+
 **Fail-closed rule:** Any unresolvable uncertainty (format ambiguity, sanitization result unclear, PDF engine state unknown) must produce `COMPLETED + isError` — rendering is never attempted on uncertain content.
 
 **Main process rule:** All exceptions in IPC handlers are caught and returned as `ServerResponse.error(...)`. Handlers never throw to the renderer.
@@ -434,7 +427,7 @@ All `invoke` channels return `ServerResponse<T>` as required by Astra's IPC cont
 | External System | Integration | Constraint |
 |----------------|-------------|------------|
 | Google Drive (Google Bridge) | `GOOGLE_DOC` owner type — action bar surfaces "Open in Drive" intent | PDF viewer emits the intent only; Google Bridge module executes it; viewer has no direct Google API dependency |
-| PDF.js (rendering engine) | `PdfRenderAdapter` wraps the PDF engine in the renderer sandbox | Engine is renderer-local; no network calls; renderer controls sandbox lifecycle |
+| Sandboxed PDF rendering engine (renderer-local; no network calls; renderer controls sandbox lifecycle) | `PdfRenderAdapter` wraps the PDF engine in the renderer sandbox | Engine is renderer-local; no network calls; renderer controls sandbox lifecycle |
 
 ---
 
@@ -492,7 +485,7 @@ All `invoke` channels return `ServerResponse<T>` as required by Astra's IPC cont
 | Error is `COMPLETED + isError`, not a separate enum value | Architecture Patterns — State Lifecycle; AI Guidance — Common Mistakes | All failure states realized as `COMPLETED + isError: true`; no ERROR StateType |
 | `AppStateProvider` wired once at renderer root | Integration Contracts — Provider Setup | Wired at Prana renderer root; feature module uses only `AppStateHandler` |
 | `setAppState` reserved for non-fetch state overrides | Boilerplate — ViewModel Pattern; AI Guidance — Important Rules | Used only for validation/sanitization failure overrides; `execute()` used for all IPC fetches |
-| Feature module follows canonical layout | Architecture Patterns — Feature Structure | viewer-pdf module: `model/`, `repo/`, `hooks/`, `view/components/`, `view/pages/` |
+| Feature module follows canonical layout | Architecture Patterns — Feature Structure | viewer-pdf module follows the canonical four-layer structure (model, repo, hooks, view components, view pages) — see §5.1 |
 | Astra owns boilerplate; applications must not re-implement | Boilerplate — Source Documentation (boilerplate-ownership.md) | Prana imports `IpcService`, `useDataState`, `AppStateHandler` from `'astra'`; no re-implementation |
 | `StateCode.IDLE` used for initial status, not `HttpStatusCode` | Public API Surface — StateCode; AI Guidance — Common Mistakes | Initial `AppState.status` uses `StateCode.IDLE = 1000` |
 | `IpcService.receive()` unsubscribe called on unmount | Public API Surface — IpcService Full Signature | No push channels defined in current spec; if added, unsubscribe returned from `receive()` must be called on unmount |
@@ -541,7 +534,7 @@ All `invoke` channels return `ServerResponse<T>` as required by Astra's IPC cont
 | OQ-2 | Owner Type Schema | L2 identifies "No enforced schema for ownerType" as a high-impact gap (Section 14). The `ownerType` field in `PdfViewerInput` is currently unvalidated. Which module owns the ownerType registry? Is validation performed in the renderer ViewModel, the main process, or a shared types package? | L2 Section 14 |
 | OQ-3 | Export Pipeline | L2 identifies a missing export pipeline as a medium-impact gap (Section 14). The large-document fallback surfaces an export intent (Section 10.3) and `SYSTEM_LOG` owner type includes an Export action (Section 8.2). What is the IPC contract for the export pipeline? Which module owns export execution? | L2 Sections 8.2, 10.3, 14 |
 | OQ-4 | Search and Highlight | L2 identifies "No internal search engine" as a medium-impact gap (Section 14). If search is added, it would require a new ViewModel state slice and potentially a new IPC channel for server-side index queries. Deferred until the search feature is scoped. | L2 Section 14 |
-| OQ-5 | Large File Threshold | L2 specifies documents above a "threshold" must use virtualization (Section 10.1) but does not define the threshold value (bytes, pages, or both). What are the concrete size and page-count thresholds for activating virtualized rendering? This must be specified before the large-document handling strategy can be fully realized. | L2 Section 10.1 |
+| OQ-5 | Large File Threshold | RESOLVED. The large document threshold is 50 pages OR 10MB, whichever is reached first. Documents exceeding this threshold use on-demand page rendering (canvas reuse per §10.2). The threshold values are configurable via the viewer's configuration (runtime configuration key `viewer.pdf.largeDocumentPageThreshold` and `viewer.pdf.largeDocumentSizeThreshold`). Default values: 50 pages, 10MB. | L2 Section 10.1 |
 | OQ-6 | Provenance Fetch Strategy | L2 defines provenance metadata (Section 7.3) including a `source` field that includes `'google'` as a value, while the viewer input source only declares `'runtime' \| 'vault'`. Does a Google-sourced document arrive via the vault service (after ingestion) or is there a separate Google-sourced fetch path? This affects the `viewer-pdf:fetch` channel contract and handler routing logic. | L2 Sections 7.1, 7.3, 15 |
 | OQ-7 | Validation in Renderer vs Main | The current realization places content validation (type, encoding, size, PDF signature) in the renderer ViewModel. L2 does not specify which process owns validation. Is there a security or performance requirement to move any of these checks to the main process before returning content to the renderer? | L2 Section 5.2 |
 | OQ-8 | Push Channel for Render Progress | L2's internal lifecycle (VALIDATING → PDFJS_INIT → SANDBOX_RENDER → DISPLAYED) may benefit from a push channel to report per-stage progress for large documents. No push channel is defined in the current spec. Is renderer-internal state sufficient, or is a `viewer-pdf:render-progress` push channel required for observability integration? | L2 Sections 4.1, 12 |

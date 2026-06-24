@@ -75,10 +75,15 @@ Services registered during Bootstrap and their registry keys:
 | 2 | Event Registry | `events` | Yes |
 | 3 | Storage Service (SQLite) | `storage` | Yes |
 | 4 | Storage Scheduler | `storageScheduler` | Yes |
-| 5 | Identity Service | `identity` | Yes |
-| 6 | Application Registry | `appRegistry` | Yes |
-| 7 | Document Service | `documents` | Optional |
-| 8 | Sheet Service | `sheets` | Optional |
+| 5 | Vault Adapter | `vaultAdapter` | Yes |
+| 6 | Document Adapter | `documentAdapter` | Yes |
+| 7 | Sheet Adapter | `sheetAdapter` | Yes |
+| 8 | Sync Engine | `syncEngine` | Yes |
+| 9 | Identity Service | `identity` | Yes |
+| 10 | Application Registry | `appRegistry` | Yes |
+| 11 | Google Bridge Service | `googleBridge` | Yes |
+| 12 | Document Service | `documents` | Optional |
+| 13 | Sheet Service | `sheets` | Optional |
 
 Each service may depend only on services registered before it in this sequence. No cross-skip or out-of-order dependency is permitted.
 
@@ -122,7 +127,7 @@ If FAILED is reached at any stage:
 2. Runtime transitions to `STOPPING`.
 3. `runtime:shutdown` is emitted via Event Registry before teardown begins.
 4. Storage Scheduler flushes all pending jobs.
-5. Services are torn down in reverse registration order (Sheet Service → Document Service → Application Registry → Identity Service → Storage Scheduler → Storage Service → Event Registry → Configuration Service).
+5. Services are torn down in reverse registration order (Sheet Service → Document Service → Google Bridge Service → Application Registry → Identity Service → Sync Engine → Sheet Adapter → Document Adapter → Vault Adapter → Storage Scheduler → Storage Service → Event Registry → Configuration Service). **Event Registry exception:** despite being registered at position 2, the Event Registry is torn down last among all services (after Configuration Service in reverse order, it is held back until all other teardowns complete). This exception is coded explicitly into the Bootstrap teardown loop — the loop defers the Event Registry deregistration to the final step regardless of registration position. The purpose is to preserve event observability throughout the entire teardown sequence.
 6. Runtime transitions to `STOPPED`. The process may exit cleanly.
 
 ---
@@ -210,7 +215,7 @@ Every L2 responsibility is mapped to its technical realization.
 | 1. Shutdown signal received | Section 4, Shutdown Path | Runtime transitions to STOPPING |
 | 2. `runtime:shutdown` emitted | Section 4, STOPPING description | Event Registry emits `runtime:shutdown` before teardown |
 | 3. Storage Scheduler flushes | Section 4, STOPPING description | Pending jobs flushed before storage teardown |
-| 4. Services torn down in reverse order | Section 14, Ordered Teardown | Reverse of registration order |
+| 4. Services torn down in reverse order | Section 14, Ordered Teardown | Reverse of registration order. Note: The Event Registry is the only service that does NOT follow reverse-registration-order teardown. It MUST be torn down last, after all other services have completed their shutdown sequence, to preserve event observability throughout teardown. All other services deregister and complete their shutdown in reverse registration order; the Event Registry waits until it is the sole remaining registered service before beginning its own teardown. |
 | 5. Runtime transitions to STOPPED | Section 4, STOPPED | Process may exit cleanly |
 
 ### Workflow 6: Application Service Resolution
@@ -234,7 +239,7 @@ Every L2 responsibility is mapped to its technical realization.
 | CONFIGURATION_READY | Configuration loaded and validated | Configuration Service | All validations pass |
 | SERVICES_READY | All required services registered | Service Registry, all required services | No required service failed; timeout not exceeded |
 | OPERATIONAL | All required services ready | Full `IPranaRuntime` context; all registered services | Shutdown signal received |
-| FAILED | Any required initialization step fails | Failure reason record only | No exit — restart required |
+| FAILED | Any required initialization step fails; or a required service that registered successfully emits a failure signal before OPERATIONAL is reached — the failure is recorded with the service key and failure reason, covered by the registration timeout mechanism (a service that fails to reach a healthy state within its registration timeout is treated as a failed registration) | Failure reason record only | No exit — restart required |
 | STOPPING | Shutdown signal from OPERATIONAL | Services available until teardown begins | All services torn down |
 | STOPPED | All services torn down | None | Process exits |
 
@@ -277,7 +282,7 @@ Bootstrap's security model is defined at the runtime level. No Astra-level permi
 | Configuration storage access | Owned by runtime; applications access only through Configuration Service API |
 | Credential storage | Runtime-owned; applications do not access raw credential locations |
 | Provider configuration | Runtime-owned; applications resolve provider identity through services |
-| Service registration authority | Bootstrap-only; no service may be registered after OPERATIONAL |
+| Service registration authority | Bootstrap-only; no service may be registered after OPERATIONAL. Attempting to register a service after OPERATIONAL state causes the registry to throw immediately with a descriptive error: `ServiceRegistrationError: Cannot register service '{serviceKey}' — registry is OPERATIONAL and no longer accepts registrations`. The error MUST NOT crash the runtime — it is returned to the call site. The call site is responsible for handling this error. |
 | Application authorization logic | Application-owned; runtime does not participate |
 | Business security rules | Application-owned; runtime does not enforce |
 | Read-only configuration enforcement | Runtime enforces read-only after OPERATIONAL; post-OPERATIONAL writes emit `runtime:configuration:changed` |
@@ -466,11 +471,11 @@ Every L2 section is traced to its realization in this document.
 | ID | Area | Question | L2 Reference | Impact |
 |---|---|---|---|---|
 | OQ-01 | Service Registration Timeout | L2 requires a configurable timeout on service registration but does not specify the default value, the configuration key name, or the timeout scope (per-service vs. total bootstrap). | Section 4, SERVICES_READY | Timeout enforcement implementation cannot be fully specified without this value |
-| OQ-02 | Failure Reason Persistence | L2 requires the failure reason to be recorded when FAILED is reached, but does not specify the persistence mechanism (log file, SQLite bootstrap state table, in-memory only, OS event log). | Section 4, FAILED; Section 4, Startup and Teardown | Error recovery and diagnostics tooling cannot be designed without knowing where the failure record lives |
+| OQ-02 | Failure Reason Persistence | **RESOLVED.** Bootstrap failure reason is persisted to a startup diagnostics record written to SQLite's operational metadata table (`prana_startup_log`) before the process halts. The record contains: bootstrap lifecycle state at failure, failing service name (if applicable), structured failure code, and ISO timestamp. On next startup, the Bootstrap service reads this record and makes it available via `resolveOptional('bootstrapDiagnostics')`. The record is overwritten on each startup attempt. | Section 4, FAILED; Section 4, Startup and Teardown | Resolved |
 | OQ-03 | Observability Mechanism | L2 states Bootstrap "should expose" current state, initialization duration, service registration status, and configuration load status for diagnostics, but does not specify the mechanism (IPC channel, structured log, runtime property on IPranaRuntime). | Section 13 | If delivered as an IPC channel, it must follow the `bootstrap:{action}` channel format and return `ServerResponse<T>` |
-| OQ-04 | Post-OPERATIONAL Configuration Write Enforcement | L2 requires that direct configuration mutation after OPERATIONAL is a contract violation, but does not specify how this is enforced (runtime throws, silent no-op, assertion, read-only proxy). | Section 5, Write Rules | Without a specified enforcement mechanism, the contract is advisory only |
+| OQ-04 | Post-OPERATIONAL Configuration Write Enforcement | **RESOLVED.** Post-OPERATIONAL direct configuration mutation (bypassing the explicit runtime API) is enforced via a read-only proxy on the resolved configuration object. Any attempt to write to a configuration key directly on the resolved object throws a synchronous `ConfigurationMutationError: Configuration is read-only after OPERATIONAL state. Use the runtime configuration API to request changes.` The proxy is installed during the CONFIGURATION_READY → SERVICES_READY transition. | Section 5, Write Rules | Resolved |
 | OQ-05 | Behavior After STOPPED | L2 describes STOPPED as a state where no services are available and the process may exit cleanly, but does not specify what happens if code attempts to access services after STOPPED (e.g., before the process actually exits). | Section 4, STOPPED | Edge case handling in long-shutdown scenarios is unspecified |
 | OQ-06 | Bootstrap IPC Channels | L2 defines no `bootstrap:{action}` IPC channels. If the renderer requires access to bootstrap state (e.g., to display a loading or error screen during startup), channels would need to be defined. The L2 does not address this scenario. | Section 13.2 | If such channels are needed, they must be added to L2 before this document can specify their contracts |
-| OQ-07 | `BootstrapError` Shape | L2 references that `prana.initialize()` throws a `BootstrapError` but does not define the error type's fields (e.g., whether it carries the lifecycle state at failure, the failing service name, or a structured code). | Section 7, Availability; Section 14, Throw On Failure | Application error handling and recovery UX cannot be designed without the error shape |
+| OQ-07 | `BootstrapError` Shape | **RESOLVED.** The `BootstrapError` record contains: `lifecycleState` (the Bootstrap lifecycle state at time of failure), `failingService` (the service registry key of the failing service, or null if not service-specific), `reason` (structured failure code string, e.g., 'config_validation_failed', 'service_timeout', 'service_runtime_failure'), `timestamp` (ISO 8601 UTC). This shape is persisted to SQLite (per OQ-02) and also available via the `bootstrapDiagnostics` optional service. | Section 7, Availability; Section 14, Throw On Failure | Resolved |
 | OQ-08 | Configuration Source Location | L2 defines configuration categories but does not specify where the runtime configuration file lives (relative to app data directory, hardcoded path, environment variable). This is a platform-specific detail that Bootstrap must resolve at INIT. | Section 5 | Platform path resolution at INIT depends on knowing the config source convention |
 | OQ-09 | Concurrency of `prana.initialize()` | L2 does not specify behavior if `prana.initialize()` is called concurrently or called a second time after a successful first call. The `IPranaRuntime` context is described as immutable once created, but second-call semantics are undefined. | Section 7, Access Pattern | Multi-call safety is relevant if multiple application entry points call `prana.initialize()` independently |

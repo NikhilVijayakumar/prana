@@ -26,7 +26,7 @@ Key behaviors:
 - Deterministic GFM-compliant parsing
 - Allowlist-based sanitization before any render output is produced
 - Synchronous rendering of sanitized AST to HTML
-- Pipeline-stage state emission (IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDER\_READY → RENDERED)
+- Pipeline-stage state emission (IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDERED)
 - Fail-closed behavior on any pipeline stage failure
 
 The engine is explicitly read-only: it does not mutate documents, does not manage authentication or access control, does not provide export, and does not depend on external systems at render time.
@@ -107,22 +107,13 @@ Observability counters (document load latency, render latency, sanitizer rejecti
 
 The Markdown Viewer Engine feature module follows Astra's canonical four-layer structure:
 
-```
-features/markdown-viewer/
-  model/       — Document types, engine input/output contracts, engine state types
-  repo/        — IPC data access via IpcService (markdownViewer:load)
-  hooks/       — ViewModel: useMarkdownViewer wrapping useDataState; parsing, sanitization, and rendering pipeline
-  view/
-    components/ — Presentational leaf components (rendered HTML display, error display, loading indicator)
-    pages/      — MarkdownViewerPage: stateful container composing hooks and AppStateHandler
-```
-
-**Layer responsibilities:**
-- `model/` holds document input shape, engine state shape, and sanitization allowlist configuration. No logic.
-- `repo/` holds the IPC repository using `IpcService`. It calls `markdownViewer:load` and returns `ServerResponse<T>`. No presentation logic.
-- `hooks/` holds the ViewModel. It drives the full pipeline (load → validate → parse → sanitize → render) using `useDataState`. No JSX or UI imports.
-- `view/components/` holds presentational leaf components. They receive props only. No data fetching.
-- `view/pages/` holds the `MarkdownViewerPage` container. It composes the ViewModel hook and `AppStateHandler`. No direct repository access.
+| Module | Responsibility |
+|---|---|
+| model | Document types, engine input/output contracts, engine state types. No logic. |
+| repo | IPC data access via IpcService (`markdownViewer:load`). Returns `ServerResponse<T>`. No presentation logic. |
+| hooks | ViewModel: `useMarkdownViewer` wrapping `useDataState`; drives the full pipeline (load → validate → parse → sanitize → render). No JSX or UI imports. |
+| view — components | Presentational leaf components (rendered HTML display, error display, loading indicator). Receive props only. No data fetching. |
+| view — pages | `MarkdownViewerPage`: stateful container composing the ViewModel hook and `AppStateHandler`. No direct repository access. |
 
 ### 5.2 Repository Layer (IpcService)
 
@@ -152,7 +143,7 @@ After the IPC load succeeds (COMPLETED, isError false), the ViewModel orchestrat
 Each stage is performed synchronously where possible. If any stage fails, the ViewModel transitions `appState` to a completed error state with a structured failure reason matching the pipeline stage (VALIDATION\_FAILED, SANITIZATION\_FAILED, etc.).
 
 **Internal engine state vs AppState:**
-The feature-level pipeline stages (IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDER\_READY → RENDERED) are tracked within the ViewModel's local state. The Astra `AppState` lifecycle (INIT → LOADING → COMPLETED) maps to the coarser IPC fetch operation. The renderer-side pipeline stages are internal to the ViewModel and are surfaced to the view via the `data` field of `AppState<EngineState>`.
+The feature-level pipeline stages (IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDERED) are tracked within the ViewModel's local state. The Astra `AppState` lifecycle (INIT → LOADING → COMPLETED) maps to the coarser IPC fetch operation. The renderer-side pipeline stages are internal to the ViewModel and are surfaced to the view via the `data` field of `AppState<EngineState>`.
 
 The ViewModel does not contain JSX or import UI components. It does not call `setAppState` for normal data fetching — it always uses `execute()`.
 
@@ -167,7 +158,7 @@ The `MarkdownViewerPage` container uses `AppStateHandler` from Astra to route re
 | `state === LOADING` | Loading component (spinner / progress indicator) |
 | `isError === true` (COMPLETED + error) | Error component with structured failure message |
 | `isSuccess && data !== null && emptyCondition` | Empty component (document not found / no content) |
-| `isSuccess && data !== null` | Success: MarkdownRenderedView component displaying sanitized HTML |
+| `isSuccess && data !== null` | Success: Rendered view displaying the sanitized HTML string from the completed render pipeline |
 
 The `emptyCondition` is applied when the engine state indicates an empty or unresolvable document (e.g., content is empty after sanitization, or source returned no document).
 
@@ -243,7 +234,7 @@ Note: Astra's `AppState` COMPLETED + isError maps all feature-level pipeline fai
    c. Sanitization stage: MarkdownSanitizer applies allowlist rules. On failure → COMPLETED + isError (SANITIZATION\_FAILED).
    d. Rendering stage: sanitized AST rendered to HTML string synchronously.
 8. On successful pipeline completion, ViewModel updates AppState data with engine state `{ status: 'RENDERED', content: '<sanitized HTML>' }`.
-9. AppStateHandler detects `isSuccess && data !== null` and renders the Success slot (MarkdownRenderedView) with the sanitized HTML.
+9. AppStateHandler detects `isSuccess && data !== null` and renders the Success slot with the sanitized HTML string from the completed render pipeline.
 10. The sandboxed container component renders the HTML within an isolated boundary.
 
 ### Workflow: Pipeline Failure (Any Stage)
@@ -281,6 +272,8 @@ The renderer AppState driven by `useDataState` maps to the feature's document st
 
 Astra does not define ERROR as a separate StateType. All error conditions are represented as COMPLETED + isError=true. The feature-level pipeline failure stage is carried in `AppState.data.error`.
 
+Note: The intermediate pipeline states (VALIDATING, PARSING, SANITIZING) are surfaced by updating `data.status` within the COMPLETED AppState slot — the view does not show an error slot during pipeline processing. If a failure occurs at any pipeline stage, a final transition to `COMPLETED + isError=true + error={status: 'VALIDATION_FAILED'}` (or the appropriate failure state) occurs in a single `setAppState` call. The intermediate-state data is NOT persisted between the intermediate COMPLETED update and the error COMPLETED update.
+
 ---
 
 ## 9. Boilerplate Application Mapping
@@ -315,6 +308,8 @@ Prana consumes Astra's boilerplate imports from `'astra'`. This feature does not
 | Render sanitized HTML in sandboxed container | Renderer view layer | Content passes full sanitization pipeline before render |
 
 The engine has no write permissions. No document mutation operations are defined. The feature does not own access control or per-document permission filtering — this is recorded as an architectural gap in L2 (Section 14) and carried forward as an Open Question.
+
+Current no-ACL behavior: in the absence of per-document permission filtering, the main process IPC handler returns document content to any renderer call that provides a valid document path. No session-level or user-level filtering is applied. Access restriction is the responsibility of the calling context (the page or component that initiates the document load). Unauthorized access in the current version means: content is returned if the path resolves — there is no rejection based on caller identity.
 
 ---
 
@@ -419,10 +414,10 @@ The Markdown Viewer Engine has no direct external system dependencies at render 
 
 | L1 Architecture Claim | Applied In This Feature | Evidence |
 | :--- | :--- | :--- |
-| Feature repositories must use IpcService — never window.electronAPI directly | repo/ invokes `markdownViewer:load` via IpcService.invoke() | L1 §Repository Isolation Invariant; §Integration Contracts |
+| Feature repositories must use IpcService — never window.electronAPI directly | repo module invokes `markdownViewer:load` via IpcService.invoke() | L1 §Repository Isolation Invariant; §Integration Contracts |
 | All IPC invoke calls return ServerResponse\<T\> | Main process handler returns ServerResponse.success/error; IpcService normalizes all responses | L1 §IPC Response Shape; §IpcService Error Normalization |
 | Main process IPC handler must never throw to renderer — use ServerResponse.error | Handler wraps both source failures and exceptions in ServerResponse.error | L1 §Integration Contracts — IPC Response Shape |
-| ViewModel (hooks/) is the sole bridge between view and repository | useMarkdownViewer is the only consumer of the repository; view only receives AppState | L1 §MVVM Separation Invariant |
+| ViewModel (hooks layer) is the sole bridge between view and repository | useMarkdownViewer is the only consumer of the repository; view only receives AppState | L1 §MVVM Separation Invariant |
 | View must never import repositories or call data-fetching directly | MarkdownViewerPage accesses only the ViewModel hook | L1 §MVVM Separation Invariant |
 | ViewModel must contain no JSX or UI imports | useMarkdownViewer contains pipeline logic only | L1 §MVVM Separation Invariant |
 | AppStateProvider is wired once at renderer root — features only use AppStateHandler | AppStateProvider is Prana renderer root concern; this feature only uses AppStateHandler | L1 §Integration Contracts — Provider Setup |
@@ -431,7 +426,7 @@ The Markdown Viewer Engine has no direct external system dependencies at render 
 | ServerResponse constructed only via factory methods — never raw objects | Main process uses ServerResponse.success() and ServerResponse.error() | L1 §ServerResponse static factories; §Common Mistakes |
 | Prana does not re-implement Astra boilerplate | IpcService, useDataState, AppStateHandler, AppStateProvider all consumed from 'astra' | L1 §Boilerplate Ownership Invariant |
 | AppStateHandler rendering priority (LOADING → error → emptyCondition → children → SuccessComponent) | Slot assignment in MarkdownViewerPage follows fixed priority | L1 §AppStateHandler — Full Props Signature |
-| Canonical feature module layout (model/ repo/ hooks/ view/) | Markdown Viewer Engine follows model/ repo/ hooks/ view/components/ view/pages/ | L1 §Feature Module Structure |
+| Canonical feature module layout (model, repo, hooks, view components, view pages) | Markdown Viewer Engine follows the canonical four-layer structure (§5.1) | L1 §Feature Module Structure |
 
 ---
 
@@ -476,11 +471,11 @@ The Markdown Viewer Engine has no direct external system dependencies at render 
 | :--- | :--- | :--- | :--- |
 | OQ-1 | Doc-Owner Coupling | L2 §14 identifies no standardized owner binding contract as a High-impact gap. The technical realization assumes `ownerType` is passed as a field in the IPC request and validated at both ends. How is the owner binding contract formalized and where is its authoritative schema defined? | L2 §14 |
 | OQ-2 | Large File Handling | L2 §14 identifies no pagination or virtualization for large documents as a High-impact gap. The current design enforces a 10 MB content size limit at the validation stage. Is the 10 MB limit a hard ceiling or a configurable threshold? What is the expected behavior for documents that exceed the limit — is pagination or streaming ever anticipated? | L2 §14, §5.2 |
-| OQ-3 | Observability Persistence | L2 §12 requires tracking of load latency, render latency, sanitizer rejection count, parser failure rate, and load failure rate by source. This document records these as ViewModel in-memory counters. Is session-level observability sufficient, or is persistence to SQLite or a telemetry store required? Who owns the observability schema? | L2 §12 |
+| OQ-3 | Observability Persistence | RESOLVED. Observability metrics are maintained as in-memory counters per ViewModel session. Per-session metrics (load latency, render latency, sanitizer rejection count, parser failure rate) are not persisted to SQLite. Session metrics are emitted to the Event Registry on session end (document unload) via a `viewer:markdown:session-metrics` event for consumption by infrastructure monitoring. Persistent tracking requires an infrastructure monitoring subscriber — it is not the viewer's responsibility. | L2 §12 |
 | OQ-4 | Export | L2 §14 identifies no native export support as a Medium-impact gap. Export is currently out of scope. If export is added in a future iteration, it would require new IPC channels and potentially write-side pipeline stages. No export channel is defined in this document. | L2 §14 |
 | OQ-5 | Access Control | L2 §14 identifies no per-document permission filtering as a Medium-impact gap. This feature has no access control mechanism. If per-document permissions are added, the main process IPC handler would need to enforce them before returning content. The renderer should not be the access control boundary. | L2 §14 |
-| OQ-6 | Renderer Pipeline Stage Granularity vs AppState | The feature specifies seven pipeline stages (IDLE → LOADING → VALIDATING → PARSING → SANITIZING → RENDER\_READY → RENDERED). Astra's AppState has three states (INIT, LOADING, COMPLETED). The intermediate renderer-side stages (VALIDATING, PARSING, SANITIZING) are internal to the ViewModel and surfaced via `AppState.data.status`. Should intermediate pipeline stages be exposed to the view for progress indication, or is a single LOADING state (IPC in flight) and final RENDERED/ERROR state sufficient for the UI? | L2 §4.1, L1 §State Management |
+| OQ-6 | Renderer Pipeline Stage Granularity vs AppState | RESOLVED. The view does NOT display progress for intermediate pipeline stages (VALIDATING, PARSING, SANITIZING). The loading slot is displayed for the full duration of the pipeline. Only the final state (RENDERED or ERROR) transitions the view out of the loading slot. `appState.data.status` is used for debugging and observability, not for view branching. | L2 §4.1, L1 §State Management |
 | OQ-7 | Google Bridge ownerType Contract | L2 §10.3 states the Google Bridge must provide Markdown projection with source provenance metadata. The IPC request carries `ownerType: 'GOOGLE_DOC'`. Is the Google Bridge responsible for setting `ownerType` before passing the load request to this engine, or does the caller always set `ownerType` explicitly? | L2 §10.3, §8 |
 | OQ-8 | runtimeDocumentStore IPC vs Direct Call | The main process IPC handler for `markdownViewer:load` accesses `runtimeDocumentStore` and `vaultService` as internal main-process services. Are these accessed via direct module calls within the main process, or do they have their own IPC channels that the markdown viewer handler delegates to? This affects the handler's internal architecture but not the IPC surface exposed to the renderer. | L2 §3 |
-| OQ-9 | RENDER\_READY vs RENDERED Stage Distinction | L2 §4.1 defines both RENDER\_READY and RENDERED as distinct pipeline stages. This document collapses them: the ViewModel transitions to RENDERED upon completion of the synchronous rendering step. Is there a meaningful operational distinction between RENDER\_READY (sanitized, pre-render) and RENDERED (HTML produced) that the view must observe separately? | L2 §4.1 |
+| OQ-9 | RENDER\_READY vs RENDERED Stage Distinction | RESOLVED. RENDER\_READY has no distinct behavioral meaning in the technical realization — the sanitization pipeline produces content that is immediately ready for the synchronous rendering step with no intermediate gate. The pipeline therefore transitions directly from SANITIZING to RENDERED in a single AppState update. RENDER\_READY is not surfaced as a separate stage in the AppState lifecycle. The L2 feature spec's RENDER\_READY stage is collapsed into the RENDERED stage. | L2 §4.1 |
 | OQ-10 | Sandbox Isolation Mechanism | L2 §9.2 requires a sandboxed render container that prevents DOM escape. The technical realization assigns this to a presentational component. The specific DOM isolation mechanism (e.g., shadow DOM, iframe sandbox, CSS containment, dangerouslySetInnerHTML with sanitized string) is not defined in L1 or L2. What is the approved sandboxing mechanism in the Prana renderer? | L2 §9.2 |

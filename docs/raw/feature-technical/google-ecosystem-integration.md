@@ -58,7 +58,7 @@ The Google Workspace Bridge does not require AppStateProvider re-wiring — that
 
 The main process hosts a single core service: `googleBridgeService`. This service owns:
 
-- **OAuth Lifecycle** — the `runOAuthHandshake` operation initializes the OAuth flow on port 3111 and stores resulting credentials per session. Credentials are scoped per account and MUST NOT be persisted in Vault. Session containment is sandboxed per account.
+- **OAuth Lifecycle** — the `runOAuthHandshake` operation initializes the OAuth flow on port 3111 and stores resulting credentials per session. Credentials are scoped per account and MUST NOT be persisted in Vault. Session containment is sandboxed per account. If port 3111 is unavailable (bound by another process, blocked by OS, or firewall rules): the OAuth handshake fails immediately. The port is not configurable in the current version — port unavailability is a hard failure.
 
 - **Remote Discovery** — Drive folder traversal, file enumeration by MIME type and inclusion rules. Outputs document references (IDs, types) for pipeline entry.
 
@@ -72,7 +72,11 @@ The main process hosts a single core service: `googleBridgeService`. This servic
 
 - **Error and Retry Handling** — API failures trigger retry with backoff. Extraction failures mark the record FAILED. Session expiration triggers re-authentication and retry. Rate limiting triggers execution throttling. Vault write failure blocks explicit commit but does not affect STORED state for non-committed documents.
 
-Prana's `wrappedFetch` wrapper is used for all OAuth and API operations, enforcing timeout and isolation. Google Workspace is always treated as a non-trusted external system; no runtime-critical operation depends on its availability.
+A timeout-enforced HTTP client wrapper is used for all OAuth and API operations, enforcing timeout and connection isolation. Google Workspace is always treated as a non-trusted external system; no runtime-critical operation depends on its availability.
+
+**Canonical naming:** `googleBridgeService` is the implementation identifier for the Workspace Bridge as defined in `storage-architecture.md §4.1`. Both names refer to the same service — "Workspace Bridge" is the architectural boundary name used in storage and infrastructure contexts; `googleBridgeService` is the implementation-level identifier used in this document.
+
+**Service Registry key:** `googleBridge`. The service is registered in the Prana Service Registry under this key at startup and is resolvable via `resolve('googleBridge')`.
 
 ### 4.2 IPC Channel Contract
 
@@ -146,14 +150,13 @@ A renderer-facing surface is required for sync status display and document metad
 
 The renderer feature module follows Astra's canonical four-layer structure:
 
-```
-model/        — WorkspaceMetaRecord, SyncStatusSnapshot, SyncStatus types
-repo/         — googleBridgeIpc (IpcService-based repository)
-hooks/        — useGoogleBridgeStatus, useGoogleBridgeDocuments (ViewModel hooks)
-view/
-  components/ — Sync status display, document list, progress indicator
-  pages/      — Google Bridge status page container
-```
+| Module | Responsibility |
+|---|---|
+| model | `WorkspaceMetaRecord`, `SyncStatusSnapshot`, `SyncStatus` types. No logic. |
+| repo | IPC repository for Google Bridge operations via `IpcService`. Returns `ServerResponse<T>`. No presentation logic. |
+| hooks | Google Bridge status hooks (`useGoogleBridgeStatus`), document list hooks (`useGoogleBridgeDocuments`), sync trigger hooks (`useGoogleBridgeSync`). |
+| view — components | Sync status display, document panel, progress indicator. Pure presentational — receive props only. |
+| view — pages | Google Bridge status page container. Composes ViewModel hooks and `AppStateHandler`. No direct IPC calls. |
 
 ### 5.2 Repository Layer (IpcService)
 
@@ -239,7 +242,7 @@ Every L2 responsibility is mapped to its technical realization.
 | Re-queue STALE records from METADATA_SYNCED | `google_workspace_meta` status update → re-entry at Metadata Sync | Main |
 | Prevent overlapping sync cycles | Lock model enforced by `storageSchedulerService` contract | Main |
 | Batch document processing | `googleBridgeService` scheduler job batch logic | Main |
-| Throttle API usage | `googleBridgeService` rate limiter (via `wrappedFetch`) | Main |
+| Throttle API usage | `googleBridgeService` rate limiter (via timeout-enforced HTTP client) | Main |
 | OAuth handshake on port 3111 | `googleBridgeService.runOAuthHandshake` | Main |
 | Credentials isolated per account | Session containment per account; never persisted in Vault | Main |
 | Retry API failures with backoff | `googleBridgeService` error handler | Main |
@@ -253,7 +256,7 @@ Every L2 responsibility is mapped to its technical realization.
 | Real-time pipeline progress in renderer | `google-bridge:sync-progress` push channel → `IpcService.receive()` | Renderer |
 | Never expose Vault contents externally | No outbound Vault data path; read-only mirror enforcement | Main |
 | Never persist tokens in Vault | Credential isolation rule — enforced in session management | Main |
-| Treat Google Workspace as non-trusted external system | `wrappedFetch` with timeout; no runtime-critical external dependency | Main |
+| Treat Google Workspace as non-trusted external system | Timeout-enforced HTTP client; no runtime-critical external dependency | Main |
 
 ---
 
@@ -342,6 +345,10 @@ The pipeline state machine for each document is tracked in `google_workspace_met
 - STORED MUST NOT be set until SQLite projection write succeeds.
 - Vault write does not change `sync_status`; it only populates `vault_doc_id` and `content_hash`.
 
+**Interaction with FAILED/RETRY_PENDING records:** when a VERIFY job runs and detects staleness, records already in FAILED or RETRY_PENDING state are NOT transitioned to STALE. A FAILED record that is also stale will be re-processed when it exits RETRY_PENDING and re-enters the pipeline — staleness is re-evaluated as part of normal pipeline re-entry, not as an additional STALE transition from FAILED.
+
+**The FAILED → RETRY_PENDING transition is driven by the Storage Scheduler's retry policy.** When a sync job fails and the retry count has not reached `maxRetries`, the Storage Scheduler transitions the associated sync_status from FAILED to RETRY_PENDING and queues a new job. The Google Ecosystem Integration service does not manage retries directly — it reports failure to the Scheduler via the domain adapter result, and the Scheduler owns retry scheduling.
+
 ### 8.2 Renderer AppState Mapping
 
 The renderer observes sync status via `useDataState`-managed `AppState<T>`. The pipeline states above are surfaced as data payloads within `SyncStatusSnapshot` and `WorkspaceMetaRecord` — they are not directly mapped to `StateType` values.
@@ -388,7 +395,7 @@ Prana CONSUMES Astra's boilerplate — it does not re-implement any of it.
 | Permission Concern | Realization |
 |---|---|
 | Google OAuth scopes | Managed by `googleBridgeService.runOAuthHandshake`; scoped per account; not persisted in Vault |
-| Read-only default | System defaults to read-only Google API access unless explicitly configured for write-back |
+| Read-only default | System defaults to read-only Google API access unless explicitly configured for write-back. Write-back configuration: the `readOnly` mode is controlled by the `google.writeBack.enabled` runtime configuration key (default: `false`). This key is resolved from the Prana Runtime configuration via the Bootstrap-initialized configuration service. If `google.writeBack.enabled` is not set or is `false`, all Google API write operations are blocked at the domain adapter level and return a permission error. The configuration key must be set at startup — dynamic toggling is not supported in the current version. Enforcement mechanism: `googleBridgeService` reads `google.writeBack.enabled` once during its initialization phase and stores the resolved boolean value internally. If the runtime configuration key is subsequently changed (e.g., via the `runtime:config-set` IPC channel), the stored value in `googleBridgeService` is not updated — the change does not take effect until the service is restarted. A process restart is required for this configuration change to propagate. |
 | Write-back restriction | Write-back to Google Docs requires explicit operator approval; not implemented in this version |
 | Credential isolation | Credentials isolated per integration / per account via session containment |
 | Vault access | Only the explicitly committed artifact path may write to `vault/google/`; Vault contents are never exposed externally |
@@ -407,7 +414,7 @@ Prana CONSUMES Astra's boilerplate — it does not re-implement any of it.
 | Content hash on Vault write | `content_hash` MUST be recorded in `google_workspace_meta` when Vault write occurs |
 | State idempotency | Each state MUST be idempotent — re-running a stage on a record already at that state produces no side effects |
 | Metadata persistence before transition | Each stage MUST persist metadata to `google_workspace_meta` before advancing the state |
-| Extraction repeatability | Extraction MUST be deterministic and repeatable — identical source content produces identical output |
+| Extraction repeatability | Extraction MUST be deterministic and repeatable — identical source content produces identical output. Extraction determinism is achieved by: (a) using only the document content fields from the Google Docs/Sheets API response (title, body text, cell values, structure), and discarding revision history, comments, collaborative editing markers, and response metadata; (b) applying a canonical serialization order (headings before body, cells in row-major order); (c) treating the `last_modified` timestamp as the version key — the same `last_modified` value must produce the same extracted output. Non-deterministic fields from the API response are stripped before hashing or storing. |
 | Lock enforcement | Scheduler lock MUST be checked before initiating any sync cycle; concurrent runs MUST be rejected |
 | IPC payload typing | All `google-bridge:*` handlers validate typed input payloads before processing |
 | Session scope | OAuth sessions MUST be scoped and sandboxed per account |
@@ -420,11 +427,12 @@ Every L2 failure mode is mapped to its technical realization.
 
 | L2 Failure | Behavior | Technical Realization |
 |---|---|---|
-| API failure | Retry with backoff | `googleBridgeService` retry handler on `wrappedFetch` error; `sync_status` remains at current stage until retry succeeds or max retries exceeded |
+| OAuth port 3111 unavailable | OAuth handshake fails | IPC handler returns `ServerResponse.error(503, 'OAuth port unavailable: port 3111 is in use or blocked')` to the renderer; renderer surfaces error state; no retry is attempted automatically — the user must retry after resolving the port conflict |
+| API failure | Retry with backoff | `googleBridgeService` retry handler on HTTP client error; `sync_status` remains at current stage until retry succeeds or max retries exceeded |
 | Extraction failure | Mark FAILED, retry | `sync_status` set to FAILED in `google_workspace_meta`; record entered into retry queue (RETRY_PENDING) |
 | Metadata mismatch | Re-sync metadata | Record re-enters pipeline at Metadata Sync stage; UPSERT re-applies correct metadata |
 | Vault write failure | Block explicit commit; STORED state unaffected for non-committed documents | Vault write path returns error to caller; `sync_status` not modified; `vault_doc_id` not written |
-| Rate limiting | Throttle execution | `wrappedFetch` rate limiter defers subsequent requests; scheduler job pacing adjusted |
+| Rate limiting | Throttle execution | Timeout-enforced HTTP client rate limiter defers subsequent requests; scheduler job pacing adjusted |
 | Session expiration | Re-authenticate and retry | `googleBridgeService` detects 401 response; triggers `runOAuthHandshake`; retries after successful re-auth |
 | Concurrent sync attempt | Rejected | Scheduler lock model returns `ServerResponse.error` for the second invocation |
 | `window.electronAPI` unavailable in renderer | IPC returns status 500 | `IpcService` normalizes to `ServerResponse.error` with status 500; `AppStateHandler` renders error slot |
@@ -462,10 +470,10 @@ Every L2 failure mode is mapped to its technical realization.
 
 | System | Integration Type | Trust Level | Notes |
 |---|---|---|---|
-| Google Drive REST API | REST via `wrappedFetch` (port 3111 OAuth) | Non-trusted external | Discovery and metadata retrieval |
-| Google Docs API | REST via `wrappedFetch` | Non-trusted external | Document content extraction |
-| Google Sheets API | REST via `wrappedFetch` | Non-trusted external | Sheet content extraction |
-| Google Slides API | REST via `wrappedFetch` | Non-trusted external | Slides text extraction (metadata/discovery only; no storage domain) |
+| Google Drive REST API | REST via timeout-enforced HTTP client (port 3111 OAuth) | Non-trusted external | Discovery and metadata retrieval |
+| Google Docs API | REST via timeout-enforced HTTP client | Non-trusted external | Document content extraction |
+| Google Sheets API | REST via timeout-enforced HTTP client | Non-trusted external | Sheet content extraction |
+| Google Slides API | REST via timeout-enforced HTTP client | Non-trusted external | Slides text extraction (metadata/discovery only; no storage domain) |
 
 No runtime-critical Prana operation depends on Google Workspace availability. The system remains functional without Google connectivity.
 
@@ -477,7 +485,7 @@ No runtime-critical Prana operation depends on Google Workspace availability. Th
 
 | Responsibility | Owner |
 |---|---|
-| Google API REST client (`wrappedFetch`) | Prana |
+| Google API REST client (timeout-enforced HTTP client) | Prana |
 | OAuth handshake and credential lifecycle | Prana |
 | `googleBridgeService` orchestration | Prana |
 | SQLite schema (`google_workspace_meta`) | Prana |
@@ -540,7 +548,7 @@ No runtime-critical Prana operation depends on Google Workspace availability. Th
 | §2 System Invariant 1 | Mirror Constraint — ingested Google doc MUST exist as SQLite projection | §4.1 pipeline ordering; §11 Validation (Mirror Constraint before STORED) |
 | §2 System Invariant 1 | Artifacts committed for retention MUST exist in Vault | §7 Workflow 5; §11 Validation (Vault write prerequisite) |
 | §2 System Invariant 2 | Read-First Safety — default read-only | §10 Permission Realization |
-| §2 System Invariant 3 | External Isolation — Google as non-trusted system | §4.1 (wrappedFetch); §13.3 External Systems |
+| §2 System Invariant 3 | External Isolation — Google as non-trusted system | §4.1 (timeout-enforced HTTP client); §13.3 External Systems |
 | §2 System Invariant 4 | Deterministic Sync Boundary — scheduler or explicit user action | §7 Workflows 1 and 2 |
 | §2 System Invariant 5 | SQLite as authoritative state tracker | §4.3 `google_workspace_meta` schema |
 | §2 System Invariant 6 | Session Containment — sandboxed per account | §4.1 Service Architecture; §10 Permission Realization |
@@ -555,6 +563,7 @@ No runtime-critical Prana operation depends on Google Workspace availability. Th
 | §5.6 Projection Registration | PROJECTED state; queryable by runtime services | §8.1; §7 Workflow 1 step 6 |
 | §6.1 Data Contract | `google_workspace_meta` schema | §4.3 SQLite Schema |
 | §7 Scheduler Integration | No overlapping cycles; lock model | §4.1 Service Architecture; §4.4 Startup; §11 |
+| §7 Scheduler Integration — sync queue | L2 §7 `sync_queue` concept maps to Storage Scheduler job lifecycle: each pending sync item is a `StorageJob` record in `storage_jobs` with the appropriate domain and operation. QUEUED/CLAIMED/RUNNING/COMPLETED/FAILED job states are the L3 realization of L2 sync queue states. | §4.1 Scheduler Contract; `storage-scheduler.md §8.1` |
 | §8 Storage Governance | Local domain, Document domain, Sheet domain, Vault governance | §4.3; §13.1 |
 | §9 Failure Modes | All six failure scenarios | §12 Error Realization (all six mapped) |
 | §10 Observability | Six observability counters tracked | §4.1 Observability Counters; §4.2 `google-bridge:status` channel |
@@ -562,7 +571,7 @@ No runtime-critical Prana operation depends on Google Workspace availability. Th
 | §12 Security Boundaries | Non-trusted external; no Vault exposure; no token in Vault; isolated credentials | §10 Permission Realization; §4.1 |
 | §14 Cross-Module Contracts | Scheduler prevents concurrent runs; Vault enforces mirror constraint | §13.1 Internal Prana Integrations |
 | §16 Viewer Integration | Markdown viewer and PDF viewer path; human verification | §13.1 Markdown Viewer, PDF Viewer |
-| §18 Security Enforcement | wrappedFetch; Mirror Constraint; IPC Validation | §4.1; §10; §11 |
+| §18 Security Enforcement | Timeout-enforced HTTP client; Mirror Constraint; IPC Validation | §4.1; §10; §11 |
 
 ---
 
@@ -572,9 +581,9 @@ No runtime-critical Prana operation depends on Google Workspace availability. Th
 |---|---|---|---|
 | OQ-1 | Renderer Surface Scope | L2 mandates observability (§10) but does not specify whether all six counter types are exposed in a single `SyncStatusSnapshot` payload or as separate IPC queries. The `google-bridge:status` channel is assumed to return a composite snapshot. Confirmation needed. | L2 §10 vs §4.2 channel design |
 | OQ-2 | Slides Storage Domain | L2 §5.3 explicitly states Slides have no SQLite storage domain and are out of scope for Mirror Constraint enforcement. If a Slides storage domain is defined in a future version, the pipeline's Extraction and Projection stages will need corresponding main-process branches and SQLite schema. No action required for v2.0.0. | L2 §5.3 scope note |
-| OQ-3 | RETRY_PENDING Re-queue Mechanism | L2 §4.2 (extended states) lists RETRY_PENDING but does not specify the retry scheduling mechanism (immediate retry, scheduler next cycle, or a dedicated retry queue). The current realization assumes scheduler-driven retry on the next cycle. Confirmation needed. | L2 §4.2, §9 |
+| OQ-3 | RETRY_PENDING Re-queue Mechanism | RESOLVED. RETRY_PENDING re-queue mechanism: the Storage Scheduler owns retry scheduling. When the domain adapter reports a failure for a Google Ecosystem sync job, the Scheduler transitions the job to RETRY_PENDING and schedules a new job after the configured retry interval (exponential backoff per the Scheduler's retry policy). The `sync_status` field in `google_workspace_meta` is updated to RETRY_PENDING by the adapter before reporting failure. The next scheduled job picks up RETRY_PENDING records at the METADATA_SYNCED stage. | L2 §4.2, §9 |
 | OQ-4 | Renderer Trigger Sync Permission | L2 does not specify whether the `google-bridge:trigger-sync` IPC surface is accessible to all renderer contexts or restricted. If role-based access or operator-only gating is required, the IPC handler validation contract in §4.2 must be extended. | L2 §4 Deterministic Sync Boundary |
 | OQ-5 | Conflict Resolution (Vault ↔ SQLite ↔ Google) | L2 §17 (Strategic Note) identifies conflict resolution rules as a mandatory next concern for the Sync Engine across Vault ↔ SQLite and SQLite ↔ Google. No resolution strategy is defined in L2 for v2.0.0. The STALE re-queue mechanism is the closest realized approximation. | L2 §17 |
-| OQ-6 | Adaptive Rate Limiting | L2 §13 (Known Gaps) identifies the absence of an adaptive throttling strategy as a medium-impact gap. The current realization uses `wrappedFetch`-level throttling. Whether a more sophisticated adaptive rate limiter is required within v2.0.0 is not specified. | L2 §13 |
+| OQ-6 | Adaptive Rate Limiting | L2 §13 (Known Gaps) identifies the absence of an adaptive throttling strategy as a medium-impact gap. The current realization uses timeout-enforced HTTP client throttling. Whether a more sophisticated adaptive rate limiter is required within v2.0.0 is not specified. | L2 §13 |
 | OQ-7 | Large File Handling | L2 §13 (Known Gaps) identifies no handling for large or complex documents as a medium-impact gap. No extraction size limit or chunking strategy is defined in L2. Out of scope for v2.0.0 unless confirmed otherwise. | L2 §13 |
 | OQ-8 | Push Channel Scope | The `google-bridge:sync-progress` push channel emits per-document progress. L2 does not specify the granularity (per stage transition vs per document completion). The current design assumes per-document status update at each stage transition. Confirmation needed. | L2 §10, §5 pipeline stages |

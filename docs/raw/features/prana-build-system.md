@@ -577,8 +577,16 @@ The Build System requires a configuration file (default: `prana-build.json` in t
 **Required fields:**
 
 ```text
-provider   — the distribution provider identifier (e.g. "google-drive")
+provider   — the distribution provider identifier
 ```
+
+Valid `provider` values are the identifiers of registered distribution providers. Currently supported:
+
+```text
+google-drive
+```
+
+An unrecognized `provider` value MUST halt with a configuration error before any build stage begins. The error MUST name the unrecognized value and list the supported identifiers. The Build System MUST NOT attempt to load or initialize an unrecognized provider.
 
 **Optional fields:** none defined in the core Build System.
 
