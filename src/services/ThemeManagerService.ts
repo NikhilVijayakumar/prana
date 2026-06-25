@@ -61,9 +61,8 @@ export class ThemeManagerService {
       
       this.themeConfig = JSON.parse(themeRaw);
       this.typographyConfig = JSON.parse(typographyRaw);
-    } catch (error) {
-      console.error('Failed to initialize ThemeManagerService', error);
-      // Construct safe defaults if files are missing
+    } catch {
+      // Construct safe defaults if branding files are missing
       this.constructDefaults();
     }
   }

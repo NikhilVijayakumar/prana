@@ -30,42 +30,108 @@ The audit validates that implementation correctly realizes the documented archit
 
 # Understanding Prana
 
-Prana is an **Electron runtime platform** for desktop applications. It is NOT a pattern library or UI component library.
+Prana is an **Electron runtime library** for desktop applications. It is NOT a UI component library or end-user application. It is a **library that consuming applications integrate into their Electron project**.
 
 It provides high-level capabilities:
 
 ```text
-services/                    ← Backend service layer (Node.js main process)
-features/                    ← Feature modules (auth, vault, sync, etc.)
-IPC bridge                   ← Electron IPC for main ↔ renderer communication
-Storage layer                ← SQLite, file system, and cache abstractions
-Security model               ← Encryption, key management, process isolation
-Context management           ← Session, workspace, and configuration state
+Main Process Services        ← Node.js services (bootstrap, storage, scheduler, sync, runtime, etc.)
+IPC Bridge                   ← Typed Electron IPC: main-process handlers + renderer-side repositories
+Renderer MVVM Primitives     ← model/, repo/, hooks/ layers for consuming apps to wire into their views
+Storage Layer                ← SQLite runtime store, migrations, WAL mode
+Lifecycle Management         ← Bootstrap, service registry, ordered teardown
 ```
 
-Prana source structure:
+Actual source structure:
 
 ```text
 src/
   main/
     features/
-      auth/                  ← Authentication and authorization
-      vault/                 ← Encrypted credential storage
-      sync/                  ← Data synchronization services
-      communication/         ← Messaging and notification services
-      agent/                 ← AI agent integration
-      orchestration/         ← Workflow and process orchestration
-      sandbox/               ← Isolated execution environments
-      storage/               ← Database and file system access
-      context/               ← Session and configuration context
-      registry/              ← Service and plugin registry
-      governance/            ← Policy and compliance enforcement
-      operations/            ← Operational metrics and logging
-      intelligence/          ← Analytics and insight generation
-      config/                ← Application configuration
+      bootstrap/             ← Bootstrap lifecycle, service registry
+      event-registry/        ← Runtime event bus
+      storage/               ← SQLite runtime service (sqliteRuntimeService)
+      sync-engine/           ← Sync dispatch and Mirror Constraint
+      storage-scheduler/     ← Job queue, concurrency, retry
+      runtime/               ← App registry, identity, configuration
+      google-bridge/         ← Google Workspace integration
+      viewers/               ← Viewer IPC handlers (markdown, pdf)
+        markdown/
+        pdf/
+    common/
+      storage/               ← Generic SqliteService utility
+    preload.ts               ← contextBridge: { invoke, send, receive }
+    index.ts                 ← Main-process public barrel export
+
+  renderer/
+    features/
+      runtime/               ← model/, repo/, hooks/ for runtime feature
+      google-bridge/         ← model/, repo/, hooks/ for google bridge feature
+      storage-scheduler/     ← model/, repo/, hooks/ for scheduler feature
+      viewers/
+        markdown/            ← model/, repo/, hooks/ for markdown viewer
+        pdf/                 ← model/, repo/, hooks/ for pdf viewer
 ```
 
-Prana is a **runtime platform**. It does not own: UI components, design systems, theming, or localization. Those are external concerns.
+Prana is a **library**. It does not own: UI components, view layers, design systems, theming, or localization. Those are consuming application concerns.
+
+---
+
+# Library Architecture Rules — CRITICAL AUDIT CONSTRAINTS
+
+These rules define what is correct behavior for a library and MUST NOT be flagged as deficiencies.
+
+## 1. No View Layer — Expected and Correct
+
+Prana delivers MVVM up to the **ViewModel (hooks) layer only**. The `view/components/` and `view/pages/` subdirectories are **consuming application concerns**, not library concerns.
+
+```text
+Library delivers:    model/   ← types and state interfaces
+                     repo/    ← IpcService-based data access
+                     hooks/   ← useDataState-based ViewModels
+
+Application owns:    view/components/   ← NOT in this library
+                     view/pages/        ← NOT in this library
+```
+
+**NEVER flag the absence of `view/`, `view/components/`, or `view/pages/` directories as a finding.** It is architecturally correct for these to be absent from the library source.
+
+## 2. Bootstrap Provides Mechanism — Application Provides Domain Service Implementations
+
+Bootstrap is a lifecycle **mechanism**. It:
+- Owns infrastructure service instantiation: `configuration`, `events`, `storage`
+- Provides the ordered lifecycle (INIT → OPERATIONAL) and service registry
+- Validates that all required services are registered before OPERATIONAL
+- Enforces timeout and failure semantics
+
+Domain service implementations (StorageScheduler, SyncEngine, Identity, ApplicationRegistry, GoogleBridge, etc.) are **plugged in by the consuming application** through the Bootstrap lifecycle. The library provides these service implementations as independent modules; the application wires them into Bootstrap.
+
+**Do NOT flag unregistered domain services as a Bootstrap deficiency** unless the Bootstrap code itself fails to provide the registration mechanism or lifecycle validation. The question to audit is: does Bootstrap correctly enforce that required services are present before OPERATIONAL — not whether Bootstrap hard-wires specific domain service implementations.
+
+## 3. AppState — Library Defines the Contract, Application Handles the Rendering
+
+The library is responsible for the full AppState lifecycle within each feature's hook. This IS auditable:
+
+```text
+Library responsibility (AUDIT THESE):
+  - model/*.state.ts defines the AppState<T> data type for the feature
+  - hooks return AppState<T> from useDataState
+  - All documented feature states map to correct data shapes in AppState<T>
+  - INIT / LOADING / COMPLETED / error transitions are correctly driven by execute()
+  - Hook exposes setAppState for UI-driven state updates (e.g., page changes, zoom)
+```
+
+The consuming application receives `AppState<T>` from hooks and decides what to render per state. This is NOT auditable in library source:
+
+```text
+Application responsibility (DO NOT AUDIT):
+  - AppStateHandler render priority / slot order
+  - AppStateProvider wiring at renderer root
+  - Which view/component renders for each state
+```
+
+**DO audit: AppState<T> type correctness, hook state lifecycle, documented state completeness.**  
+**DO NOT audit: AppStateHandler render order, AppStateProvider wiring.**
 
 ---
 
@@ -158,27 +224,31 @@ Create complete implementation inventory.
 ## Discover
 
 ```text
-Hooks
-Components
-Repositories
-State definitions
+Main-process services and IPC handlers
+Renderer hooks (ViewModels)
+Renderer repositories
+State/model type definitions
 Utilities
 Type definitions
 Tests
-Public API exports
+Public API exports (src/main/index.ts)
 ```
+
+Note: **No view components or pages are expected in library source.** The library delivers the `model/`, `repo/`, and `hooks/` layers only. Absence of `view/` is correct.
 
 ## Output
 
-| Category       | Files | Exports |
-|----------------|-------|---------|
-| Hooks          | X     | X       |
-| Components     | X     | X       |
-| Repositories   | X     | X       |
-| State types    | X     | X       |
-| Utilities      | X     | X       |
-| Tests          | X     | —       |
-| Public exports | —     | X       |
+| Category                        | Files | Exports |
+|---------------------------------|-------|---------|
+| Main services                   | X     | X       |
+| IPC handlers                    | X     | X       |
+| Renderer hooks                  | X     | X       |
+| Renderer repositories           | X     | X       |
+| AppState types (`*.state.ts`)   | X     | X       |
+| Domain types (`*.types.ts`)     | X     | X       |
+| Utilities                       | X     | X       |
+| Tests                           | X     | —       |
+| Public exports (`index.ts`)     | —     | X       |
 
 ---
 
@@ -198,6 +268,16 @@ Reference: `docs/raw/external-context/astra.md`
 * State explicitly managed through context/storage layers, not in-memory globals
 * No global mutable singletons in feature modules
 * Idempotent operation design preferred
+
+### MVVM Layer Boundary (Library)
+
+For renderer features, validate:
+* Hooks (`hooks/`) use `useDataState` and call only their own `repo/` — no cross-feature repo imports
+* Repositories (`repo/`) use `IpcService` exclusively — no direct `window.electronAPI` calls
+* Model (`model/`) contains only types and state interfaces — no logic
+* No `view/` layer exists or is expected — the library terminates at hooks
+
+**Do NOT flag missing view layers. Do NOT check AppStateHandler render order. Do NOT check AppStateProvider wiring.**
 
 ### Dependency Direction
 
@@ -240,6 +320,15 @@ Validate implementation against feature specifications.
 
 Reference: `docs/raw/features/**`
 
+## Bootstrap Feature — Special Audit Rules
+
+Bootstrap is a **lifecycle mechanism library**. Apply these rules:
+
+* Bootstrap **directly instantiates** infrastructure services: `configuration`, `events`, `storage`. These are library-owned.
+* Domain service implementations (`storageScheduler`, `identity`, `appRegistry`, `syncEngine`, `googleBridge`, etc.) are **plugged in by the consuming application**. Bootstrap provides the ordered registration mechanism and validates required services are present before OPERATIONAL. It does NOT hard-wire domain service implementations.
+* Audit for: does Bootstrap correctly enforce lifecycle transitions? Does it validate required services are registered before OPERATIONAL? Does it enforce timeouts and failure semantics?
+* Do NOT audit for: whether Bootstrap itself creates every domain service. The consuming application registers domain services.
+
 ## For every documented feature, validate:
 
 ### Responsibilities
@@ -253,10 +342,6 @@ Are all documented workflows realized?
 ### States
 
 Are all documented states handled?
-
-### Rendering Priority
-
-For `AppStateHandler`: does the fixed render priority match the documented order?
 
 ### Validation Rules
 
@@ -302,7 +387,7 @@ Does the implementation sequence match the documented workflow design?
 
 ### Integration Design
 
-Do the integration points (hook ↔ repo, component ↔ hook, context ↔ component) match design?
+Do the integration points (hook ↔ repo) match design? Note: `component ↔ hook` and `context ↔ component` integration is consuming application responsibility — do NOT audit for these in library source.
 
 ### Error Design
 
@@ -312,9 +397,19 @@ Does error handling and normalization match the technical error design?
 
 Do the TypeScript types, generics, and interfaces match the technical design?
 
-### Context / Slot Design
+### AppState Contract (Library) / Slot Design (Application)
 
-Does the `AppStateProvider` + slot props design match the technical design for rendering delegation?
+**Audit the library side:**
+- Does each feature define an `AppState<T>` data type in `model/*.state.ts`?
+- Does the hook expose `AppState<T>` covering all documented feature states?
+- Are all documented state data fields present in the type (e.g., required fields for LOADING vs COMPLETED)?
+- Does the hook correctly transition through INIT → LOADING → COMPLETED via `execute()`?
+- Does `isError` correctly surface on COMPLETED when the IPC call fails?
+
+**Do NOT audit the application side:**
+- `AppStateProvider` wiring — application concern
+- `AppStateHandler` slot order / render priority — application concern
+- Which component renders per state — application concern
 
 Finding Category: `IMPL-DESIGN-{nnn}`
 
@@ -372,7 +467,7 @@ Do exports match the documented API surface?
 
 ### Barrel Export Accuracy
 
-Does `src/lib.ts` correctly expose all documented exports and only those exports?
+Does `src/main/index.ts` correctly expose all documented public exports and only those exports? This is the main-process barrel for consuming applications.
 
 ### Public Contract Compliance
 
@@ -456,7 +551,7 @@ Any circular import chains?
 
 ### Layer Violations
 
-Components importing from repo directly? Hooks importing from components?
+Hooks importing from other hooks' repos directly? Renderer importing from main-process modules? Main-process service importing Astra renderer patterns (`useDataState`, `AppStateHandler`)? Note: no view components exist in library source — layer checks apply to the `hooks/` → `repo/` → `model/` dependency chain only.
 
 ### Architecture Bypasses
 
@@ -734,11 +829,11 @@ Followed immediately by the Documents Audited table:
 
 | Document | Layer | Purpose |
 |----------|-------|---------|
-| `src/main/` | Source | Main process entry and service orchestration |
-| `src/main/features/` | Source | Feature modules (auth, vault, sync, etc.) |
-| `src/main/services/` | Source | Backend services |
-| `src/renderer/` | Source | Renderer process UI |
-| `src/shared/` | Source | Shared types and utilities |
+| `src/main/index.ts` | Source | Main-process barrel export — public library API |
+| `src/main/preload.ts` | Source | contextBridge preload (`window.electronAPI`) |
+| `src/main/features/` | Source | Main-process feature services and IPC handlers |
+| `src/main/common/` | Source | Shared main-process utilities |
+| `src/renderer/features/` | Source | Renderer model, repo, hooks (no view layer — library) |
 | `docs/raw/external-context/astra.md` | Architecture | External architecture context |
 | `docs/raw/features/**` | Feature | System behavior |
 | `docs/raw/feature-technical/**` | Feature-Technical | Implementation design |

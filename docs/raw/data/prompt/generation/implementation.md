@@ -228,6 +228,88 @@ Use `StateCode.IDLE` (not `HttpStatusCode.IDLE`) as the initial `status` field v
 
 ---
 
+# Feature State Extension Rule
+
+Astra's `AppState<T>` is generic — the `data` field carries type `T`. For features that need renderer-side state beyond a raw data payload (pagination, selection, derived fields, UI control state), define a **Feature State type** as `T` instead of using a plain DTO.
+
+## Feature State vs DTO
+
+| Type | File | Purpose |
+|------|------|---------|
+| DTO / domain type | `model/{feature}.types.ts` | IPC payload shape; shared with Main Process response contract |
+| Feature State | `model/{feature}.state.ts` | Renderer-side state type; extends or composes DTOs; never sent over IPC |
+
+## Feature State Definition
+
+```typescript
+// model/pdfViewer.state.ts
+import { PdfDocument } from './pdfViewer.types';
+
+export interface PdfViewerState {
+  document: PdfDocument;
+  currentPage: number;
+  totalPages: number;
+  zoom: number;
+}
+```
+
+Rules:
+- Feature State lives in `model/{feature}.state.ts` (separate from `{feature}.types.ts`)
+- Feature State may compose or extend DTO types from `{feature}.types.ts`
+- Feature State is Renderer-only — never used as an IPC payload or Main Process return type
+- Feature State fields are set during `execute()` by mapping the IPC response, or updated later via `setAppState()`
+
+## ViewModel Hook with Feature State
+
+```typescript
+// hooks/usePdfViewer.ts
+import { useDataState } from 'astra';
+import { PdfViewerState } from '../model/pdfViewer.state';
+import { pdfViewerIpc } from '../repo/pdfViewerIpc';
+
+export const usePdfViewer = () => {
+  const [appState, execute, setAppState] = useDataState<PdfViewerState>();
+
+  const load = (documentId: string) =>
+    execute(async () => {
+      const response = await pdfViewerIpc.fetch({ documentId });
+      return {
+        document: response.data,
+        currentPage: 1,
+        totalPages: response.data.pageCount,
+        zoom: 1.0,
+      };
+    });
+
+  const setPage = (page: number) =>
+    setAppState((prev) => ({
+      ...prev,
+      data: { ...prev.data!, currentPage: page },
+    }));
+
+  return { appState, load, setPage };
+};
+```
+
+Rules:
+- `execute()` maps the IPC `ServerResponse<DTO>` into the full `FeatureState` shape
+- `setAppState()` is the only mechanism for post-load state mutations (page change, zoom, selection, etc.)
+- Never call `setAppState()` to set loading or error state — let `execute()` manage those transitions
+- If no custom state beyond data is needed, use the DTO directly as `T` — do not create a `.state.ts` file
+
+## When to Use Feature State
+
+Use a Feature State type when:
+- The feature has UI-controlled state (current page, zoom level, selected item, expanded rows)
+- The loaded data must be enriched with derived fields before rendering
+- Multiple sub-states must be tracked alongside the loaded data
+
+Use a plain DTO as `T` when:
+- The loaded data is rendered as-is with no additional renderer-side state
+- The only state transitions are INIT → LOADING → COMPLETED (no post-load mutations)
+
+---
+
 # Process Boundary Rule
 
 Prana is an Electron application. Every implementation artifact belongs to exactly one process context.
@@ -676,9 +758,10 @@ Determine required implementation artifacts per the feature-technical module lay
 
 | Artifact | Layer | Responsibility |
 |----------|-------|----------------|
-| `model/<feature>.types.ts` | model | TypeScript types and DTOs only |
+| `model/<feature>.types.ts` | model | DTOs and domain types; IPC payload shapes |
+| `model/<feature>.state.ts` | model | Feature State type — renderer-side state extending DTOs (only if post-load state needed) |
 | `repo/<feature>Ipc.ts` | repo | IpcService-based data access |
-| `hooks/use<Feature>.ts` | hooks | ViewModel — useDataState wrapper |
+| `hooks/use<Feature>.ts` | hooks | ViewModel — useDataState wrapper; maps IPC response to FeatureState |
 | `view/components/<Name>.tsx` | view/components | Presentational leaf components (props only) |
 | `view/pages/<Feature>Page.tsx` | view/pages | Stateful container — useDataState hook + AppStateHandler |
 
@@ -705,6 +788,8 @@ For Renderer states:
 | Success | `state: COMPLETED, isError: false` |
 | Error | `state: COMPLETED, isError: true` |
 | Empty | `state: COMPLETED, isError: false, data: []` |
+
+If the feature defines renderer-side state beyond a raw data payload, `data` carries a `FeatureState` type (from `model/{feature}.state.ts`). Document which `FeatureState` fields are set on initial load (via `execute()`) and which are mutated post-load (via `setAppState()`).
 
 For Main Process states:
 
@@ -896,10 +981,15 @@ src/main/features/{feature}/
 
 Generate TypeScript interfaces and types from feature-technical §7 Data Contracts.
 
+Artifacts:
+- `model/{feature}.types.ts` — DTOs and domain types; IPC payload shapes; shared with Main Process contracts
+- `model/{feature}.state.ts` — Feature State type (only if the feature has post-load renderer-side state); composes DTOs; never sent over IPC
+
 Rules:
 - Types only — no logic
 - No imports from `'astra'` in model (model is pure TS)
 - Export all types needed by repo, hooks, and view layers
+- Only create `{feature}.state.ts` if the feature requires renderer-side state beyond the raw data payload (see Feature State Extension Rule)
 
 ## Sub-Phase C — Main Process Service
 
@@ -940,8 +1030,10 @@ Generate `use{Feature}.ts` wrapping `useDataState`.
 Rules:
 - Import `useDataState` from `'astra'`
 - Import repository from `../repo/{feature}Ipc`
-- Use `execute()` to drive INIT→LOADING→COMPLETED
-- Use `setAppState()` only for optimistic updates
+- If feature has renderer-side state: use `useDataState<FeatureState>()` where `FeatureState` is from `model/{feature}.state.ts`; map IPC response into `FeatureState` inside `execute()`
+- If no renderer-side state beyond data: use `useDataState<DtoType>()` directly
+- Use `execute()` to drive INIT→LOADING→COMPLETED; map IPC `ServerResponse<DTO>` into `FeatureState` (or DTO) as return value
+- Use `setAppState()` for post-load mutations (page change, selection, derived state) — never for loading or error transitions
 - Return `{ appState, ...actions }` — no JSX, no UI imports
 - Unsubscribe from push events on cleanup (return from useEffect or pass unsubscribe up)
 

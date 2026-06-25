@@ -1,5 +1,2 @@
-export * from './sqliteCacheService';
-export * from './sqliteConfigStoreService';
-export * from './sqliteCryptoUtil';
-export * from './sqliteDataProvider';
-export * from './sqliteService';
+export { SqliteService, createSqliteService } from './sqliteService';
+export type { SqliteServiceOptions } from './sqliteService';

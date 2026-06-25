@@ -111,7 +111,7 @@ Prana consumes **Astra** (`github:NikhilVijayakumar/astra`) as a runtime depende
 |---|---|
 | `IpcService` | All Renderer→Main IPC calls; instantiated once per feature in `repo/` layer |
 | `useDataState<T>()` | All async ViewModel state in `hooks/` layer; returns `[appState, execute, setAppState]` |
-| `AppStateHandler` | Conditional rendering in `view/pages/`; priority: LOADING → isError → emptyCondition → children → SuccessComponent → Empty |
+| `AppStateHandler` | Conditional rendering in `view/pages/`; priority: LOADING → `isError \|\| status===0` → emptyCondition → children → SuccessComponent → Empty |
 | `AppStateProvider` | Wired once at renderer root; features only use `AppStateHandler` |
 | `ServerResponse<T>` | All IPC response shapes; Main process handlers always use `ServerResponse.success()` / `ServerResponse.error()` factories |
 | `AppState<T>` | `{ state: StateType, isError, isSuccess, status, statusMessage, data }` |
@@ -228,7 +228,7 @@ Manages the complete lifecycle of applications on the Prana platform.
 
 **Responsibilities:** application installation, version updates, launching, shared runtime configuration, storage infrastructure, identity management, application lifecycle state machine.
 
-**Application lifecycle states:** `NOT_INSTALLED → INSTALLING → INSTALLED → RUNNING → STOPPED`. Failure states: `FAILED` (unrecoverable error), `CORRUPTED` (package hash mismatch — requires reinstall). Crash recovery policy: configurable via application manifest (`crashRecovery: { maxCrashes, windowSeconds }`).
+**Application lifecycle states:** `NOT_INSTALLED → INSTALLING → INSTALLED → RUNNING → STOPPED`. Update path: `INSTALLED → UPDATING → INSTALLED`. Removal path: `INSTALLED → UNINSTALLING → NOT_INSTALLED`. Failure states: `FAILED` (unrecoverable error), `CORRUPTED` (package hash mismatch — requires reinstall). Crash recovery policy: configurable via application manifest (`crashRecovery: { maxCrashes, windowSeconds }`).
 
 **Not responsible for:** application business logic, application domain models, application startup flow, application authentication, network request logic for applications.
 
